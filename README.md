@@ -1,8 +1,8 @@
-Stochastic integration of Parker's transport equation
+Solving Parker's transport equation using stochastic method
 ================
 
 This is a code to solve Parker's cosmic ray transport equation using the
-stochastic integration method.
+stochastic method.
 
 
 ##License
@@ -18,9 +18,3 @@ program are covered by the GPL.
 This README, the `.gitignore` file, the contents of `doc.md`, and the
 program stub in `src/stochastic-2dmhd.f90` are available under the terms of the
 [CC0 license](https://creativecommons.org/choose/zero/).
-
-
-##Acknowledgements
-
-The project structure is based on
-[Fortran Project](https://github.com/cmacmackin/fortran_template).
