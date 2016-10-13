@@ -7,3 +7,4 @@ data_vdist_1d/
 data_vdist_2d/
 img/
 lib/
+*.exec
