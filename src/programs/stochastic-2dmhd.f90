@@ -7,6 +7,7 @@ program stochastic
     use mpi_module
     use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
         broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data
+    use particle_module, only: init_particles, free_particles
     implicit none
     character(len=256) :: dir_mhd_data
     real :: start, finish
@@ -27,9 +28,11 @@ program stochastic
     endif
     call broadcast_mhd_config
     call init_mhd_data
+    call init_particles
     if (myid == master) then
         call read_mhd_data(fname)
     endif
+    call free_particles
     call free_mhd_data
 
     call cpu_time(finish)
