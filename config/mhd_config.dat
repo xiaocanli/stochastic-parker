@@ -4,9 +4,16 @@ tframe_start = 1
 tframe_end = 185
 
 ! Grid sizes and dimensions
-xmin = 0.0
-xmax = 2.0
-ymin = 0.0
-ymax = 2.0
-nx   = 512
-ny   = 512
+xmin  = 0.0
+xmax  = 2.0
+ymin  = 0.0
+ymax  = 2.0
+nx    = 512
+ny    = 512
+
+! Number of output variables
+nvar  = 9
+
+! MPI topology for the MHD simulation
+topology_x = 8
+topology_y = 8
