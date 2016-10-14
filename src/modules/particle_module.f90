@@ -7,8 +7,6 @@ module particle_module
     private
     public init_particles, free_particles
 
-    integer, parameter :: nptl_max = 2**26  ! 67108864
-
     type particle_type
         real(dp) :: x, y, p         ! Position and momentum
         real(dp) :: weight, t, dt   ! Particle weight, time and time step
@@ -23,8 +21,9 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Initialize particle data
     !---------------------------------------------------------------------------
-    subroutine init_particles
+    subroutine init_particles(nptl_max)
         implicit none
+        integer, intent(in) :: nptl_max
         allocate(ptl(nptl_max))
         ptl%x = 0.0
         ptl%y = 0.0

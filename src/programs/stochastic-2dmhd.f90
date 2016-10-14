@@ -10,8 +10,9 @@ program stochastic
     use particle_module, only: init_particles, free_particles
     implicit none
     character(len=256) :: dir_mhd_data
-    real :: start, finish
     character(len=256) :: fname
+    integer :: nptl_max
+    real(dp) :: start, finish
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, myid, ierr)
@@ -28,7 +29,7 @@ program stochastic
     endif
     call broadcast_mhd_config
     call init_mhd_data
-    call init_particles
+    call init_particles(nptl_max)
     if (myid == master) then
         call read_mhd_data(fname)
     endif
@@ -60,16 +61,23 @@ program stochastic
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['haha'])
+            examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
         if (error/=0) stop
+        call cli%add(switch='--nptl_max', switch_ab='-nm', &
+            help='Maximum number of particles', required=.false., &
+            act='store', def='1E7', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-nm', val=nptl_max, error=error)
         if (error/=0) stop
 
         if (myid == 0) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
+            print '(A,I0)', 'Maximum number of particles: ', nptl_max
         endif
     end subroutine get_cmd_args
 end program stochastic
