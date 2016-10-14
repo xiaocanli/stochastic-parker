@@ -6,7 +6,7 @@ program stochastic
     use constants, only: fp, dp
     use mpi_module
     use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
-                        init_mhd_data, free_mhd_data, read_mhd_data
+        broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data
     implicit none
     character(len=256) :: dir_mhd_data
     real :: start, finish
@@ -25,6 +25,7 @@ program stochastic
         ! call read_mhd_config
         call read_mhd_config_from_outfile(fname)
     endif
+    call broadcast_mhd_config
     call init_mhd_data
     if (myid == master) then
         call read_mhd_data(fname)

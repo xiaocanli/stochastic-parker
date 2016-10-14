@@ -7,7 +7,7 @@ module mhd_data_sli
     private
     public mhd_config
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
-           free_mhd_data, read_mhd_data
+           free_mhd_data, read_mhd_data, broadcast_mhd_config
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -122,6 +122,32 @@ module mhd_data_sli
     end subroutine read_mhd_config_from_outfile
 
     !---------------------------------------------------------------------------
+    !< Broadcast MHD configuration
+    !---------------------------------------------------------------------------
+    subroutine broadcast_mhd_config
+        use mpi_module
+        implicit none
+        integer :: mhd_config_type, oldtypes(0:1), blockcounts(0:1)
+        integer :: offsets(0:1), extent
+        ! Setup description of the 8 MPI_DOUBLE fields.
+        offsets(0) = 0
+        oldtypes(0) = MPI_DOUBLE_PRECISION
+        blockcounts(0) = 8
+        ! Setup description of the 7 MPI_INTEGER fields.
+        call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
+        offsets(1) = 8 * extent
+        oldtypes(1) = MPI_INTEGER
+        blockcounts(1) = 7
+        ! Define structured type and commit it. 
+        call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
+            mhd_config_type, ierr)
+        call MPI_TYPE_COMMIT(mhd_config_type, ierr)
+        call MPI_BCAST(mhd_config, 1, mhd_config_type, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_TYPE_FREE(mhd_config_type, ierr)
+    end subroutine broadcast_mhd_config
+
+    !---------------------------------------------------------------------------
     !< Initialize MHD data arrays. Note that we do not read Az.
     !---------------------------------------------------------------------------
     subroutine init_mhd_data
@@ -151,6 +177,7 @@ module mhd_data_sli
             bz = 0.0
         endif
         allocate(mhd_data_single_core(nxs, nys, nvar))
+        mhd_data_single_core = 0.0
     end subroutine init_mhd_data
 
     !---------------------------------------------------------------------------
@@ -159,10 +186,11 @@ module mhd_data_sli
     subroutine free_mhd_data
         implicit none
         if (mhd_config%nvar .eq. 7) then
-            deallocate(rho, pres, vx, vy, bx, by, mhd_data_single_core)
+            deallocate(rho, pres, vx, vy, bx, by)
         else
-            deallocate(rho, pres, vx, vy, vz, bx, by, bz, mhd_data_single_core)
+            deallocate(rho, pres, vx, vy, vz, bx, by, bz)
         endif
+        deallocate(mhd_data_single_core)
     end subroutine free_mhd_data
 
     !---------------------------------------------------------------------------
