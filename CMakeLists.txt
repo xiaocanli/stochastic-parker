@@ -22,8 +22,8 @@ endif()
 link_directories(${HDF5_Fortran_LIBRARIES})
 MESSAGE(${HDF5_Fortran_LIBRARIES})
 
-include_directories(${CMAKE_SOURCE_DIR}/src/third_party/FLAP/static/mod)
-link_directories(${CMAKE_SOURCE_DIR}/src/third_party/FLAP/static)
+include_directories($ENV{FLAP_DIR}/static/mod)
+link_directories($ENV{FLAP_DIR}/static)
 
 # make sure that the default is a RELEASE
 if (NOT CMAKE_BUILD_TYPE)
