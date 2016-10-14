@@ -132,22 +132,23 @@ module mhd_data_sli
         nvar = mhd_config%nvar
         nxs = mhd_config%nxs
         nys = mhd_config%nys
-        if (mhd_config%nvar .eq. 7) then  !< rho, p, vx, vy, bx, by, Az
-            allocate(rho(nx, ny))
-            allocate(pres(nx, ny))
-            allocate(vx(nx, ny))
-            allocate(vy(nx, ny))
-            allocate(bx(nx, ny))
-            allocate(by(nx, ny))
-        else                              !< rho, p, vx, vy, vz, bx, by, bz, Az
-            allocate(rho(nx, ny))
-            allocate(pres(nx, ny))
-            allocate(vx(nx, ny))
-            allocate(vy(nx, ny))
+        allocate(rho(nx, ny))
+        allocate(pres(nx, ny))
+        allocate(vx(nx, ny))
+        allocate(vy(nx, ny))
+        allocate(bx(nx, ny))
+        allocate(by(nx, ny))
+        rho = 0.0
+        pres = 0.0
+        vx = 0.0
+        vy = 0.0
+        bx = 0.0
+        by = 0.0
+        if (mhd_config%nvar .gt. 7) then !< rho, p, vx, vy, vz, bx, by, bz, Az
             allocate(vz(nx, ny))
-            allocate(bx(nx, ny))
-            allocate(by(nx, ny))
             allocate(bz(nx, ny))
+            vz = 0.0
+            bz = 0.0
         endif
         allocate(mhd_data_single_core(nxs, nys, nvar))
     end subroutine init_mhd_data
