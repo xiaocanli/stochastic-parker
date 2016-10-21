@@ -17,3 +17,6 @@ nvar  = 9
 ! MPI topology for the MHD simulation
 topology_x = 8
 topology_y = 8
+
+! Time interval for MHD simulation output
+dt_out = 0.025

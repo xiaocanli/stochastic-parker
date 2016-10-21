@@ -36,10 +36,21 @@ module particle_module
     end subroutine init_particles
 
     !---------------------------------------------------------------------------
-    !< free particle data
+    !< Free particle data
     !---------------------------------------------------------------------------
     subroutine free_particles
         implicit none
         deallocate(ptl)
     end subroutine free_particles
+
+    !---------------------------------------------------------------------------
+    !< Move particles using the MHD simulation data as background fields
+    !< Args:
+    !<  diffusion_type: 1 for constant kappa, 2 for kappa ~ p, 3 for kappa ~ p/B
+    !---------------------------------------------------------------------------
+    subroutine particle_mover(diffusion_type)
+        use mhd_data_sli, only: mhd_config
+        implicit none
+        integer, intent(in) :: diffusion_type
+    end subroutine particle_mover
 end module particle_module

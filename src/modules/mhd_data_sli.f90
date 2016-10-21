@@ -11,6 +11,7 @@ module mhd_data_sli
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
+        real(dp) :: dt_out      ! Time interval for MHD data output
         integer :: nx, ny       ! Grid dimensions
         integer :: nxs, nys     ! Grid dimensions for a single MPI process
         integer :: nvar         ! Number of output variables
@@ -59,6 +60,7 @@ module mhd_data_sli
         mhd_config%topox = int(temp)
         temp = get_variable(fh, 'topology_y', '=')
         mhd_config%topoy = int(temp)
+        mhd_config%dt_out = get_variable(fh, 'dt_out', '=')
 
         mhd_config%nxs = mhd_config%nx / mhd_config%topox
         mhd_config%nys = mhd_config%ny / mhd_config%topoy
@@ -85,16 +87,22 @@ module mhd_data_sli
             " * ", mhd_config%topoy
         write(*, "(A,I0,A,I0)") " Grid dimensions at each MPI rank: ", &
             mhd_config%nxs, ",", mhd_config%nys
+        write(*, "(A,F7.3)") " Time interval for MHD data output: ", &
+            mhd_config%dt_out
         print *, "---------------------------------------------------"
     end subroutine echo_mhd_config_info
 
     !---------------------------------------------------------------------------
     !< Read MHD simulation configuration from the simulation output file
+    !< Args:
+    !<  filename: the name of one output file
+    !<  filename_next_step: the name of the output file of the next time step
     !---------------------------------------------------------------------------
-    subroutine read_mhd_config_from_outfile(filename)
+    subroutine read_mhd_config_from_outfile(filename, filename_next_step)
         implicit none
-        character(*), intent(in) :: filename
+        character(*), intent(in) :: filename, filename_next_step
         integer, dimension(4) :: n4
+        real(dp) :: t1
         integer :: fh
         fh = 20
         open(unit=fh, file=filename, access='stream', status='unknown', &
@@ -118,6 +126,13 @@ module mhd_data_sli
         mhd_config%dy = mhd_config%ly / mhd_config%ny
         close(fh)
 
+        t1 = fheader%time
+        open(unit=fh, file=filename_next_step, access='stream', &
+             status='unknown', form='unformatted', action='read')
+        read(fh) fheader
+        close(fh)
+        mhd_config%dt_out = fheader%time - t1
+
         call echo_mhd_config_info
     end subroutine read_mhd_config_from_outfile
 
@@ -132,10 +147,10 @@ module mhd_data_sli
         ! Setup description of the 8 MPI_DOUBLE fields.
         offsets(0) = 0
         oldtypes(0) = MPI_DOUBLE_PRECISION
-        blockcounts(0) = 8
+        blockcounts(0) = 9
         ! Setup description of the 7 MPI_INTEGER fields.
         call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
-        offsets(1) = 8 * extent
+        offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER
         blockcounts(1) = 7
         ! Define structured type and commit it. 

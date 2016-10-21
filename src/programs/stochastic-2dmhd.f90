@@ -10,7 +10,7 @@ program stochastic
     use particle_module, only: init_particles, free_particles
     implicit none
     character(len=256) :: dir_mhd_data
-    character(len=256) :: fname
+    character(len=256) :: fname, fname1
     integer :: nptl_max
     real(dp) :: start, finish
 
@@ -23,9 +23,10 @@ program stochastic
     call get_cmd_args
 
     fname = trim(dir_mhd_data)//'bin_out0000'
+    fname1 = trim(dir_mhd_data)//'bin_out0001'
     if (myid == master) then
         ! call read_mhd_config
-        call read_mhd_config_from_outfile(fname)
+        call read_mhd_config_from_outfile(fname, fname1)
     endif
     call broadcast_mhd_config
     call init_mhd_data
