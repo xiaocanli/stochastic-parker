@@ -15,8 +15,8 @@ program stochastic
     real(dp) :: start, finish
 
     call MPI_INIT(ierr)
-    call MPI_COMM_RANK(MPI_COMM_WORLD, myid, ierr)
-    call MPI_COMM_SIZE(MPI_COMM_WORLD, numprocs, ierr)
+    call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
+    call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_size, ierr)
 
     call cpu_time(start)
 
@@ -24,21 +24,21 @@ program stochastic
 
     fname = trim(dir_mhd_data)//'bin_out0000'
     fname1 = trim(dir_mhd_data)//'bin_out0001'
-    if (myid == master) then
+    if (mpi_rank == master) then
         ! call read_mhd_config
         call read_mhd_config_from_outfile(fname, fname1)
     endif
     call broadcast_mhd_config
     call init_mhd_data
     call init_particles(nptl_max)
-    if (myid == master) then
+    if (mpi_rank == master) then
         call read_mhd_data(fname)
     endif
     call free_particles
     call free_mhd_data
 
     call cpu_time(finish)
-    if (myid == master) then
+    if (mpi_rank == master) then
         print '("Time = ",f9.4," seconds.")',finish-start
     endif
 
@@ -76,7 +76,7 @@ program stochastic
         call cli%get(switch='-nm', val=nptl_max, error=error)
         if (error/=0) stop
 
-        if (myid == 0) then
+        if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,I0)', 'Maximum number of particles: ', nptl_max
         endif

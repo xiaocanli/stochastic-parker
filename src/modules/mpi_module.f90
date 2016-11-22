@@ -4,7 +4,7 @@
 module mpi_module
     implicit none
     include "mpif.h"
-    integer :: myid, numprocs, ierr
+    integer :: mpi_rank, mpi_size, ierr
     integer, parameter :: master = 0
 
     integer :: ierror, ierror2, err_length
