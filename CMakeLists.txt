@@ -25,6 +25,9 @@ MESSAGE(${HDF5_Fortran_LIBRARIES})
 include_directories($ENV{FLAP_DIR}/static/mod)
 link_directories($ENV{FLAP_DIR}/static)
 
+# use mt_stream to generate random numbers
+include_directories($ENV{MT_STREAM})
+
 # make sure that the default is a RELEASE
 if (NOT CMAKE_BUILD_TYPE)
   set (CMAKE_BUILD_TYPE RELEASE CACHE STRING
