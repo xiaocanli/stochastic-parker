@@ -36,7 +36,8 @@ program stochastic
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(100, 0.001_dp)
     if (mpi_rank == master) then
-        call read_mhd_data(fname)
+        call read_mhd_data(fname, var_flag=0)
+        call read_mhd_data(fname, var_flag=1)
     endif
     call free_particles
     call free_mhd_data

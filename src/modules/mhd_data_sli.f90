@@ -27,7 +27,10 @@ module mhd_data_sli
     type(mhd_configuration) :: mhd_config
     type(file_header) :: fheader
 
-    real(fp), allocatable, dimension(:, :) :: rho, pres, vx, vy, vz, bx, by, bz
+    !< Two sets of data for two different time frames
+    real(fp), allocatable, dimension(:, :) :: rho, pres, rho1, pres1
+    real(fp), allocatable, dimension(:, :) :: vx, vy, vz, vx1, vy1, vz1
+    real(fp), allocatable, dimension(:, :) :: bx, by, bz, bx1, by1, bz1
     real(fp), allocatable, dimension(:, :, :) :: mhd_data_single_core
 
     contains
@@ -179,17 +182,35 @@ module mhd_data_sli
         allocate(vy(nx, ny))
         allocate(bx(nx, ny))
         allocate(by(nx, ny))
+        allocate(rho1(nx, ny))
+        allocate(pres1(nx, ny))
+        allocate(vx1(nx, ny))
+        allocate(vy1(nx, ny))
+        allocate(bx1(nx, ny))
+        allocate(by1(nx, ny))
+
         rho = 0.0
         pres = 0.0
         vx = 0.0
         vy = 0.0
         bx = 0.0
         by = 0.0
+        rho1 = 0.0
+        pres1 = 0.0
+        vx1 = 0.0
+        vy1 = 0.0
+        bx1 = 0.0
+        by1 = 0.0
+
         if (mhd_config%nvar .gt. 7) then !< rho, p, vx, vy, vz, bx, by, bz, Az
             allocate(vz(nx, ny))
             allocate(bz(nx, ny))
+            allocate(vz1(nx, ny))
+            allocate(bz1(nx, ny))
             vz = 0.0
             bz = 0.0
+            vz1 = 0.0
+            bz1 = 0.0
         endif
         allocate(mhd_data_single_core(nxs, nys, nvar))
         mhd_data_single_core = 0.0
@@ -202,18 +223,25 @@ module mhd_data_sli
         implicit none
         if (mhd_config%nvar .eq. 7) then
             deallocate(rho, pres, vx, vy, bx, by)
+            deallocate(rho1, pres1, vx1, vy1, bx1, by1)
         else
             deallocate(rho, pres, vx, vy, vz, bx, by, bz)
+            deallocate(rho1, pres1, vx1, vy1, vz1, bx1, by1, bz1)
         endif
         deallocate(mhd_data_single_core)
     end subroutine free_mhd_data
 
     !---------------------------------------------------------------------------
     !< Read MHD data arrays from a file
+    !< Args:
+    !<  filename: file name to get the data
+    !<  var_flag: indicating which set of variables to save the data. 0 for
+    !<            rho, pres etc. and other numbers for rho1, pres1 etc.
     !---------------------------------------------------------------------------
-    subroutine read_mhd_data(filename)
+    subroutine read_mhd_data(filename, var_flag)
         implicit none
         character(*), intent(in) :: filename
+        integer, intent(in) :: var_flag
         integer, dimension(4) :: n4
         integer :: fh, rank, ix, iy, nx1, ny1, ncpus
         fh = 30
@@ -228,20 +256,41 @@ module mhd_data_sli
             nx1 = n4(3)
             ny1 = n4(4)
             read(fh) mhd_data_single_core
-            rho(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 1)
-            pres(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 2)
-            if (mhd_config%nvar .eq. 7) then
-                vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+            if (var_flag == 0) then
+                rho(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 1)
+                pres(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 2)
             else
-                vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                vz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
-                by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
-                bz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                rho1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 1)
+                pres1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 2)
+            endif
+            if (mhd_config%nvar .eq. 7) then
+                if (var_flag == 0) then
+                    vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                else
+                    vx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    vy1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    bx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    by1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                endif
+            else
+                if (var_flag == 0) then
+                    vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    vz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
+                    bz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                else
+                    vx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    vy1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    vz1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    bx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    by1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
+                    bz1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                endif
             endif
         enddo
         close(fh)
