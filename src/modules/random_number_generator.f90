@@ -10,7 +10,7 @@ module random_number_generator
     use mt_stream
     implicit none
     private
-    public mts, mts1, init_prng, delete_prng
+    public mts, mts1, init_prng, delete_prng, unif_01, two_normals
     type(mt_state) :: mts, mts1
     integer :: iseed = 123456789
     integer :: iseeda(4) = (/ Z'123', Z'234', Z'345', Z'456' /)
@@ -43,7 +43,7 @@ module random_number_generator
     end subroutine delete_prng
 
     !---------------------------------------------------------------------------
-    ! Uniform number in [0, 1] with double precision
+    !< Uniform number in [0, 1] with double precision
     !---------------------------------------------------------------------------
     real(dp) function unif_01
         implicit none

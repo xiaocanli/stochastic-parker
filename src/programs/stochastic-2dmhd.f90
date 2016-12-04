@@ -7,7 +7,9 @@ program stochastic
     use mpi_module
     use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
         broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data
-    use particle_module, only: init_particles, free_particles
+    use particle_module, only: init_particles, free_particles, &
+        inject_particles_spatial_uniform
+    use random_number_generator, only: init_prng, delete_prng
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname, fname1
@@ -21,6 +23,7 @@ program stochastic
     call cpu_time(start)
 
     call get_cmd_args
+    call init_prng
 
     fname = trim(dir_mhd_data)//'bin_out0000'
     fname1 = trim(dir_mhd_data)//'bin_out0001'
@@ -31,6 +34,7 @@ program stochastic
     call broadcast_mhd_config
     call init_mhd_data
     call init_particles(nptl_max)
+    call inject_particles_spatial_uniform(100, 0.001_dp)
     if (mpi_rank == master) then
         call read_mhd_data(fname)
     endif
@@ -41,6 +45,8 @@ program stochastic
     if (mpi_rank == master) then
         print '("Time = ",f9.4," seconds.")',finish-start
     endif
+
+    call delete_prng
 
     call MPI_FINALIZE(ierr)
 
