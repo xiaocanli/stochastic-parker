@@ -5,10 +5,11 @@ module mhd_data_sli
     use constants, only: fp, dp
     implicit none
     private
-    public mhd_config
+    public mhd_config, fields, gradf
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
            free_mhd_data, read_mhd_data, broadcast_mhd_config, &
-           init_fields_gradients, free_fields_gradients, calc_fields_gradients
+           init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
+           interp_fields_fp
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -25,8 +26,21 @@ module mhd_data_sli
         real(fp), dimension(4) :: bbox
     end type file_header
 
+    type mhd_fields
+        real(dp) :: rho, pres, vx, vy, vz, bx, by, bz, btot
+    end type mhd_fields
+
+    type fields_gradients
+        real(dp) :: dvx_dx, dvy_dy
+        real(dp) :: dbx_dx, dbx_dy
+        real(dp) :: dby_dx, dby_dy
+        real(dp) :: dbtot_dx, dbtot_dy
+    end type fields_gradients
+
     type(mhd_configuration) :: mhd_config
     type(file_header) :: fheader
+    type(mhd_fields) :: fields, fields1
+    type(fields_gradients) :: gradf, gradf1
 
     !< Two sets of data for two different time frames
     real(fp), allocatable, dimension(:, :) :: rho, pres, rho1, pres1
@@ -454,4 +468,83 @@ module mhd_data_sli
             dbtot1_dy(ny, :) = (3.0*btot1(:, ny) - 4.0*btot1(:, ny1) + btot1(:, ny2)) * idyh
         endif
     end subroutine calc_fields_gradients
+
+    !---------------------------------------------------------------------------
+    !< Interpolate the MHD fields and their gradients on one position
+    !< Args:
+    !<  ix, iy: the lower-left corner of the grid.
+    !<  rx, ry: the offset to the lower-left corner of the grid where the
+    !<          the position is. They are normalized to the grid sizes.
+    !<  rt: the offset to the earlier time point of the MHD data. It is
+    !<      normalized to the time interval of the MHD data output.
+    !---------------------------------------------------------------------------
+    subroutine interp_fields_fp(ix, iy, rx, ry, rt)
+        implicit none
+        real(dp), intent(in) :: rx, ry, rt
+        integer, intent(in) :: ix, iy
+        real(dp) :: rx1, ry1, rt1, w(2,2)
+        integer :: ix1, iy1
+        rx1 = 1.0_dp - rx
+        ry1 = 1.0_dp - ry
+        rt1 = 1.0_dp - rt
+        ix1 = ix + 1
+        iy1 = iy + 1
+        w(1, 1) = rx1 * ry1
+        w(2, 1) = rx * ry1
+        w(1, 2) = rx1 * ry
+        w(2, 2) = rx * ry
+
+        fields%rho  = sum(rho(ix:ix1, iy:iy1) * w)
+        fields%pres = sum(pres(ix:ix1, iy:iy1) * w)
+        fields%vx   = sum(vx(ix:ix1, iy:iy1) * w)
+        fields%vy   = sum(vy(ix:ix1, iy:iy1) * w)
+        fields%bx   = sum(bx(ix:ix1, iy:iy1) * w)
+        fields%by   = sum(by(ix:ix1, iy:iy1) * w)
+        fields%btot = sum(btot(ix:ix1, iy:iy1) * w)
+
+        fields1%rho  = sum(rho1(ix:ix1, iy:iy1) * w)
+        fields1%pres = sum(pres1(ix:ix1, iy:iy1) * w)
+        fields1%vx   = sum(vx1(ix:ix1, iy:iy1) * w)
+        fields1%vy   = sum(vy1(ix:ix1, iy:iy1) * w)
+        fields1%bx   = sum(bx1(ix:ix1, iy:iy1) * w)
+        fields1%by   = sum(by1(ix:ix1, iy:iy1) * w)
+        fields1%btot = sum(btot1(ix:ix1, iy:iy1) * w)
+
+        !< Time interpolation
+        fields%rho  = fields1%rho * rt1  + fields%rho * rt
+        fields%pres = fields1%pres * rt1 + fields%pres * rt
+        fields%vx   = fields1%vx * rt1 + fields%vx * rt
+        fields%vy   = fields1%vy * rt1 + fields%vy * rt
+        fields%bx   = fields1%bx * rt1 + fields%bx * rt
+        fields%by   = fields1%by * rt1 + fields%by * rt
+        fields%btot = fields1%btot * rt1 + fields%btot * rt
+
+        gradf%dvx_dx   = sum(dvx_dx(ix:ix1, iy:iy1) * w)
+        gradf%dvy_dy   = sum(dvy_dy(ix:ix1, iy:iy1) * w)
+        gradf%dbx_dx   = sum(dbx_dx(ix:ix1, iy:iy1) * w)
+        gradf%dbx_dy   = sum(dbx_dy(ix:ix1, iy:iy1) * w)
+        gradf%dby_dx   = sum(dby_dx(ix:ix1, iy:iy1) * w)
+        gradf%dby_dy   = sum(dby_dy(ix:ix1, iy:iy1) * w)
+        gradf%dbtot_dx = sum(dbtot_dx(ix:ix1, iy:iy1) * w)
+        gradf%dbtot_dy = sum(dbtot_dy(ix:ix1, iy:iy1) * w)
+
+        gradf1%dvx_dx   = sum(dvx1_dx(ix:ix1, iy:iy1) * w)
+        gradf1%dvy_dy   = sum(dvy1_dy(ix:ix1, iy:iy1) * w)
+        gradf1%dbx_dx   = sum(dbx1_dx(ix:ix1, iy:iy1) * w)
+        gradf1%dbx_dy   = sum(dbx1_dy(ix:ix1, iy:iy1) * w)
+        gradf1%dby_dx   = sum(dby1_dx(ix:ix1, iy:iy1) * w)
+        gradf1%dby_dy   = sum(dby1_dy(ix:ix1, iy:iy1) * w)
+        gradf1%dbtot_dx = sum(dbtot1_dx(ix:ix1, iy:iy1) * w)
+        gradf1%dbtot_dy = sum(dbtot1_dy(ix:ix1, iy:iy1) * w)
+
+        !< Time interpolation
+        gradf%dvx_dx   = gradf1%dvx_dx * rt1 + gradf%dvx_dx * rt
+        gradf%dvy_dy   = gradf1%dvy_dy * rt1 + gradf%dvy_dy * rt
+        gradf%dbx_dx   = gradf1%dbx_dx * rt1 + gradf%dbx_dx * rt
+        gradf%dbx_dy   = gradf1%dbx_dy * rt1 + gradf%dbx_dy * rt
+        gradf%dby_dx   = gradf1%dby_dx * rt1 + gradf%dby_dx * rt
+        gradf%dby_dy   = gradf1%dby_dy * rt1 + gradf%dby_dy * rt
+        gradf%dbtot_dx = gradf1%dbtot_dx * rt1 + gradf%dbtot_dx * rt
+        gradf%dbtot_dy = gradf1%dbtot_dy * rt1 + gradf%dbtot_dy * rt
+    end subroutine interp_fields_fp
 end module mhd_data_sli
