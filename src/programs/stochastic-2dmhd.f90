@@ -6,7 +6,8 @@ program stochastic
     use constants, only: fp, dp
     use mpi_module
     use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
-        broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data
+        broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data, &
+        init_fields_gradients, free_fields_gradients, calc_fields_gradients
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform
     use random_number_generator, only: init_prng, delete_prng
@@ -33,13 +34,18 @@ program stochastic
     endif
     call broadcast_mhd_config
     call init_mhd_data
+    call init_fields_gradients
+
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(100, 0.001_dp)
-    if (mpi_rank == master) then
-        call read_mhd_data(fname, var_flag=0)
-        call read_mhd_data(fname, var_flag=1)
-    endif
+
+    call read_mhd_data(fname, var_flag=0)
+    call read_mhd_data(fname1, var_flag=1)
+    call calc_fields_gradients(var_flag=0)
+    call calc_fields_gradients(var_flag=1)
+
     call free_particles
+    call free_fields_gradients
     call free_mhd_data
 
     call cpu_time(finish)

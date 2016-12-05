@@ -7,7 +7,8 @@ module mhd_data_sli
     private
     public mhd_config
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
-           free_mhd_data, read_mhd_data, broadcast_mhd_config
+           free_mhd_data, read_mhd_data, broadcast_mhd_config, &
+           init_fields_gradients, free_fields_gradients, calc_fields_gradients
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -30,8 +31,16 @@ module mhd_data_sli
     !< Two sets of data for two different time frames
     real(fp), allocatable, dimension(:, :) :: rho, pres, rho1, pres1
     real(fp), allocatable, dimension(:, :) :: vx, vy, vz, vx1, vy1, vz1
-    real(fp), allocatable, dimension(:, :) :: bx, by, bz, bx1, by1, bz1
+    real(fp), allocatable, dimension(:, :) :: bx, by, bz, btot
+    real(fp), allocatable, dimension(:, :) :: bx1, by1, bz1, btot1
     real(fp), allocatable, dimension(:, :, :) :: mhd_data_single_core
+
+    !< Gradients of the fields
+    real(fp), allocatable, dimension(:, :) :: dvx_dx, dvy_dy, dvx1_dx, dvy1_dy
+    real(fp), allocatable, dimension(:, :) :: dbx_dx, dbx_dy, dbx1_dx, dbx1_dy
+    real(fp), allocatable, dimension(:, :) :: dby_dx, dby_dy, dby1_dx, dby1_dy
+    real(fp), allocatable, dimension(:, :) :: dbtot_dx, dbtot_dy
+    real(fp), allocatable, dimension(:, :) :: dbtot1_dx, dbtot1_dy
 
     contains
 
@@ -182,12 +191,14 @@ module mhd_data_sli
         allocate(vy(nx, ny))
         allocate(bx(nx, ny))
         allocate(by(nx, ny))
+        allocate(btot(nx, ny))
         allocate(rho1(nx, ny))
         allocate(pres1(nx, ny))
         allocate(vx1(nx, ny))
         allocate(vy1(nx, ny))
         allocate(bx1(nx, ny))
         allocate(by1(nx, ny))
+        allocate(btot1(nx, ny))
 
         rho = 0.0
         pres = 0.0
@@ -195,12 +206,14 @@ module mhd_data_sli
         vy = 0.0
         bx = 0.0
         by = 0.0
+        btot = 0.0
         rho1 = 0.0
         pres1 = 0.0
         vx1 = 0.0
         vy1 = 0.0
         bx1 = 0.0
         by1 = 0.0
+        btot1 = 0.0
 
         if (mhd_config%nvar .gt. 7) then !< rho, p, vx, vy, vz, bx, by, bz, Az
             allocate(vz(nx, ny))
@@ -217,19 +230,72 @@ module mhd_data_sli
     end subroutine init_mhd_data
 
     !---------------------------------------------------------------------------
+    !< Initialize the gradients of the MHD data arrays.
+    !---------------------------------------------------------------------------
+    subroutine init_fields_gradients
+        implicit none
+        integer :: nx, ny, nvar, nxs, nys
+        nx = mhd_config%nx
+        ny = mhd_config%ny
+        allocate(dvx_dx(nx, ny))
+        allocate(dvy_dy(nx, ny))
+        allocate(dvx1_dx(nx, ny))
+        allocate(dvy1_dy(nx, ny))
+        allocate(dbx_dx(nx, ny))
+        allocate(dbx_dy(nx, ny))
+        allocate(dby_dx(nx, ny))
+        allocate(dby_dy(nx, ny))
+        allocate(dbtot_dx(nx, ny))
+        allocate(dbtot_dy(nx, ny))
+        allocate(dbx1_dx(nx, ny))
+        allocate(dbx1_dy(nx, ny))
+        allocate(dby1_dx(nx, ny))
+        allocate(dby1_dy(nx, ny))
+        allocate(dbtot1_dx(nx, ny))
+        allocate(dbtot1_dy(nx, ny))
+        dvx_dx = 0.0
+        dvy_dy = 0.0
+        dvx1_dx = 0.0
+        dvy1_dy = 0.0
+        dbx_dx = 0.0
+        dbx_dy = 0.0
+        dby_dx = 0.0
+        dby_dy = 0.0
+        dbtot_dx = 0.0
+        dbtot_dy = 0.0
+        dbx1_dx = 0.0
+        dbx1_dy = 0.0
+        dby1_dx = 0.0
+        dby1_dy = 0.0
+        dbtot1_dx = 0.0
+        dbtot1_dy = 0.0
+    end subroutine init_fields_gradients
+
+    !---------------------------------------------------------------------------
     !< Free MHD data arrays
     !---------------------------------------------------------------------------
     subroutine free_mhd_data
         implicit none
         if (mhd_config%nvar .eq. 7) then
-            deallocate(rho, pres, vx, vy, bx, by)
-            deallocate(rho1, pres1, vx1, vy1, bx1, by1)
+            deallocate(rho, pres, vx, vy, bx, by, btot)
+            deallocate(rho1, pres1, vx1, vy1, bx1, by1, btot1)
         else
-            deallocate(rho, pres, vx, vy, vz, bx, by, bz)
-            deallocate(rho1, pres1, vx1, vy1, vz1, bx1, by1, bz1)
+            deallocate(rho, pres, vx, vy, vz, bx, by, bz, btot)
+            deallocate(rho1, pres1, vx1, vy1, vz1, bx1, by1, bz1, btot1)
         endif
         deallocate(mhd_data_single_core)
     end subroutine free_mhd_data
+
+    !---------------------------------------------------------------------------
+    !< Free the gradients of the MHD data arrays.
+    !---------------------------------------------------------------------------
+    subroutine free_fields_gradients
+        implicit none
+        deallocate(dvx_dx, dvy_dy, dvx1_dx, dvy1_dy)
+        deallocate(dbx_dx, dbx_dy, dbx1_dx, dbx1_dy)
+        deallocate(dby_dx, dby_dy, dby1_dx, dby1_dy)
+        deallocate(dbtot_dx, dbtot_dy, dbtot1_dx, dbtot1_dy)
+    end subroutine free_fields_gradients
 
     !---------------------------------------------------------------------------
     !< Read MHD data arrays from a file
@@ -293,6 +359,99 @@ module mhd_data_sli
                 endif
             endif
         enddo
+
+        !< Calculate the magnitude of the magnetic field
+        if (mhd_config%nvar .eq. 7) then
+            if (var_flag == 0) then
+                btot = sqrt(bx**2 + by**2)
+            else
+                btot1 = sqrt(bx1**2 + by1**2)
+            endif
+        else
+            if (var_flag == 0) then
+                btot = sqrt(bx**2 + by**2 + bz**2)
+            else
+                btot1 = sqrt(bx1**2 + by1**2 + bz1**2)
+            endif
+        endif
         close(fh)
     end subroutine read_mhd_data
+
+    !---------------------------------------------------------------------------
+    !< Calculate the gradients of the MHD data arrays.
+    !< Args:
+    !<  var_flag: indicating which set of variables.
+    !<            0 for dvx_dx etc. and other numbers for dvx1_dx etc.
+    !---------------------------------------------------------------------------
+    subroutine calc_fields_gradients(var_flag)
+        implicit none
+        integer, intent(in) :: var_flag
+        real(dp) :: idxh, idyh
+        integer :: nx, ny, nx1, nx2, ny1, ny2
+        idxh = 0.5_dp / mhd_config%dx
+        idyh = 0.5_dp / mhd_config%dy
+        nx = mhd_config%nx
+        ny = mhd_config%ny
+        nx1 = nx - 1
+        nx2 = nx - 2
+        ny1 = ny - 1
+        ny2 = ny - 2
+        if (var_flag == 0) then
+            dvx_dx(2:nx1, :) = (vx(3:nx, :) - vx(1:nx2, :)) * idxh
+            dvx_dx(1, :) = (-3.0*vx(1, :) + 4.0*vx(2, :) - vx(3, :)) * idxh
+            dvx_dx(nx, :) = (3.0*vx(nx, :) - 4.0*vx(nx1, :) + vx(nx2, :)) * idxh
+            dvy_dy(2:ny1, :) = (vy(:, 3:ny)-vy(:, 1:ny2)) * idyh
+            dvy_dy(1, :) = (-3.0*vy(:, 1) + 4.0*vy(:, 2) - vy(:, 3)) * idyh
+            dvy_dy(ny, :) = (3.0*vy(:, ny) - 4.0*vy(:, ny1) + vy(:, ny2)) * idyh
+
+            dbx_dx(2:nx1, :) = (bx(3:nx, :) - bx(1:nx2, :)) * idxh
+            dbx_dx(1, :) = (-3.0*bx(1, :) + 4.0*bx(2, :) - bx(3, :)) * idxh
+            dbx_dx(nx, :) = (3.0*bx(nx, :) - 4.0*bx(nx1, :) + bx(nx2, :)) * idxh
+            dbx_dy(2:ny1, :) = (bx(:, 3:ny)-bx(:, 1:ny2)) * idyh
+            dbx_dy(1, :) = (-3.0*bx(:, 1) + 4.0*bx(:, 2) - bx(:, 3)) * idyh
+            dbx_dy(ny, :) = (3.0*bx(:, ny) - 4.0*bx(:, ny1) + bx(:, ny2)) * idyh
+
+            dby_dx(2:nx1, :) = (by(3:nx, :) - by(1:nx2, :)) * idxh
+            dby_dx(1, :) = (-3.0*by(1, :) + 4.0*by(2, :) - by(3, :)) * idxh
+            dby_dx(nx, :) = (3.0*by(nx, :) - 4.0*by(nx1, :) + by(nx2, :)) * idxh
+            dby_dy(2:ny1, :) = (by(:, 3:ny)-by(:, 1:ny2)) * idyh
+            dby_dy(1, :) = (-3.0*by(:, 1) + 4.0*by(:, 2) - by(:, 3)) * idyh
+            dby_dy(ny, :) = (3.0*by(:, ny) - 4.0*by(:, ny1) + by(:, ny2)) * idyh
+
+            dbtot_dx(2:nx1, :) = (btot(3:nx, :) - btot(1:nx2, :)) * idxh
+            dbtot_dx(1, :) = (-3.0*btot(1, :) + 4.0*btot(2, :) - btot(3, :)) * idxh
+            dbtot_dx(nx, :) = (3.0*btot(nx, :) - 4.0*btot(nx1, :) + btot(nx2, :)) * idxh
+            dbtot_dy(2:ny1, :) = (btot(:, 3:ny)-btot(:, 1:ny2)) * idyh
+            dbtot_dy(1, :) = (-3.0*btot(:, 1) + 4.0*btot(:, 2) - btot(:, 3)) * idyh
+            dbtot_dy(ny, :) = (3.0*btot(:, ny) - 4.0*btot(:, ny1) + btot(:, ny2)) * idyh
+        else
+            dvx1_dx(2:nx1, :) = (vx1(3:nx, :) - vx1(1:nx2, :)) * idxh
+            dvx1_dx(1, :) = (-3.0*vx1(1, :) + 4.0*vx1(2, :) - vx1(3, :)) * idxh
+            dvx1_dx(nx, :) = (3.0*vx1(nx, :) - 4.0*vx1(nx1, :) + vx1(nx2, :)) * idxh
+            dvy1_dy(2:ny1, :) = (vy1(:, 3:ny)-vy1(:, 1:ny2)) * idyh
+            dvy1_dy(1, :) = (-3.0*vy1(:, 1) + 4.0*vy1(:, 2) - vy1(:, 3)) * idyh
+            dvy1_dy(ny, :) = (3.0*vy1(:, ny) - 4.0*vy1(:, ny1) + vy1(:, ny2)) * idyh
+
+            dbx1_dx(2:nx1, :) = (bx1(3:nx, :) - bx1(1:nx2, :)) * idxh
+            dbx1_dx(1, :) = (-3.0*bx1(1, :) + 4.0*bx1(2, :) - bx1(3, :)) * idxh
+            dbx1_dx(nx, :) = (3.0*bx1(nx, :) - 4.0*bx1(nx1, :) + bx1(nx2, :)) * idxh
+            dbx1_dy(2:ny1, :) = (bx1(:, 3:ny)-bx1(:, 1:ny2)) * idyh
+            dbx1_dy(1, :) = (-3.0*bx1(:, 1) + 4.0*bx1(:, 2) - bx1(:, 3)) * idyh
+            dbx1_dy(ny, :) = (3.0*bx1(:, ny) - 4.0*bx1(:, ny1) + bx1(:, ny2)) * idyh
+
+            dby1_dx(2:nx1, :) = (by1(3:nx, :) - by1(1:nx2, :)) * idxh
+            dby1_dx(1, :) = (-3.0*by1(1, :) + 4.0*by1(2, :) - by1(3, :)) * idxh
+            dby1_dx(nx, :) = (3.0*by1(nx, :) - 4.0*by1(nx1, :) + by1(nx2, :)) * idxh
+            dby1_dy(2:ny1, :) = (by1(:, 3:ny)-by1(:, 1:ny2)) * idyh
+            dby1_dy(1, :) = (-3.0*by1(:, 1) + 4.0*by1(:, 2) - by1(:, 3)) * idyh
+            dby1_dy(ny, :) = (3.0*by1(:, ny) - 4.0*by1(:, ny1) + by1(:, ny2)) * idyh
+
+            dbtot1_dx(2:nx1, :) = (btot1(3:nx, :) - btot1(1:nx2, :)) * idxh
+            dbtot1_dx(1, :) = (-3.0*btot1(1, :) + 4.0*btot1(2, :) - btot1(3, :)) * idxh
+            dbtot1_dx(nx, :) = (3.0*btot1(nx, :) - 4.0*btot1(nx1, :) + btot1(nx2, :)) * idxh
+            dbtot1_dy(2:ny1, :) = (btot1(:, 3:ny)-btot1(:, 1:ny2)) * idyh
+            dbtot1_dy(1, :) = (-3.0*btot1(:, 1) + 4.0*btot1(:, 2) - btot1(:, 3)) * idyh
+            dbtot1_dy(ny, :) = (3.0*btot1(:, ny) - 4.0*btot1(:, ny1) + btot1(:, ny2)) * idyh
+        endif
+    end subroutine calc_fields_gradients
 end module mhd_data_sli
