@@ -9,7 +9,7 @@ module mhd_data_sli
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
            free_mhd_data, read_mhd_data, broadcast_mhd_config, &
            init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-           interp_fields_fp
+           interp_fields
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -478,7 +478,7 @@ module mhd_data_sli
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !---------------------------------------------------------------------------
-    subroutine interp_fields_fp(ix, iy, rx, ry, rt)
+    subroutine interp_fields(ix, iy, rx, ry, rt)
         implicit none
         real(dp), intent(in) :: rx, ry, rt
         integer, intent(in) :: ix, iy
@@ -546,5 +546,5 @@ module mhd_data_sli
         gradf%dby_dy   = gradf1%dby_dy * rt1 + gradf%dby_dy * rt
         gradf%dbtot_dx = gradf1%dbtot_dx * rt1 + gradf%dbtot_dx * rt
         gradf%dbtot_dy = gradf1%dbtot_dy * rt1 + gradf%dbtot_dy * rt
-    end subroutine interp_fields_fp
+    end subroutine interp_fields
 end module mhd_data_sli
