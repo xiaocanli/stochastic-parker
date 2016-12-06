@@ -9,7 +9,7 @@ module mhd_data_sli
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
            free_mhd_data, read_mhd_data, broadcast_mhd_config, &
            init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-           interp_fields
+           interp_fields, copy_fields
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -547,4 +547,31 @@ module mhd_data_sli
         gradf%dbtot_dx = gradf1%dbtot_dx * rt1 + gradf%dbtot_dx * rt
         gradf%dbtot_dy = gradf1%dbtot_dy * rt1 + gradf%dbtot_dy * rt
     end subroutine interp_fields
+
+    !---------------------------------------------------------------------------
+    ! Copy fields for usage in the next time interval
+    !---------------------------------------------------------------------------
+    subroutine copy_fields
+        implicit none
+        rho1 = rho
+        pres1 = pres
+        vx1 = vx
+        vy1 = vy
+        bx1 = bx
+        by1 = by
+        btot1 = btot
+        if (mhd_config%nvar .gt. 7) then
+            vz1 = vz
+            bz1 = bz
+        endif
+
+        dvx1_dx = dvx_dx
+        dvy1_dy = dvy_dy
+        dbx1_dx = dbx_dx
+        dby1_dx = dby_dx
+        dbx1_dy = dbx_dy
+        dby1_dy = dby_dy
+        dbtot1_dx = dbtot_dx
+        dbtot1_dy = dbtot_dy
+    end subroutine copy_fields
 end module mhd_data_sli

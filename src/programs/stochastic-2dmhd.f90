@@ -7,7 +7,8 @@ program stochastic
     use mpi_module
     use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
         broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data, &
-        init_fields_gradients, free_fields_gradients, calc_fields_gradients
+        init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
+        copy_fields
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, remove_particles, split_particle
@@ -49,6 +50,8 @@ program stochastic
     call particle_mover
     call remove_particles
     call split_particle
+
+    call copy_fields
 
     call free_particles
     call free_fields_gradients
