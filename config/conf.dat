@@ -1,0 +1,21 @@
+!*******************************************************************************
+!< Configuration file for the simulation
+!*******************************************************************************
+
+!< Initial magnetic field strength
+b0 = 1.0
+
+!< the standard deviation of the Gaussian distribution of momentum
+p0 = 12.3
+
+!< 1 for constant kappa, 2 for kappa ~ p, 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
+diffusion_type = 4
+
+!< The normalization for kappa parallel
+kpara0 = 1.44E-9
+
+!< The ratio of kpara and kperp
+kret = 0.1
+
+!< Minimum time step allowed
+dt_min = 1E-8

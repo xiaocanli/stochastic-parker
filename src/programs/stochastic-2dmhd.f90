@@ -9,7 +9,8 @@ program stochastic
         broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data, &
         init_fields_gradients, free_fields_gradients, calc_fields_gradients
     use particle_module, only: init_particles, free_particles, &
-        inject_particles_spatial_uniform
+        inject_particles_spatial_uniform, read_particle_params, &
+        particle_mover, remove_particles
     use random_number_generator, only: init_prng, delete_prng
     implicit none
     character(len=256) :: dir_mhd_data
@@ -35,6 +36,7 @@ program stochastic
     call broadcast_mhd_config
     call init_mhd_data
     call init_fields_gradients
+    call read_particle_params
 
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(100, 0.001_dp)
@@ -43,6 +45,9 @@ program stochastic
     call read_mhd_data(fname1, var_flag=1)
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
+
+    call particle_mover
+    call remove_particles
 
     call free_particles
     call free_fields_gradients
