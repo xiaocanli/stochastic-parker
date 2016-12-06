@@ -8,6 +8,9 @@ b0 = 1.0
 !< the standard deviation of the Gaussian distribution of momentum
 p0 = 12.3
 
+!< Maximum particle momentum
+pmax = 1.0E3
+
 !< 1 for constant kappa, 2 for kappa ~ p, 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
 diffusion_type = 4
 

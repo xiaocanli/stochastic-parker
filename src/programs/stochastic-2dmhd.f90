@@ -10,7 +10,7 @@ program stochastic
         init_fields_gradients, free_fields_gradients, calc_fields_gradients
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
-        particle_mover, remove_particles
+        particle_mover, remove_particles, split_particle
     use random_number_generator, only: init_prng, delete_prng
     implicit none
     character(len=256) :: dir_mhd_data
@@ -48,6 +48,7 @@ program stochastic
 
     call particle_mover
     call remove_particles
+    call split_particle
 
     call free_particles
     call free_fields_gradients

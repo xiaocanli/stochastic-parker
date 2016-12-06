@@ -6,7 +6,7 @@ module particle_module
     implicit none
     private
     public init_particles, free_particles, inject_particles_spatial_uniform, &
-        read_particle_params, particle_mover, remove_particles
+        read_particle_params, particle_mover, remove_particles, split_particle
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -20,6 +20,7 @@ module particle_module
 
     integer :: nptl_current         !< Number of particles currently in the box
     integer :: nptl_max             !< Maximum number of particles allowed
+    integer :: nptl_new             !< Number of particles from splitting
     real(dp) :: leak                !< Leaking particles considering weight
 
     real(dp) :: kpara0              !< Normalization for kappa parallel
@@ -28,7 +29,8 @@ module particle_module
                                     !< 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
     !< These two depends on the simulation normalizations
     real(dp) :: p0  !< the standard deviation of the Gaussian distribution of momentum
-    real(dp) :: b0  !< Initial magnetic field strength
+    real(dp) :: pmax  !< Maximum particle momentum
+    real(dp) :: b0    !< Initial magnetic field strength
     real(dp) :: kpara, kperp, dkxx_dx, dkyy_dy, dkxy_dx, dkxy_dy
     real(dp) :: skperp, skpara_perp
 
@@ -247,6 +249,7 @@ module particle_module
             fh = 10
             open(unit=fh, file='config/conf.dat', status='old')
             p0 = get_variable(fh, 'p0', '=')
+            pmax = get_variable(fh, 'pmax', '=')
             b0 = get_variable(fh, 'b0', '=')
             temp = get_variable(fh, 'diffusion_type', '=')
             diffusion_type = int(temp)
@@ -258,6 +261,7 @@ module particle_module
             print *, "---------------------------------------------------"
             write(*, "(A)") " Particle parameters including diffusion coefficients"
             write(*, "(A, E13.6E2)") " The standard deviation of momentum distribution is ", p0
+            write(*, "(A, E13.6E2)") " Maximum particle momentum", pmax
             write(*, "(A, E13.6E2)") " Initial magnetic field strength", b0
             if (diffusion_type == 1) then
                 write(*, "(A)") " kpara is a constant"
@@ -275,6 +279,7 @@ module particle_module
         endif
         call MPI_BCAST(diffusion_type, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(p0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pmax, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(b0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kpara0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kret, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
@@ -420,4 +425,32 @@ module particle_module
             endif
         enddo
     end subroutine remove_particles
+
+    !---------------------------------------------------------------------------
+    !< When a particle get to a certain energy, split it to two particles 
+    !< to increase statistics at high energy
+    !---------------------------------------------------------------------------
+    subroutine split_particle
+        implicit none
+        integer :: i, nptl
+        real(dp) :: ene_threshold
+        type(particle_type) :: ptl_new
+        nptl = nptl_current
+        do i = 1, nptl
+            ptl = ptls(i)
+            ene_threshold = (1+2.72**ptl%split_times)*p0
+            if (ptl%p > ene_threshold .and. ptl%p <= pmax) then
+                nptl_current = nptl_current + 1
+                if (nptl_current > nptl_max) then
+                    nptl_current = nptl_max
+                    return
+                endif
+                nptl_new = nptl_new + 1
+                ptl%weight = 0.5**(1.0 + ptl%split_times)
+                ptl%split_times = ptl%split_times + 1
+                ptls(nptl_current) = ptl
+                ptls(i) = ptl
+            endif
+        enddo
+    end subroutine split_particle
 end module particle_module
