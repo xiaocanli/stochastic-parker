@@ -26,10 +26,10 @@ module random_number_generator
         call new(mts)
     !    call init(mts,iseed)  ! init by scalar
         call init(mts,iseeda)  ! init by array
-        call print(mts)
+        if (mpi_rank == master) call print(mts)
 
         call create_stream(mts, mts1, mpi_rank)
-        call print(mts1)
+        if (mpi_rank == master) call print(mts1)
     end subroutine init_prng
 
     !---------------------------------------------------------------------------
