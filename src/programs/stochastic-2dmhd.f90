@@ -15,8 +15,8 @@ program stochastic
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname, fname1
-    integer :: nptl_max
-    real(dp) :: start, finish
+    integer :: nptl_max, nptl
+    real(dp) :: start, finish, dt
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -39,7 +39,7 @@ program stochastic
     call read_particle_params
 
     call init_particles(nptl_max)
-    call inject_particles_spatial_uniform(100, 0.001_dp)
+    call inject_particles_spatial_uniform(nptl, dt)
 
     call read_mhd_data(fname, var_flag=0)
     call read_mhd_data(fname1, var_flag=1)
@@ -81,7 +81,8 @@ program stochastic
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max'])
+            examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max '//&
+                        '-np nptl -dt dt'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -90,14 +91,28 @@ program stochastic
             help='Maximum number of particles', required=.false., &
             act='store', def='1E7', error=error)
         if (error/=0) stop
+        call cli%add(switch='--nptl', switch_ab='-np', &
+            help='Number of particles', required=.false., &
+            act='store', def='1E4', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--tinterval', switch_ab='-dt', &
+            help='Time interval to push particles', required=.false., &
+            act='store', def='1E-6', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-np', val=nptl, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-dt', val=dt, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,I0)', 'Maximum number of particles: ', nptl_max
+            print '(A,I0)', 'Initial number of particles: ', nptl
+            print '(A,E13.6E2)', 'Time interval to push particles', dt
         endif
     end subroutine get_cmd_args
 end program stochastic
