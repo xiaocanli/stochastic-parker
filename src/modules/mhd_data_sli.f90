@@ -78,8 +78,8 @@ module mhd_data_sli
         mhd_config%nx = int(temp)
         temp = get_variable(fh, 'ny', '=')
         mhd_config%ny = int(temp)
-        mhd_config%dx = mhd_config%lx / mhd_config%nx
-        mhd_config%dy = mhd_config%ly / mhd_config%ny
+        mhd_config%dx = mhd_config%lx / (mhd_config%nx - 1)
+        mhd_config%dy = mhd_config%ly / (mhd_config%ny - 1)
         temp = get_variable(fh, 'nvar', '=')
         mhd_config%nvar = int(temp)
         temp = get_variable(fh, 'topology_x', '=')
@@ -148,8 +148,8 @@ module mhd_data_sli
         mhd_config%ymax = fheader%bbox(4)
         mhd_config%lx = mhd_config%xmax - mhd_config%xmin
         mhd_config%ly = mhd_config%ymax - mhd_config%ymin
-        mhd_config%dx = mhd_config%lx / mhd_config%nx
-        mhd_config%dy = mhd_config%ly / mhd_config%ny
+        mhd_config%dx = mhd_config%lx / (mhd_config%nx - 1)
+        mhd_config%dy = mhd_config%ly / (mhd_config%ny - 1)
         close(fh)
 
         t1 = fheader%time
@@ -414,58 +414,58 @@ module mhd_data_sli
             dvx_dx(2:nx1, :) = (vx(3:nx, :) - vx(1:nx2, :)) * idxh
             dvx_dx(1, :) = (-3.0*vx(1, :) + 4.0*vx(2, :) - vx(3, :)) * idxh
             dvx_dx(nx, :) = (3.0*vx(nx, :) - 4.0*vx(nx1, :) + vx(nx2, :)) * idxh
-            dvy_dy(2:ny1, :) = (vy(:, 3:ny)-vy(:, 1:ny2)) * idyh
-            dvy_dy(1, :) = (-3.0*vy(:, 1) + 4.0*vy(:, 2) - vy(:, 3)) * idyh
-            dvy_dy(ny, :) = (3.0*vy(:, ny) - 4.0*vy(:, ny1) + vy(:, ny2)) * idyh
+            dvy_dy(:, 2:ny1) = (vy(:, 3:ny)-vy(:, 1:ny2)) * idyh
+            dvy_dy(:, 1) = (-3.0*vy(:, 1) + 4.0*vy(:, 2) - vy(:, 3)) * idyh
+            dvy_dy(:, ny) = (3.0*vy(:, ny) - 4.0*vy(:, ny1) + vy(:, ny2)) * idyh
 
             dbx_dx(2:nx1, :) = (bx(3:nx, :) - bx(1:nx2, :)) * idxh
             dbx_dx(1, :) = (-3.0*bx(1, :) + 4.0*bx(2, :) - bx(3, :)) * idxh
             dbx_dx(nx, :) = (3.0*bx(nx, :) - 4.0*bx(nx1, :) + bx(nx2, :)) * idxh
-            dbx_dy(2:ny1, :) = (bx(:, 3:ny)-bx(:, 1:ny2)) * idyh
-            dbx_dy(1, :) = (-3.0*bx(:, 1) + 4.0*bx(:, 2) - bx(:, 3)) * idyh
-            dbx_dy(ny, :) = (3.0*bx(:, ny) - 4.0*bx(:, ny1) + bx(:, ny2)) * idyh
+            dbx_dy(:, 2:ny1) = (bx(:, 3:ny)-bx(:, 1:ny2)) * idyh
+            dbx_dy(:, 1) = (-3.0*bx(:, 1) + 4.0*bx(:, 2) - bx(:, 3)) * idyh
+            dbx_dy(:, ny) = (3.0*bx(:, ny) - 4.0*bx(:, ny1) + bx(:, ny2)) * idyh
 
             dby_dx(2:nx1, :) = (by(3:nx, :) - by(1:nx2, :)) * idxh
             dby_dx(1, :) = (-3.0*by(1, :) + 4.0*by(2, :) - by(3, :)) * idxh
             dby_dx(nx, :) = (3.0*by(nx, :) - 4.0*by(nx1, :) + by(nx2, :)) * idxh
-            dby_dy(2:ny1, :) = (by(:, 3:ny)-by(:, 1:ny2)) * idyh
-            dby_dy(1, :) = (-3.0*by(:, 1) + 4.0*by(:, 2) - by(:, 3)) * idyh
-            dby_dy(ny, :) = (3.0*by(:, ny) - 4.0*by(:, ny1) + by(:, ny2)) * idyh
+            dby_dy(:, 2:ny1) = (by(:, 3:ny)-by(:, 1:ny2)) * idyh
+            dby_dy(:, 1) = (-3.0*by(:, 1) + 4.0*by(:, 2) - by(:, 3)) * idyh
+            dby_dy(:, ny) = (3.0*by(:, ny) - 4.0*by(:, ny1) + by(:, ny2)) * idyh
 
             dbtot_dx(2:nx1, :) = (btot(3:nx, :) - btot(1:nx2, :)) * idxh
             dbtot_dx(1, :) = (-3.0*btot(1, :) + 4.0*btot(2, :) - btot(3, :)) * idxh
             dbtot_dx(nx, :) = (3.0*btot(nx, :) - 4.0*btot(nx1, :) + btot(nx2, :)) * idxh
-            dbtot_dy(2:ny1, :) = (btot(:, 3:ny)-btot(:, 1:ny2)) * idyh
-            dbtot_dy(1, :) = (-3.0*btot(:, 1) + 4.0*btot(:, 2) - btot(:, 3)) * idyh
-            dbtot_dy(ny, :) = (3.0*btot(:, ny) - 4.0*btot(:, ny1) + btot(:, ny2)) * idyh
+            dbtot_dy(:, 2:ny1) = (btot(:, 3:ny)-btot(:, 1:ny2)) * idyh
+            dbtot_dy(:, 1) = (-3.0*btot(:, 1) + 4.0*btot(:, 2) - btot(:, 3)) * idyh
+            dbtot_dy(:, ny) = (3.0*btot(:, ny) - 4.0*btot(:, ny1) + btot(:, ny2)) * idyh
         else
             dvx1_dx(2:nx1, :) = (vx1(3:nx, :) - vx1(1:nx2, :)) * idxh
             dvx1_dx(1, :) = (-3.0*vx1(1, :) + 4.0*vx1(2, :) - vx1(3, :)) * idxh
             dvx1_dx(nx, :) = (3.0*vx1(nx, :) - 4.0*vx1(nx1, :) + vx1(nx2, :)) * idxh
-            dvy1_dy(2:ny1, :) = (vy1(:, 3:ny)-vy1(:, 1:ny2)) * idyh
-            dvy1_dy(1, :) = (-3.0*vy1(:, 1) + 4.0*vy1(:, 2) - vy1(:, 3)) * idyh
-            dvy1_dy(ny, :) = (3.0*vy1(:, ny) - 4.0*vy1(:, ny1) + vy1(:, ny2)) * idyh
+            dvy1_dy(:, 2:ny1) = (vy1(:, 3:ny)-vy1(:, 1:ny2)) * idyh
+            dvy1_dy(:, 1) = (-3.0*vy1(:, 1) + 4.0*vy1(:, 2) - vy1(:, 3)) * idyh
+            dvy1_dy(:, ny) = (3.0*vy1(:, ny) - 4.0*vy1(:, ny1) + vy1(:, ny2)) * idyh
 
             dbx1_dx(2:nx1, :) = (bx1(3:nx, :) - bx1(1:nx2, :)) * idxh
             dbx1_dx(1, :) = (-3.0*bx1(1, :) + 4.0*bx1(2, :) - bx1(3, :)) * idxh
             dbx1_dx(nx, :) = (3.0*bx1(nx, :) - 4.0*bx1(nx1, :) + bx1(nx2, :)) * idxh
-            dbx1_dy(2:ny1, :) = (bx1(:, 3:ny)-bx1(:, 1:ny2)) * idyh
-            dbx1_dy(1, :) = (-3.0*bx1(:, 1) + 4.0*bx1(:, 2) - bx1(:, 3)) * idyh
-            dbx1_dy(ny, :) = (3.0*bx1(:, ny) - 4.0*bx1(:, ny1) + bx1(:, ny2)) * idyh
+            dbx1_dy(:, 2:ny1) = (bx1(:, 3:ny)-bx1(:, 1:ny2)) * idyh
+            dbx1_dy(:, 1) = (-3.0*bx1(:, 1) + 4.0*bx1(:, 2) - bx1(:, 3)) * idyh
+            dbx1_dy(:, ny) = (3.0*bx1(:, ny) - 4.0*bx1(:, ny1) + bx1(:, ny2)) * idyh
 
             dby1_dx(2:nx1, :) = (by1(3:nx, :) - by1(1:nx2, :)) * idxh
             dby1_dx(1, :) = (-3.0*by1(1, :) + 4.0*by1(2, :) - by1(3, :)) * idxh
             dby1_dx(nx, :) = (3.0*by1(nx, :) - 4.0*by1(nx1, :) + by1(nx2, :)) * idxh
-            dby1_dy(2:ny1, :) = (by1(:, 3:ny)-by1(:, 1:ny2)) * idyh
-            dby1_dy(1, :) = (-3.0*by1(:, 1) + 4.0*by1(:, 2) - by1(:, 3)) * idyh
-            dby1_dy(ny, :) = (3.0*by1(:, ny) - 4.0*by1(:, ny1) + by1(:, ny2)) * idyh
+            dby1_dy(:, 2:ny1) = (by1(:, 3:ny)-by1(:, 1:ny2)) * idyh
+            dby1_dy(:, 1) = (-3.0*by1(:, 1) + 4.0*by1(:, 2) - by1(:, 3)) * idyh
+            dby1_dy(:, ny) = (3.0*by1(:, ny) - 4.0*by1(:, ny1) + by1(:, ny2)) * idyh
 
             dbtot1_dx(2:nx1, :) = (btot1(3:nx, :) - btot1(1:nx2, :)) * idxh
             dbtot1_dx(1, :) = (-3.0*btot1(1, :) + 4.0*btot1(2, :) - btot1(3, :)) * idxh
             dbtot1_dx(nx, :) = (3.0*btot1(nx, :) - 4.0*btot1(nx1, :) + btot1(nx2, :)) * idxh
-            dbtot1_dy(2:ny1, :) = (btot1(:, 3:ny)-btot1(:, 1:ny2)) * idyh
-            dbtot1_dy(1, :) = (-3.0*btot1(:, 1) + 4.0*btot1(:, 2) - btot1(:, 3)) * idyh
-            dbtot1_dy(ny, :) = (3.0*btot1(:, ny) - 4.0*btot1(:, ny1) + btot1(:, ny2)) * idyh
+            dbtot1_dy(:, 2:ny1) = (btot1(:, 3:ny)-btot1(:, 1:ny2)) * idyh
+            dbtot1_dy(:, 1) = (-3.0*btot1(:, 1) + 4.0*btot1(:, 2) - btot1(:, 3)) * idyh
+            dbtot1_dy(:, ny) = (3.0*btot1(:, ny) - 4.0*btot1(:, ny1) + btot1(:, ny2)) * idyh
         endif
     end subroutine calc_fields_gradients
 
