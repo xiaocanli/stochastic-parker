@@ -664,16 +664,16 @@ module particle_module
             fy0(iy) = fy0(iy) + weight
 
             !< Different momentum band
-            if (p > p0 .and. p <= 1.5*p0) then
+            if (p > 0.5*p0 .and. p <= 1.5*p0) then
                 f0(ix,iy) = f0(ix,iy) + weight
             endif
-            if (p > 3.0*p0 .and. p <= 4.0*p0) then
+            if (p > 1.5*p0 .and. p <= 2.5*p0) then
                 f1(ix,iy) = f1(ix,iy) + weight
             endif
-            if (p > 8.0*p0 .and. p <= 10.*p0) then
+            if (p > 2.5*p0 .and. p <= 3.5*p0) then
                 f2(ix,iy) = f2(ix,iy) + weight
             endif
-            if (p > 15.0*p0 .and. p <= 30.*p0) then
+            if (p > 3.5*p0 .and. p <= 4.5*p0) then
                 f3(ix,iy) = f3(ix,iy) + weight
             endif
 
