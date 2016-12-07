@@ -544,7 +544,7 @@ module particle_module
                     position="append", action="write")
             endif
             write(17, "(I4.4,A,I6.6,A,I6.6,A,5E13.6E2)") &
-                iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, ' ', &
+                iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, &
                 leak, pdt_min, pdt_max, pdt_avg
             close(17)
         endif 
