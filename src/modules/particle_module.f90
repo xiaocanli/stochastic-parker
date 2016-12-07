@@ -88,13 +88,14 @@ module particle_module
     !< Args:
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
+    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
     !---------------------------------------------------------------------------
-    subroutine inject_particles_spatial_uniform(nptl, dt)
+    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag)
         use mhd_data_sli, only: mhd_config
         use mpi_module, only: mpi_rank, master
         use random_number_generator, only: unif_01, two_normals
         implicit none
-        integer, intent(in) :: nptl
+        integer, intent(in) :: nptl, dist_flag
         real(dp), intent(in) :: dt
         integer :: i, imod2
         real(dp) :: xmin, ymin, xmax, ymax
@@ -110,9 +111,13 @@ module particle_module
             if (nptl_current > nptl_max) nptl_current = nptl_max
             ptls(nptl_current)%x = unif_01()*(xmax-xmin) + xmin
             ptls(nptl_current)%y = unif_01()*(ymax-ymin) + ymin
-            imod2 = mod(i, 2)
-            if (imod2 == 1) rands = two_normals()
-            ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
+            if (dist_flag == 0) then
+                imod2 = mod(i, 2)
+                if (imod2 == 1) rands = two_normals()
+                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
+            else
+                ptls(nptl_current)%p = p0
+            endif
             ptls(nptl_current)%weight = 1.0
             ptls(nptl_current)%t = 0.0
             ptls(nptl_current)%dt = dt
