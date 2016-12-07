@@ -6,7 +6,10 @@
 b0 = 1.0
 
 !< the standard deviation of the Gaussian distribution of momentum
-p0 = 12.3
+p0 = 0.1
+
+!< Maximum particle momentum
+pmin = 1.0E-2
 
 !< Maximum particle momentum
 pmax = 1.0E3
@@ -21,4 +24,8 @@ kpara0 = 1.44E-9
 kret = 0.1
 
 !< Minimum time step allowed
-dt_min = 1E-8
+dt_min = 1E-6
+
+!< Sizes of distributions
+nreduce = 4
+npp = 128

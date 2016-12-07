@@ -6,7 +6,9 @@ module particle_module
     implicit none
     private
     public init_particles, free_particles, inject_particles_spatial_uniform, &
-        read_particle_params, particle_mover, remove_particles, split_particle
+        read_particle_params, particle_mover, remove_particles, split_particle, &
+        init_particle_distributions, clean_particle_distributions, &
+        free_particle_distributions, distributions_diagnostics, quick_check
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -29,12 +31,26 @@ module particle_module
                                     !< 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
     !< These two depends on the simulation normalizations
     real(dp) :: p0  !< the standard deviation of the Gaussian distribution of momentum
+    real(dp) :: pmin  !< Minimum particle momentum
     real(dp) :: pmax  !< Maximum particle momentum
     real(dp) :: b0    !< Initial magnetic field strength
     real(dp) :: kpara, kperp, dkxx_dx, dkyy_dy, dkxy_dx, dkxy_dy
     real(dp) :: skperp, skpara_perp
 
     real(dp) :: dt_min  !< Minimum time step
+
+    !< Dimensions of particle distributions
+    integer :: nx, ny, npp, nreduce
+    real(dp) :: dx, dy, pmin_log, pmax_log, dp_log
+
+    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3
+    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum
+    real(dp), allocatable, dimension(:) :: fp0, fp0_sum
+    real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
+    real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
+    real(dp), allocatable, dimension(:) :: fx0, fx0_sum
+    real(dp), allocatable, dimension(:) :: fy0, fy0_sum
+    real(dp), allocatable, dimension(:) :: parray
 
     contains
 
@@ -103,6 +119,7 @@ module particle_module
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = 1
         enddo
+        leak = 0
     end subroutine inject_particles_spatial_uniform
 
     !---------------------------------------------------------------------------
@@ -137,11 +154,11 @@ module particle_module
 
                 px = (ptl%x-xmin) / dxm
                 py = (ptl%y-ymin) / dym
-                ix = floor(px)
-                iy = floor(py)
+                ix = floor(px) + 1
+                iy = floor(py) + 1
 
-                rx = px - ix
-                ry = py - iy
+                rx = px + 1 - ix
+                ry = py + 1 - iy
                 rt = (ptl%t - t0) / dtf
                 rt1 = 1.0_dp - rt
 
@@ -160,11 +177,11 @@ module particle_module
 
                 px = (ptl%x-xmin) / dxm
                 py = (ptl%y-ymin) / dym
-                ix = floor(px)
-                iy = floor(py)
+                ix = floor(px) + 1
+                iy = floor(py) + 1
 
-                rx = px - ix
-                ry = py - iy
+                rx = px + 1 - ix
+                ry = py + 1 - iy
                 rt = (ptl%t - t0) / dtf
                 rt1 = 1.0_dp - rt
 
@@ -240,6 +257,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine read_particle_params
         use read_config, only: get_variable
+        use mhd_data_sli, only: mhd_config
         use mpi_module
         implicit none
         real(fp) :: temp
@@ -248,20 +266,28 @@ module particle_module
         if (mpi_rank == master) then
             fh = 10
             open(unit=fh, file='config/conf.dat', status='old')
-            p0 = get_variable(fh, 'p0', '=')
-            pmax = get_variable(fh, 'pmax', '=')
             b0 = get_variable(fh, 'b0', '=')
+            p0 = get_variable(fh, 'p0', '=')
+            pmin = get_variable(fh, 'pmin', '=')
+            pmax = get_variable(fh, 'pmax', '=')
             temp = get_variable(fh, 'diffusion_type', '=')
             diffusion_type = int(temp)
             kpara0 = get_variable(fh, 'kpara0', '=')
             kret = get_variable(fh, 'kret', '=')
             dt_min = get_variable(fh, 'dt_min', '=')
+            temp = get_variable(fh, 'nreduce', '=')
+            nreduce = int(temp)
+            nx = mhd_config%nx / nreduce
+            ny = mhd_config%ny / nreduce
+            temp = get_variable(fh, 'npp', '=')
+            npp = int(temp)
             close(fh)
             !< echo the information
             print *, "---------------------------------------------------"
             write(*, "(A)") " Particle parameters including diffusion coefficients"
             write(*, "(A, E13.6E2)") " The standard deviation of momentum distribution is ", p0
-            write(*, "(A, E13.6E2)") " Maximum particle momentum", pmax
+            write(*, "(A, E13.6E2, E13.6E2)") &
+                " Minimum and maximum particle momentum", pmin, pmax
             write(*, "(A, E13.6E2)") " Initial magnetic field strength", b0
             if (diffusion_type == 1) then
                 write(*, "(A)") " kpara is a constant"
@@ -275,15 +301,23 @@ module particle_module
             write(*, "(A,E13.6E2)") " kpara0 = ", kpara0
             write(*, "(A,E13.6E2)") " kpara / kperp = ", kret
             write(*, "(A,E13.6E2)") " Minimum time step = ", dt_min
+            write(*, "(A,I0,A,I0)") " Dimensions of spatial distributions = ", &
+                nx, " ", ny
+            write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
             print *, "---------------------------------------------------"
         endif
         call MPI_BCAST(diffusion_type, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(p0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pmin, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(pmax, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(b0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kpara0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kret, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(dt_min, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(nreduce, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
     end subroutine read_particle_params
 
     !---------------------------------------------------------------------------
@@ -307,14 +341,14 @@ module particle_module
         tmp30 = skperp + skpara_perp * abs(bx/b)
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt1 = min(dxm/(80.0*tmp40), (tmp30/(tmp40))**2) * 0.5
+            dt1 = min(dxm/(80.0*tmp40), tmp30/(tmp40**2)) * 0.5
         else
             dt1 = dt_min
         endif
         tmp30 = skperp + skpara_perp * abs(by/b)
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt2 = min(dym/(80.0*tmp40), (tmp30/(tmp40))**2) * 0.5
+            dt2 = min(dym/(80.0*tmp40), tmp30/(tmp40**2)) * 0.5
         else
             dt2 = dt_min
         endif
@@ -341,8 +375,9 @@ module particle_module
         real(dp) :: sdt, dvx_dx, dvy_dy
         real(dp) :: bx, by, b, vx, vy, px, py, rx, ry, rt1
         real(dp) :: bx1, by1, b1
-        real(dp) :: xmin, ymin, dxm, dym, skperp1, skpara_perp1
+        real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
+        real(dp) :: lx, ly
         integer :: ix, iy
 
         b = fields%btot
@@ -354,8 +389,12 @@ module particle_module
         dvy_dy = gradf%dvy_dy
         xmin = mhd_config%xmin
         ymin = mhd_config%ymin
+        xmax = mhd_config%xmax
+        ymax = mhd_config%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
+        lx = mhd_config%lx
+        ly = mhd_config%ly
 
         sdt = dsqrt(ptl%dt)
         xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
@@ -368,12 +407,18 @@ module particle_module
             return
         endif
 
+        !< Periodic boundary condition
+        if (xtmp > xmax) xtmp = xtmp - xmax + xmin
+        if (xtmp < xmin) xtmp = xmax - (xmin - xtmp)
+        if (ytmp > ymax) ytmp = ytmp - ymax + ymin
+        if (ytmp < ymin) ytmp = ymax - (ymin - ytmp)
+
         px = (xtmp - xmin) / dxm
         py = (ytmp - ymin) / dym
-        ix = floor(px)
-        iy = floor(py)
-        rx = px - ix
-        ry = py - iy
+        ix = floor(px) + 1
+        iy = floor(py) + 1
+        rx = px + 1 - ix
+        ry = py + 1 - iy
         rt1 = 1.0_dp - rt
         call interp_fields(ix, iy, rx, ry, rt)
         call calc_spatial_diffusion_coefficients
@@ -433,13 +478,13 @@ module particle_module
     subroutine split_particle
         implicit none
         integer :: i, nptl
-        real(dp) :: ene_threshold
+        real(dp) :: p_threshold
         type(particle_type) :: ptl_new
         nptl = nptl_current
         do i = 1, nptl
             ptl = ptls(i)
-            ene_threshold = (1+2.72**ptl%split_times)*p0
-            if (ptl%p > ene_threshold .and. ptl%p <= pmax) then
+            p_threshold = (1+2.72**ptl%split_times)*p0
+            if (ptl%p > p_threshold .and. ptl%p <= pmax) then
                 nptl_current = nptl_current + 1
                 if (nptl_current > nptl_max) then
                     nptl_current = nptl_max
@@ -453,4 +498,279 @@ module particle_module
             endif
         enddo
     end subroutine split_particle
+
+    !---------------------------------------------------------------------------
+    !< Quick diagnostics of the particle number information
+    !< Args:
+    !<  iframe: the time frame
+    !<  if_create_file: whether to create a file
+    !---------------------------------------------------------------------------
+    subroutine quick_check(iframe, if_create_file)
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        integer, intent(in) :: iframe
+        logical, intent(in) :: if_create_file
+        real(dp) :: pdt_min, pdt_max, ntot
+        integer :: i
+        logical :: dir_e
+
+        inquire(file='./data/.', exist=dir_e)
+        if (.not. dir_e) then
+            call system('mkdir -p ./data')
+        endif
+        if (mpi_rank == master) then
+            ntot = 0.0_dp
+            pdt_min = 1.0_dp
+            pdt_max = 0.0_dp
+            do i = 1, nptl_current
+                ntot = ntot + ptls(i)%weight
+                if (ptls(i)%dt < pdt_min) pdt_min = ptls(i)%dt
+                if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
+            enddo
+            if (if_create_file) then
+                open (17, file='data/quick.dat', status='unknown')
+            else
+                open (17, file='data/quick.dat', status="old", &
+                    position="append", action="write")
+            endif
+            write (17,*) iframe, nptl_current, nptl_new, ntot, leak, &
+                pdt_min, pdt_max
+            close(17)
+        endif 
+    end subroutine quick_check
+
+    !---------------------------------------------------------------------------
+    !< Initialize the particle distributions
+    !---------------------------------------------------------------------------
+    subroutine init_particle_distributions
+        use mhd_data_sli, only: mhd_config
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        integer :: i
+        allocate(f0(nx, ny))
+        allocate(f1(nx, ny))
+        allocate(f2(nx, ny))
+        allocate(f3(nx, ny))
+        allocate(fp0(npp))
+        allocate(fp1(npp, nx))
+        allocate(fp2(npp, ny))
+        allocate(fx0(nx))
+        allocate(fy0(ny))
+        allocate(f0_sum(nx, ny))
+        allocate(f1_sum(nx, ny))
+        allocate(f2_sum(nx, ny))
+        allocate(f3_sum(nx, ny))
+        allocate(fp0_sum(npp))
+        allocate(fp1_sum(npp, nx))
+        allocate(fp2_sum(npp, ny))
+        allocate(fx0_sum(nx))
+        allocate(fy0_sum(ny))
+        call clean_particle_distributions
+
+        !< Intervals for distributions
+        dx = mhd_config%lx / (mhd_config%nx / dble(nreduce) - 1)
+        dy = mhd_config%ly / (mhd_config%ny / dble(nreduce) - 1)
+        pmin_log = log10(pmin)
+        pmax_log = log10(pmax)
+        dp_log = (pmax_log - pmin_log) / (npp - 1)
+
+        if (mpi_rank == master) then
+            allocate(parray(npp))
+            parray = 0.0_dp
+            do i = 1, npp
+                parray(i) = 10**(pmin_log + (i-1) * dp_log)
+            enddo
+        endif
+    end subroutine init_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Set particle distributions to be zero
+    !---------------------------------------------------------------------------
+    subroutine clean_particle_distributions
+        implicit none
+        f0 = 0.0_dp
+        f1 = 0.0_dp
+        f2 = 0.0_dp
+        f3 = 0.0_dp
+        fp0 = 0.0_dp
+        fp1 = 0.0_dp
+        fp2 = 0.0_dp
+        fx0 = 0.0_dp
+        fy0 = 0.0_dp
+        f0_sum = 0.0_dp
+        f1_sum = 0.0_dp
+        f2_sum = 0.0_dp
+        f3_sum = 0.0_dp
+        fp0_sum = 0.0_dp
+        fp1_sum = 0.0_dp
+        fp2_sum = 0.0_dp
+        fx0_sum = 0.0_dp
+        fy0_sum = 0.0_dp
+    end subroutine clean_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Free particle distributions
+    !---------------------------------------------------------------------------
+    subroutine free_particle_distributions
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        deallocate(f0, f1, f2, f3, fp0, fp1, fp2, fx0, fy0)
+        deallocate(f0_sum, f1_sum, f2_sum, f3_sum)
+        deallocate(fp0_sum, fp1_sum, fp2_sum, fx0_sum, fy0_sum)
+        if (mpi_rank == master) then
+            deallocate(parray)
+        endif
+    end subroutine free_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Accumulate particle distributions
+    !---------------------------------------------------------------------------
+    subroutine calc_particle_distributions
+        use mpi_module
+        use mhd_data_sli, only: mhd_config
+        implicit none
+        integer :: i, ix, iy
+        real(dp) :: weight, p, ip, xmin, xmax, ymin, ymax
+
+        xmin = mhd_config%xmin
+        xmax = mhd_config%xmax
+        ymin = mhd_config%ymin
+        ymax = mhd_config%ymax
+        
+        call clean_particle_distributions
+
+        do i = 1, nptl_current
+            ptl = ptls(i)
+            ix = ceiling((ptl%x - xmin)/dx)
+            iy = ceiling((ptl%y - ymin)/dy)
+            if (ix < 1) ix = 1
+            if (ix > nx) ix = nx
+            if (iy < 1) iy = 1
+            if (iy > ny) iy = ny
+            p = ptl%p
+            weight = ptl%weight
+            fx0(ix) = fx0(ix) + weight
+            fy0(iy) = fy0(iy) + weight
+
+            !< Different momentum band
+            if (p > p0 .and. p <= 1.5*p0) then
+                f0(ix,iy) = f0(ix,iy) + weight
+            endif
+            if (p > 3.0*p0 .and. p <= 4.0*p0) then
+                f1(ix,iy) = f1(ix,iy) + weight
+            endif
+            if (p > 8.0*p0 .and. p <= 10.*p0) then
+                f2(ix,iy) = f2(ix,iy) + weight
+            endif
+            if (p > 15.0*p0 .and. p <= 30.*p0) then
+                f3(ix,iy) = f3(ix,iy) + weight
+            endif
+
+            if (p > pmin .and. p <= pmax) then
+                ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
+                fp0(ip) = fp0(ip) + weight
+                fp1(ip, ix) = fp1(ip, ix) + weight
+                fp2(ip, iy) = fp2(ip, iy) + weight
+            endif
+        enddo
+        
+        call MPI_REDUCE(fx0, fx0_sum, nx, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fy0, fy0_sum, ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+    end subroutine calc_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Diagnostics of the particle distributions
+    !< Args:
+    !<  iframe: time frame index
+    !---------------------------------------------------------------------------
+    subroutine distributions_diagnostics(iframe)
+        use mpi_module
+        implicit none
+        integer, intent(in) :: iframe
+        integer :: ix, iy, ip, fh
+        character(len=4) :: ctime
+        character(len=64) :: fname
+        logical :: dir_e
+
+        inquire(file='./data/.', exist=dir_e)
+        if (.not. dir_e) then
+            call system('mkdir -p ./data')
+        endif
+
+        call calc_particle_distributions
+
+        write (ctime,'(i4.4)') iframe
+        if (mpi_rank .eq. 0) then
+            fh = 13
+            fname = 'data/fx-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do ix = 1, nx
+                write (fh, "(E13.6E2)") fx0_sum(ix)
+            enddo
+            close(fh)
+
+            fh = 14
+            fname = 'data/fy-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do iy = 1, ny
+                write (fh, "(E13.6E2)") fy0_sum(iy)
+            enddo
+            close(fh)
+
+            fh = 15
+            fname = 'data/fp-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do ip = 1, npp
+                write (fh, "(2E13.6E2)") parray(ip), fp0_sum(ip)
+            enddo
+            close(fh)
+
+            fh = 16
+            fname = 'data/fpx-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do ix = 1, nx
+                do ip = 1, npp
+                    write (fh, "(2E13.6E2)") fp1_sum(ip, ix)
+                enddo
+            enddo
+            close(fh)
+
+            fh = 17
+            fname = 'data/fpy-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do iy = 1, ny
+                do ip = 1, npp
+                    write (fh, "(2E13.6E2)") fp2_sum(ip, iy)
+                enddo
+            enddo
+            close(fh)
+
+            fh = 18
+            fname = 'data/fxy-'//ctime//'.dat'
+            open(fh, file=trim(fname), status='unknown')
+            do iy = 1, ny
+                do ix = 1, nx
+                    write (fh, "(4E13.6E2)") f0_sum(ix, iy), f1_sum(ix, iy),&
+                        f2_sum(ix, iy), f3_sum(ix, iy)
+                enddo
+            enddo
+            close(fh)
+        endif
+    end subroutine distributions_diagnostics
 end module particle_module
