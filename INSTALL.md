@@ -1,7 +1,7 @@
 # Install Guide
 
 ## Overview
-This package uses a [Multiple stream Mersenne Twister PRNG](http://theo.phys.sci.hiroshima-u.ac.jp/~ishikawa/PRNG/mt_stream_en.html) to generated the required random numbers. This package uses [FLAP](https://github.com/szaghi/FLAP) to deal with comand line arguments. The FLAP pacakge is recommended to install using the [FoBiS](https://github.com/szaghi/FoBiS), which is building system for Fortran projects.
+This package uses a [Multiple stream Mersenne Twister PRNG](http://theo.phys.sci.hiroshima-u.ac.jp/~ishikawa/PRNG/mt_stream_en.html) to generated the required random numbers. This package uses [FLAP](https://github.com/szaghi/FLAP) to deal with comand line arguments. The FLAP pacakge is recommended to install using the [FoBiS](https://github.com/szaghi/FoBiS), which is a building system for Fortran projects.
 
 ## Requirments
 - **Git**. The newer the better.
@@ -46,7 +46,7 @@ directory of FLAP. For example,
 setenv FLAP_DIR $HOME/local/FLAP
 ```
 
-- In the top directory of a run,
+- In the directory `stochastic-parker`,
 ```sh
 $ mkdir build
 $ cd build
