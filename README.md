@@ -4,6 +4,9 @@ Solving Parker's transport equation using stochastic method
 This is a code to solve Parker's cosmic ray transport equation using the
 stochastic method.
 
+## Install
+See our note in [INSTALL.md](INSTALL.md)
+
 
 ##License
 
