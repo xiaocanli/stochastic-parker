@@ -11,13 +11,16 @@ program stochastic
         copy_fields
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
-        particle_mover, remove_particles, split_particle
+        particle_mover, remove_particles, split_particle, &
+        init_particle_distributions, free_particle_distributions, &
+        distributions_diagnostics, quick_check
     use random_number_generator, only: init_prng, delete_prng
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname, fname1
     integer :: nptl_max, nptl
-    real(dp) :: start, finish, dt
+    real(dp) :: start, finish, step1, step2, dt
+    integer :: t_start, t_end, tf
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -28,11 +31,11 @@ program stochastic
     call get_cmd_args
     call init_prng
 
-    fname = trim(dir_mhd_data)//'bin_out0000'
-    fname1 = trim(dir_mhd_data)//'bin_out0001'
+    write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start
+    write(fname, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start + 1
     if (mpi_rank == master) then
         ! call read_mhd_config
-        call read_mhd_config_from_outfile(fname, fname1)
+        call read_mhd_config_from_outfile(fname1, fname)
     endif
     call broadcast_mhd_config
     call init_mhd_data
@@ -41,18 +44,41 @@ program stochastic
 
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(nptl, dt)
+    call init_particle_distributions
 
     call read_mhd_data(fname, var_flag=0)
     call read_mhd_data(fname1, var_flag=1)
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
 
-    call particle_mover
-    call remove_particles
-    call split_particle
+    call cpu_time(step1)
 
-    call copy_fields
+    call distributions_diagnostics(t_start)
 
+    do tf = t_start + 1, t_end
+        call particle_mover
+        call remove_particles
+        call split_particle
+        if (tf == t_start + 1) then
+            call quick_check(tf, .true.)
+        else
+            call quick_check(tf, .false.)
+        endif
+        call distributions_diagnostics(tf)
+        call copy_fields
+        if (tf < t_end) then
+            write(fname, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf + 1
+            call read_mhd_data(fname, var_flag=0)
+            call calc_fields_gradients(var_flag=0)
+        endif
+        call cpu_time(step2)
+        if (mpi_rank == master) then
+            print '("Step ", I0, " takes ", f9.4 " seconds.")', tf, step2 - step1
+        endif
+        step1 = step2
+    enddo
+
+    call free_particle_distributions
     call free_particles
     call free_fields_gradients
     call free_mhd_data
@@ -85,7 +111,7 @@ program stochastic
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
             examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max '//&
-                        '-np nptl -dt dt'])
+                        '-np nptl -dt dt -ts t_start -te t_end'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -102,6 +128,14 @@ program stochastic
             help='Time interval to push particles', required=.false., &
             act='store', def='1E-6', error=error)
         if (error/=0) stop
+        call cli%add(switch='--tstart', switch_ab='-ts', &
+            help='Starting time frame', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--tend', switch_ab='-te', &
+            help='The last time frame', required=.false., &
+            act='store', def='200', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -110,12 +144,18 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-dt', val=dt, error=error)
         if (error/=0) stop
+        call cli%get(switch='-ts', val=t_start, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-te', val=t_end, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,I0)', 'Maximum number of particles: ', nptl_max
             print '(A,I0)', 'Initial number of particles: ', nptl
             print '(A,E13.6E2)', 'Time interval to push particles', dt
+            print '(A,I0)', 'Starting time frame', t_start
+            print '(A,I0)', 'The last time frame', t_end
         endif
     end subroutine get_cmd_args
 end program stochastic
