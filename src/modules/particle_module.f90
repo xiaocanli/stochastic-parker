@@ -515,7 +515,7 @@ module particle_module
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
-        real(dp) :: pdt_min, pdt_max, ntot
+        real(dp) :: pdt_min, pdt_max, pdt_avg, ntot
         integer :: i
         logical :: dir_e
 
@@ -527,19 +527,25 @@ module particle_module
             ntot = 0.0_dp
             pdt_min = 1.0_dp
             pdt_max = 0.0_dp
+            pdt_avg = 0.0_dp
             do i = 1, nptl_current
                 ntot = ntot + ptls(i)%weight
                 if (ptls(i)%dt < pdt_min) pdt_min = ptls(i)%dt
                 if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
+                pdt_avg = pdt_avg + ptls(i)%dt
             enddo
+            pdt_avg = pdt_avg / nptl_current
             if (if_create_file) then
                 open (17, file='data/quick.dat', status='unknown')
+                write(17, "(A,A)") "iframe, nptl_current, nptl_new, ntot, ", &
+                    "leak, pdt_min, pdt_max, pdt_avg"
             else
                 open (17, file='data/quick.dat', status="old", &
                     position="append", action="write")
             endif
-            write (17,*) iframe, nptl_current, nptl_new, ntot, leak, &
-                pdt_min, pdt_max
+            write(17, "(I4.4,A,I6.6,A,I6.6,A,E13.6E2,A,I6.6,3E13.6E2)") &
+                iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, ' ', &
+                leak, pdt_min, pdt_max, pdt_avg
             close(17)
         endif 
     end subroutine quick_check
