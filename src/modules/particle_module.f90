@@ -124,7 +124,7 @@ module particle_module
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = 1
         enddo
-        leak = 0
+        leak = 0.0_dp
     end subroutine inject_particles_spatial_uniform
 
     !---------------------------------------------------------------------------
@@ -543,7 +543,7 @@ module particle_module
                 open (17, file='data/quick.dat', status="old", &
                     position="append", action="write")
             endif
-            write(17, "(I4.4,A,I6.6,A,I6.6,A,E13.6E2,A,I6.6,3E13.6E2)") &
+            write(17, "(I4.4,A,I6.6,A,I6.6,A,5E13.6E2)") &
                 iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, ' ', &
                 leak, pdt_min, pdt_max, pdt_avg
             close(17)
