@@ -169,31 +169,10 @@ module particle_module
 
                 call interp_fields(ix, iy, rx, ry, rt)
                 call calc_spatial_diffusion_coefficients
-                call set_time_step
+                call set_time_step(t0, dtf)
                 call push_particle(rt, deltax, deltay, deltap)
             enddo
-           
-            if ((ptl%t - t0) > dtf) then
-                ptl%x = ptl%x - deltax
-                ptl%y = ptl%y - deltay
-                ptl%p = ptl%p - deltap
-                ptl%t = ptl%t - ptl%dt
-                ptl%dt = t0 + dtf - ptl%t
 
-                px = (ptl%x-xmin) / dxm
-                py = (ptl%y-ymin) / dym
-                ix = floor(px) + 1
-                iy = floor(py) + 1
-
-                rx = px + 1 - ix
-                ry = py + 1 - iy
-                rt = (ptl%t - t0) / dtf
-                rt1 = 1.0_dp - rt
-
-                call interp_fields(ix, iy, rx, ry, rt)
-                call calc_spatial_diffusion_coefficients
-                call push_particle(rt, deltax, deltay, deltap)
-            endif
             !< Periodic boundary condition
             if (ptl%x > xmax) ptl%x = ptl%x - xmax + xmin
             if (ptl%x < xmin) ptl%x = xmax - (xmin - ptl%x)
@@ -327,10 +306,14 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Determine the time step.
+    !< Args;
+    !<  t0: the initial time for current particle
+    !<  dtf: the time interval of the MHD fields
     !---------------------------------------------------------------------------
-    subroutine set_time_step
+    subroutine set_time_step(t0, dtf)
         use mhd_data_sli, only: fields, mhd_config
         implicit none
+        real(dp), intent(in) :: t0, dtf
         real(dp) :: tmp30, tmp40, bx, by, b, vx, vy, dxm, dym, dt1, dt2
         skperp = dsqrt(2.0*kperp)
         skpara_perp = dsqrt(2.0*(kpara-kperp))
@@ -358,8 +341,15 @@ module particle_module
             dt2 = dt_min
         endif
         ptl%dt = min(dt1, dt2)
+
+        !< Make sure the time step is not too small
         if (ptl%dt .lt. dt_min) then
             ptl%dt = dt_min
+        endif
+
+        !< Make sure the time step is not too large
+        if ((ptl%t + ptl%dt - t0) > dtf) then
+            ptl%dt = t0 + dtf - ptl%t
         endif
     end subroutine set_time_step
 
