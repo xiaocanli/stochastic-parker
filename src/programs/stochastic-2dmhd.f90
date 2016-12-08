@@ -20,7 +20,7 @@ program stochastic
     character(len=256) :: fname, fname1
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
-    integer :: t_start, t_end, tf, dist_flag
+    integer :: t_start, t_end, tf, dist_flag, split_flag
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -58,7 +58,9 @@ program stochastic
     do tf = t_start + 1, t_end
         call particle_mover
         call remove_particles
-        call split_particle
+        if (split_flag == 1) then
+            call split_particle
+        endif
         if (tf == t_start + 1) then
             call quick_check(tf, .true.)
         else
@@ -140,6 +142,10 @@ program stochastic
             help='Flag to indicate momentum distribution', required=.false., &
             act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--split_flag', switch_ab='-sf', &
+            help='Flag to split the particles', required=.false., &
+            act='store', def='1', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -154,6 +160,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-df', val=dist_flag, error=error)
         if (error/=0) stop
+        call cli%get(switch='-sf', val=split_flag, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -167,6 +175,9 @@ program stochastic
             print '(A,E13.6E2)', 'Time interval to push particles', dt
             print '(A,I0)', 'Starting time frame', t_start
             print '(A,I0)', 'The last time frame', t_end
+            if (split_flag == 1) then
+                print '(A)', 'Particles will be splitted when reaching certain energies'
+            endif
         endif
     end subroutine get_cmd_args
 end program stochastic
