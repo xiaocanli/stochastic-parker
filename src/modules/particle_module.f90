@@ -27,8 +27,9 @@ module particle_module
 
     real(dp) :: kpara0              !< Normalization for kappa parallel
     real(dp) :: kret                !< The ratio of kpara to kperp
-    integer :: diffusion_type       !< 1 for constant kappa, 2 for kappa ~ p,
-                                    !< 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
+    integer :: momentum_dependency  !< kappa dependency on particle momentum
+    integer :: mag_dependency       !< kappa dependency on magnetic field
+    real(dp) :: pindex              !< power index for the momentum dependency 
     !< These two depends on the simulation normalizations
     real(dp) :: p0  !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: pmin  !< Minimum particle momentum
@@ -228,25 +229,18 @@ module particle_module
         ib3 = 1.0_dp / b**3
         ib4 = ib2**2
         
-        if (diffusion_type == 1) then
-            pnorm = 1.0_dp
-        else if (diffusion_type == 2) then
-            pnorm = ptl%p / p0
-        else if (diffusion_type == 3) then
-            pnorm = ptl%p * b0 / p0
-        else if (diffusion_type == 4) then
-            pnorm = ptl%p**2 * b0 / p0**2
+        pnorm = 1.0_dp
+        if (mag_dependency == 1) then
+            pnorm = pnorm * b0
+        endif
+        if (momentum_dependency == 1) then
+            pnorm = pnorm * ptl%p**pindex / p0**pindex
         endif
 
         kpara = kpara0 * pnorm
         kperp = kpara * kret
 
-        if (diffusion_type == 1 .or. diffusion_type == 2) then
-            dkxx_dx = 0.0_dp
-            dkxy_dy = 0.0_dp
-            dkxy_dx = 0.0_dp
-            dkyy_dy = 0.0_dp
-        else if (diffusion_type == 3 .or. diffusion_type == 4) then
+        if (mag_dependency == 1) then
             dkxx_dx = -kperp*db_dx*ib2 + (kperp-kpara)*db_dx*bx**2*ib4 + &
                 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib4
             dkyy_dy = -kperp*db_dy*ib2 + (kperp-kpara)*db_dy*by**2*ib4 + &
@@ -255,6 +249,11 @@ module particle_module
                 ((dbx_dx*by+bx*dby_dx)*ib3 - 2.0*bx*by*db_dx*ib4)
             dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib4 + (kpara-kperp) * &
                 ((dbx_dy*by+bx*dby_dy)*ib3 - 2.0*bx*by*db_dy*ib4)
+        else
+            dkxx_dx = 0.0_dp
+            dkxy_dy = 0.0_dp
+            dkxy_dx = 0.0_dp
+            dkyy_dy = 0.0_dp
         endif
     end subroutine calc_spatial_diffusion_coefficients
 
@@ -276,8 +275,13 @@ module particle_module
             p0 = get_variable(fh, 'p0', '=')
             pmin = get_variable(fh, 'pmin', '=')
             pmax = get_variable(fh, 'pmax', '=')
-            temp = get_variable(fh, 'diffusion_type', '=')
-            diffusion_type = int(temp)
+            temp = get_variable(fh, 'momentum_dependency', '=')
+            momentum_dependency = int(temp)
+            if (momentum_dependency == 1) then
+                pindex = get_variable(fh, 'pindex', '=')
+            endif
+            temp = get_variable(fh, 'mag_dependency', '=')
+            mag_dependency = int(temp)
             kpara0 = get_variable(fh, 'kpara0', '=')
             kret = get_variable(fh, 'kret', '=')
             dt_min = get_variable(fh, 'dt_min', '=')
@@ -295,14 +299,16 @@ module particle_module
             write(*, "(A, E13.6E2, E13.6E2)") &
                 " Minimum and maximum particle momentum", pmin, pmax
             write(*, "(A, E13.6E2)") " Initial magnetic field strength", b0
-            if (diffusion_type == 1) then
-                write(*, "(A)") " kpara is a constant"
-            else if (diffusion_type == 2) then
-                write(*, "(A)") " kpara ~ particle momentum p"
-            else if (diffusion_type == 3) then
-                write(*, "(A)") " kpara ~ the ratio p / B"
-            else if (diffusion_type == 4) then
-                write(*, "(A)") " kpara ~ the ratio p^2 / B"
+            write(*, "(A,E13.6E2)") " kappa dependency on p: ", momentum_dependency
+            if (momentum_dependency == 1) then
+                write(*, "(A,E13.6E2)") " kappa ~ p^", pindex
+            else
+                write(*, "(A)") " kappa doesn't depend on particle momentum"
+            endif
+            if (mag_dependency == 1) then
+                write(*, "(A)") " kappa ~ 1/B"
+            else
+                write(*, "(A)") " kappa doesn't depend on B"
             endif
             write(*, "(A,E13.6E2)") " kpara0 = ", kpara0
             write(*, "(A,E13.6E2)") " kpara / kperp = ", kret
@@ -312,7 +318,11 @@ module particle_module
             write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
             print *, "---------------------------------------------------"
         endif
-        call MPI_BCAST(diffusion_type, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(momentum_dependency, 1, MPI_INTEGER, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(mag_dependency, 1, MPI_INTEGER, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pindex, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(p0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(pmin, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(pmax, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
