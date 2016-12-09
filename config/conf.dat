@@ -6,10 +6,10 @@
 b0 = 1.0
 
 !< the standard deviation of the Gaussian distribution of momentum
-p0 = 1.0
+p0 = 0.1
 
 !< Maximum particle momentum
-pmin = 1.0E-1
+pmin = 1.0E-2
 
 !< Maximum particle momentum
 pmax = 1.0E1
