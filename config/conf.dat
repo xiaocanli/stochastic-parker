@@ -14,11 +14,17 @@ pmin = 1.0E-1
 !< Maximum particle momentum
 pmax = 1.0E1
 
-!< 1 for constant kappa, 2 for kappa ~ p, 3 for kappa ~ p/B, 4 for kappa ~ p^2/B
-diffusion_type = 1
+!< Wether kappa depends on particle momentum
+momentum_dependency = 1
+
+!< power index for the momentum dependency 
+pindex = 1.3333333
+
+!< Wether kappa ~ 1/B
+mag_dependency = 1
 
 !< The normalization for kappa parallel
-kpara0 = 1.44E-7
+kpara0 = 0.01
 
 !< The ratio of kpara and kperp
 kret = 0.1
