@@ -299,7 +299,7 @@ module particle_module
             write(*, "(A, E13.6E2, E13.6E2)") &
                 " Minimum and maximum particle momentum", pmin, pmax
             write(*, "(A, E13.6E2)") " Initial magnetic field strength", b0
-            write(*, "(A,E13.6E2)") " kappa dependency on p: ", momentum_dependency
+            write(*, "(A,I0)") " kappa dependency on p: ", momentum_dependency
             if (momentum_dependency == 1) then
                 write(*, "(A,E13.6E2)") " kappa ~ p^", pindex
             else
@@ -361,14 +361,16 @@ module particle_module
         tmp30 = skperp + skpara_perp * abs(bx/b)
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt1 = min(dxm/(80.0*tmp40), tmp30/(tmp40**2)) * 0.5
+            ! dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2)
+            dt1 = min(dxm/tmp40, (dxm/tmp30)**2)
         else
             dt1 = dt_min
         endif
         tmp30 = skperp + skpara_perp * abs(by/b)
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt2 = min(dym/(80.0*tmp40), tmp30/(tmp40**2)) * 0.5
+            ! dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2)
+            dt1 = min(dym/tmp40, (dym/tmp30)**2)
         else
             dt2 = dt_min
         endif
