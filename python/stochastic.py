@@ -31,13 +31,14 @@ font = {'family' : 'serif',
         }
 
 
-def plot_particle_distributions(ct, ax1, ax2, show_plot=True, is_power=True,
-        **kwargs):
+def plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=True,
+        is_power=True, **kwargs):
     """
     """
-    fname = '../data/fp-' + str(ct).zfill(4) + '.dat'
+    fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '.dat'
     data = np.genfromtxt(fname)
-    p = data[:, 0]
+    p0 = 0.1
+    p = data[:, 0] / p0
     elog = p**2
     fp = data[:, 1] / np.gradient(p)
     fe = data[:, 1] / np.gradient(elog)
@@ -47,18 +48,25 @@ def plot_particle_distributions(ct, ax1, ax2, show_plot=True, is_power=True,
     else:
         color = 'b'
     ax1.loglog(p, fp, linewidth=2, color=color)
+    # ax1.set_xlim([1E-1, 1E2])
+    # ax1.set_ylim([1E-3, 1E8])
+    # ax1.set_xlim([3E-1, 2E1])
+    # ax1.set_ylim([1E-1, 1E8])
     ax1.set_xlim([3E-1, 1E1])
-    # ax1.set_ylim([1E1, 1E7])
+    ax1.set_ylim([1E-1, 1E8])
 
     if is_power:
-        pindex = -4.0
-        sindex, eindex = 70, 95
-        pratio = 1E6
-        fpower = elog[sindex:eindex]**pindex * pratio
-        ax1.loglog(elog[sindex:eindex], fpower, linewidth=2, color='k')
+        # pindex = -3.9
+        # sindex, eindex = 50, 127
+        # pratio = 2E7
+        pindex = -5.4
+        sindex, eindex = 50, 75
+        pratio = 2E7
+        fpower = p[sindex:eindex]**pindex * pratio
+        ax1.loglog(p[sindex:eindex], fpower, linewidth=2, color='k')
         power_index = "{%0.1f}" % pindex
         tname = r'$\sim p^{' + power_index + '}$'
-        ax1.text(0.6, 0.7, tname, color='black', fontsize=24,
+        ax1.text(0.72, 0.7, tname, color='black', fontsize=24,
                 horizontalalignment='left', verticalalignment='center',
                 transform = ax1.transAxes)
 
@@ -67,16 +75,22 @@ def plot_particle_distributions(ct, ax1, ax2, show_plot=True, is_power=True,
     ax1.tick_params(labelsize=20)
     
     ax2.loglog(elog, fe, linewidth=2, color=color)
+    # ax2.set_xlim([1E-1, 1E4])
+    # ax2.set_ylim([1E-5, 1E8])
+    # ax2.set_xlim([1E-1, 2E2])
+    # ax2.set_ylim([1E-1, 1E8])
     ax2.set_xlim([1E-1, 1E2])
-    # ax2.set_ylim([1E1, 1E7])
+    ax2.set_ylim([1E-1, 1E8])
 
     if is_power:
-        pindex = -2.5
-        sindex, eindex = 75, 127
-        pratio = 5E5
+        # pindex = -2.45
+        # pratio = 1E7
+        # power_index = "{%0.2f}" % pindex
+        pindex = -3.2
+        pratio = 1E7
+        power_index = "{%0.1f}" % pindex
         fpower = elog[sindex:eindex]**pindex * pratio
         ax2.loglog(elog[sindex:eindex], fpower, linewidth=2, color='k')
-        power_index = "{%0.1f}" % pindex
         tname = r'$\sim \varepsilon^{' + power_index + '}$'
         ax2.text(0.6, 0.7, tname, color='black', fontsize=24,
                 horizontalalignment='left', verticalalignment='center',
@@ -97,7 +111,7 @@ def plot_particle_distributions(ct, ax1, ax2, show_plot=True, is_power=True,
         pass
 
 
-def particle_distributions(ct, is_multi=False):
+def particle_distributions(ct, run_name, is_multi=False):
     """
     """
     xs, ys = 0.15, 0.15
@@ -107,7 +121,7 @@ def particle_distributions(ct, is_multi=False):
     fig2 = plt.figure(figsize=[7, 5])
     ax2 = fig2.add_axes([xs, ys, w1, h1])
 
-    fdir = '../img/spectrum/'
+    fdir = '../img/spectrum/' + run_name + '/'
     mkdir_p(fdir)
 
     ntp = 109
@@ -116,12 +130,12 @@ def particle_distributions(ct, is_multi=False):
             color = plt.cm.jet(ct/float(ntp), 1)
             kwargs = {"color": color}
             is_power = False if ct < ntp - 1 else True
-            plot_particle_distributions(ct, ax1, ax2, show_plot=False,
+            plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=False,
                                         is_power=is_power, **kwargs)
         fp_name = 'fp_time.eps'
         fe_name = 'fe_time.eps'
     else:
-        plot_particle_distributions(ct, ax1, ax2)
+        plot_particle_distributions(ct, ax1, ax2, run_name)
         fp_name = 'fp_' + str(ct) + '.eps'
         fe_name = 'fe_' + str(ct) + '.eps'
 
@@ -131,14 +145,14 @@ def particle_distributions(ct, is_multi=False):
     plt.show()
 
 
-def plot_spatial_distributions(ct, nx, ny):
+def plot_spatial_distributions(ct, nx, ny, run_name):
     """
     """
     fig = plt.figure(figsize=[10, 10])
     xs0, ys0 = 0.1, 0.55
     w1, h1 = 0.4, 0.4
     hgap, vgap = 0.02, 0.02
-    fname = '../data/fxy-' + str(ct).zfill(4) + '.dat'
+    fname = '../data/' + run_name + '/fxy-' + str(ct).zfill(4) + '.dat'
     data = np.genfromtxt(fname)
 
     axs = [None] * 4
@@ -181,13 +195,70 @@ def plot_spatial_distributions(ct, nx, ny):
     cbar1 = fig.colorbar(ims[0], cax=cbar_ax)
     cbar1.ax.tick_params(labelsize=16)
 
-    fdir = '../img/nrho/'
+    fdir = '../img/nrho/' + run_name + '/'
     mkdir_p(fdir)
     fname = fdir + 'nrho_' + str(ct) + '.jpg'
-    fig.savefig(fname, dpi=300)
+    fig.savefig(fname, dpi=200)
 
     plt.close()
     # plt.show()
+
+
+def spatial_distributions(ct, nx, ny, run_name):
+    """
+    """
+    fig = plt.figure(figsize=[12, 6])
+    xs0, ys0 = 0.07, 0.15
+    w1, h1 = 0.4, 0.8
+    hgap, vgap = 0.05, 0.02
+    fname = '../data/' + run_name + '/fxy-' + str(ct).zfill(4) + '.dat'
+    data = np.genfromtxt(fname)
+
+    axs = [None] * 2
+    ims = [None] * 2
+    ns = [1, 2]
+    xmin, xmax = 0, 2
+    ymin, ymax = 0, 2
+    for i in range(2):
+        xs = xs0 + (hgap + w1) * i
+        n = i
+        f0 = data[:, ns[i]]
+        f0 = np.reshape(f0, (nx, ny))
+        f0[-1, :] = f0[0, :]
+        f0 = np.roll(f0, nx/2, axis=0)
+        print "min, max and mean of the data:", np.min(f0), np.max(f0), \
+                np.mean(f0), np.std(f0)
+        axs[n] = fig.add_axes([xs, ys0, w1, h1])
+        vmin, vmax = 0.01, 1.0
+        ims[n] = axs[n].imshow(f0, cmap=plt.cm.Blues, aspect='auto',
+                origin='lower', extent=[xmin, xmax, ymin, ymax],
+                vmin = vmin, vmax = vmax,
+                interpolation='bicubic')
+        axs[n].tick_params(labelsize=16)
+        el = "{%0.1f}" % (0.5 + ns[i])**2
+        eh = "{%0.1f}" % (1.5 + ns[i])**2
+        title = r'$' + el + r'\leq \varepsilon/\varepsilon_0 <' + eh + '$'
+        axs[n].text(0.02, 0.9, title, color='k', fontsize=20, 
+                bbox=dict(facecolor='none', alpha=1.0, edgecolor='none', pad=10.0),
+                horizontalalignment='left', verticalalignment='bottom',
+                transform = axs[n].transAxes)
+        axs[i].set_xlabel(r'$x$', fontsize=20)
+
+    axs[0].set_ylabel(r'$y$', fontsize=20)
+    axs[1].tick_params(axis='y', labelleft='off')
+
+    cbar_ax = fig.add_axes([xs+w1+0.01, ys0, 0.02, h1])
+    cbar1 = fig.colorbar(ims[0], cax=cbar_ax)
+    cbar1.ax.tick_params(labelsize=16)
+
+    fdir = '../img/nrho/' + run_name + '/'
+    mkdir_p(fdir)
+    fname = fdir + 'nrho_' + str(ct) + '.jpg'
+    fig.savefig(fname, dpi=200)
+
+    # plt.close()
+    plt.show()
+
 
 
 if __name__ == "__main__":
@@ -196,13 +267,12 @@ if __name__ == "__main__":
         ct = int(cmdargs[1])
     else:
         ct = 10
-    # plot_momentrum_distribution(ct)
-    # plot_spatial_distributions(ct, 1024, 1024)
-    # particle_distributions(ct)
-    particle_distributions(ct, is_multi=True)
+    run_name = 'S16E5_beta001_bg0/p133_b000'
+    # particle_distributions(ct, run_name, is_multi=True)
     cts = range(108)
     def processInput(job_id):
         print job_id
         plot_spatial_distributions(job_id, 1024, 1024)
     ncores = multiprocessing.cpu_count()
     # Parallel(n_jobs=ncores)(delayed(processInput)(ct) for ct in cts)
+    spatial_distributions(ct, 1024, 1024, run_name)
