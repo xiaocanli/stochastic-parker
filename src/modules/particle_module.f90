@@ -250,10 +250,10 @@ module particle_module
             dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib4 + (kpara-kperp) * &
                 ((dbx_dy*by+bx*dby_dy)*ib3 - 2.0*bx*by*db_dy*ib4)
         else
-            dkxx_dx = 0.0_dp
-            dkxy_dy = 0.0_dp
-            dkxy_dx = 0.0_dp
-            dkyy_dy = 0.0_dp
+            dkxx_dx = 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib4
+            dkyy_dy = 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib4
+            dkxy_dx = (kpara-kperp) * ((dbx_dx*by+bx*dby_dx)*ib3 - 2.0*bx*by*db_dx*ib4)
+            dkxy_dy = (kpara-kperp) * ((dbx_dy*by+bx*dby_dy)*ib3 - 2.0*bx*by*db_dy*ib4)
         endif
     end subroutine calc_spatial_diffusion_coefficients
 
