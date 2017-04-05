@@ -15,8 +15,8 @@
 #  Shell commands
 date
 echo '*** Staring Parallel Job ***'
-source module_intel_lanl.sh
-./diffusion.sh
+source module_lanl_grizzly.sh
+./diffusion1.sh
 
 # restart restart0/restart
 date
