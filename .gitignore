@@ -8,3 +8,6 @@ data_vdist_2d/
 img/
 lib/
 *.exec
+diffusion[0-9].sh
+outfile
+*.map
