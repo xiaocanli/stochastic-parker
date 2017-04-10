@@ -1,0 +1,29 @@
+language: generic
+
+sudo: false
+
+cache:
+  apt: true
+  pip: true
+  directories:
+    - $HOME/.cache/pip
+    - $HOME/.local
+
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - gfortran-6
+      - openmpi
+      - binutils
+      - python-pip
+      - cmake
+
+before_install:
+  - pip install --user --upgrade FoBiS.py
+  - source ./config/install_flap.sh
+  - source ./config/install_mt_stream.sh
+
+script:
+    - mkdir build && cd build && cmake .. && make && make install
