@@ -9,6 +9,8 @@ else
     tar zxvf mt_stream_f90.tar.gz
     cd mt_stream_f90-1.11
     sed -i -e 's/ifort/gfortran/g' Makefile
+    sed -i -e 's/icpc/g++/g' Makefile
+    sed -i -e 's/FFLAGS := -O3 -g -traceback/FFLAGS := -O3 -g -fno-range-check/g' Makefile
     make
     cd ../../
     test "$?BASH_VERSION" = "0" || eval 'setenv() { export "$1=$2"; }'
