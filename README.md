@@ -8,7 +8,7 @@ stochastic method.
 See our note in [INSTALL.md](INSTALL.md)
 
 
-##License
+## License
 
 This software is licenses under the GNU General Public License (GPL)
 v3.0 or later, which is provided in the file `LICENSE`. It is
