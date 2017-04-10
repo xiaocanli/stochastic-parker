@@ -21,7 +21,16 @@ addons:
       - python-pip
       - cmake
 
-before_install:
+install:
+  - |
+    if [[ ! -d "$HOME/.local/bin" ]]; then
+      mkdir "$HOME/.local/bin"
+    fi
+  - export PATH="$HOME/.local/bin:$PATH"
+  - export FC=/usr/bin/gfortran-6
+  - ln -fs /usr/bin/gfortran-6 "$HOME/.local/bin/gfortran" && gfortran --version
+  - ls -l /usr/bin/gfortran-6
+  - ln -fs /usr/bin/gcov-6 "$HOME/.local/bin/gcov" && gcov --version
   - pip install --user --upgrade FoBiS.py
   - source ./config/install_flap.sh
   - source ./config/install_mt_stream.sh
