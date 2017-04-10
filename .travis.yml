@@ -15,7 +15,8 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - gfortran-6
-      - openmpi
+      - openmpi-bin
+      - libopenmpi-dev
       - binutils
       - python-pip
       - cmake
