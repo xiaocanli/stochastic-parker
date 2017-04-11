@@ -27,7 +27,7 @@ module mhd_data_sli
     end type file_header
 
     type mhd_fields
-        real(dp) :: rho, pres, vx, vy, vz, bx, by, bz, btot
+        real(dp) :: vx, vy, bx, by, btot
     end type mhd_fields
 
     type fields_gradients
@@ -42,19 +42,31 @@ module mhd_data_sli
     type(mhd_fields) :: fields, fields1
     type(fields_gradients) :: gradf, gradf1
 
-    !< Two sets of data for two different time frames
-    real(fp), allocatable, dimension(:, :) :: rho, pres, rho1, pres1
-    real(fp), allocatable, dimension(:, :) :: vx, vy, vz, vx1, vy1, vz1
-    real(fp), allocatable, dimension(:, :) :: bx, by, bz, btot
-    real(fp), allocatable, dimension(:, :) :: bx1, by1, bz1, btot1
-    real(fp), allocatable, dimension(:, :, :) :: mhd_data_single_core
+    type fields_type
+        real(fp) :: vx, vy, vz
+        real(fp) :: bx, by, bz, btot
+        real(fp) :: vx1, vy1, vz1
+        real(fp) :: bx1, by1, bz1, btot1
+        real(fp), dimension(2) :: pad1  ! For 64-byte alignment and future expansion
+    end type fields_type
 
-    !< Gradients of the fields
-    real(fp), allocatable, dimension(:, :) :: dvx_dx, dvy_dy, dvx1_dx, dvy1_dy
-    real(fp), allocatable, dimension(:, :) :: dbx_dx, dbx_dy, dbx1_dx, dbx1_dy
-    real(fp), allocatable, dimension(:, :) :: dby_dx, dby_dy, dby1_dx, dby1_dy
-    real(fp), allocatable, dimension(:, :) :: dbtot_dx, dbtot_dy
-    real(fp), allocatable, dimension(:, :) :: dbtot1_dx, dbtot1_dy
+    type fields_gradients_type
+        real(fp) :: dvx_dx, dvy_dy
+        real(fp) :: dbx_dx, dbx_dy
+        real(fp) :: dby_dx, dby_dy
+        real(fp) :: dbtot_dx, dbtot_dy
+        real(fp) :: dvx1_dx, dvy1_dy
+        real(fp) :: dbx1_dx, dbx1_dy
+        real(fp) :: dby1_dx, dby1_dy
+        real(fp) :: dbtot1_dx, dbtot1_dy
+    end type fields_gradients_type
+
+    type(fields_type), allocatable, dimension(:, :) :: f_array
+    type(fields_gradients_type), allocatable, dimension(:, :) :: fgrad_array
+    !dir$ attributes align:64 :: f_array
+    !dir$ attributes align:64 :: fgrad_array
+
+    real(fp), allocatable, dimension(:, :, :) :: mhd_data_single_core
 
     contains
 
@@ -199,46 +211,24 @@ module mhd_data_sli
         nvar = mhd_config%nvar
         nxs = mhd_config%nxs
         nys = mhd_config%nys
-        allocate(rho(nx, ny))
-        allocate(pres(nx, ny))
-        allocate(vx(nx, ny))
-        allocate(vy(nx, ny))
-        allocate(bx(nx, ny))
-        allocate(by(nx, ny))
-        allocate(btot(nx, ny))
-        allocate(rho1(nx, ny))
-        allocate(pres1(nx, ny))
-        allocate(vx1(nx, ny))
-        allocate(vy1(nx, ny))
-        allocate(bx1(nx, ny))
-        allocate(by1(nx, ny))
-        allocate(btot1(nx, ny))
 
-        rho = 0.0
-        pres = 0.0
-        vx = 0.0
-        vy = 0.0
-        bx = 0.0
-        by = 0.0
-        btot = 0.0
-        rho1 = 0.0
-        pres1 = 0.0
-        vx1 = 0.0
-        vy1 = 0.0
-        bx1 = 0.0
-        by1 = 0.0
-        btot1 = 0.0
+        allocate(f_array(nx, ny))
 
-        if (mhd_config%nvar .gt. 7) then !< rho, p, vx, vy, vz, bx, by, bz, Az
-            allocate(vz(nx, ny))
-            allocate(bz(nx, ny))
-            allocate(vz1(nx, ny))
-            allocate(bz1(nx, ny))
-            vz = 0.0
-            bz = 0.0
-            vz1 = 0.0
-            bz1 = 0.0
-        endif
+        f_array%vx = 0.0
+        f_array%vy = 0.0
+        f_array%vz = 0.0
+        f_array%bx = 0.0
+        f_array%by = 0.0
+        f_array%bz = 0.0
+        f_array%btot = 0.0
+        f_array%vx1 = 0.0
+        f_array%vy1 = 0.0
+        f_array%vz1 = 0.0
+        f_array%bx1 = 0.0
+        f_array%by1 = 0.0
+        f_array%bz1 = 0.0
+        f_array%btot1 = 0.0
+
         allocate(mhd_data_single_core(nxs, nys, nvar))
         mhd_data_single_core = 0.0
     end subroutine init_mhd_data
@@ -251,38 +241,25 @@ module mhd_data_sli
         integer :: nx, ny, nvar, nxs, nys
         nx = mhd_config%nx
         ny = mhd_config%ny
-        allocate(dvx_dx(nx, ny))
-        allocate(dvy_dy(nx, ny))
-        allocate(dvx1_dx(nx, ny))
-        allocate(dvy1_dy(nx, ny))
-        allocate(dbx_dx(nx, ny))
-        allocate(dbx_dy(nx, ny))
-        allocate(dby_dx(nx, ny))
-        allocate(dby_dy(nx, ny))
-        allocate(dbtot_dx(nx, ny))
-        allocate(dbtot_dy(nx, ny))
-        allocate(dbx1_dx(nx, ny))
-        allocate(dbx1_dy(nx, ny))
-        allocate(dby1_dx(nx, ny))
-        allocate(dby1_dy(nx, ny))
-        allocate(dbtot1_dx(nx, ny))
-        allocate(dbtot1_dy(nx, ny))
-        dvx_dx = 0.0
-        dvy_dy = 0.0
-        dvx1_dx = 0.0
-        dvy1_dy = 0.0
-        dbx_dx = 0.0
-        dbx_dy = 0.0
-        dby_dx = 0.0
-        dby_dy = 0.0
-        dbtot_dx = 0.0
-        dbtot_dy = 0.0
-        dbx1_dx = 0.0
-        dbx1_dy = 0.0
-        dby1_dx = 0.0
-        dby1_dy = 0.0
-        dbtot1_dx = 0.0
-        dbtot1_dy = 0.0
+
+        allocate(fgrad_array(nx, ny))
+
+        fgrad_array%dvx_dx = 0.0
+        fgrad_array%dvy_dy = 0.0
+        fgrad_array%dbx_dx = 0.0
+        fgrad_array%dbx_dy = 0.0
+        fgrad_array%dby_dx = 0.0
+        fgrad_array%dby_dy = 0.0
+        fgrad_array%dbtot_dx = 0.0
+        fgrad_array%dbtot_dy = 0.0
+        fgrad_array%dvx1_dx = 0.0
+        fgrad_array%dvy1_dy = 0.0
+        fgrad_array%dbx1_dx = 0.0
+        fgrad_array%dbx1_dy = 0.0
+        fgrad_array%dby1_dx = 0.0
+        fgrad_array%dby1_dy = 0.0
+        fgrad_array%dbtot1_dx = 0.0
+        fgrad_array%dbtot1_dy = 0.0
     end subroutine init_fields_gradients
 
     !---------------------------------------------------------------------------
@@ -290,13 +267,7 @@ module mhd_data_sli
     !---------------------------------------------------------------------------
     subroutine free_mhd_data
         implicit none
-        if (mhd_config%nvar .eq. 7) then
-            deallocate(rho, pres, vx, vy, bx, by, btot)
-            deallocate(rho1, pres1, vx1, vy1, bx1, by1, btot1)
-        else
-            deallocate(rho, pres, vx, vy, vz, bx, by, bz, btot)
-            deallocate(rho1, pres1, vx1, vy1, vz1, bx1, by1, bz1, btot1)
-        endif
+        deallocate(f_array)
         deallocate(mhd_data_single_core)
     end subroutine free_mhd_data
 
@@ -305,10 +276,7 @@ module mhd_data_sli
     !---------------------------------------------------------------------------
     subroutine free_fields_gradients
         implicit none
-        deallocate(dvx_dx, dvy_dy, dvx1_dx, dvy1_dy)
-        deallocate(dbx_dx, dbx_dy, dbx1_dx, dbx1_dy)
-        deallocate(dby_dx, dby_dy, dby1_dx, dby1_dy)
-        deallocate(dbtot_dx, dbtot_dy, dbtot1_dx, dbtot1_dy)
+        deallocate(fgrad_array)
     end subroutine free_fields_gradients
 
     !---------------------------------------------------------------------------
@@ -336,40 +304,33 @@ module mhd_data_sli
             nx1 = n4(3)
             ny1 = n4(4)
             read(fh) mhd_data_single_core
-            if (var_flag == 0) then
-                rho(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 1)
-                pres(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 2)
-            else
-                rho1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 1)
-                pres1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 2)
-            endif
             if (mhd_config%nvar .eq. 7) then
                 if (var_flag == 0) then
-                    vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vx = mhd_data_single_core(:, :, 3)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vy = mhd_data_single_core(:, :, 4)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bx = mhd_data_single_core(:, :, 5)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%by = mhd_data_single_core(:, :, 6)
                 else
-                    vx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    vy1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    bx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    by1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vx1 = mhd_data_single_core(:, :, 3)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vy1 = mhd_data_single_core(:, :, 4)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bx1 = mhd_data_single_core(:, :, 5)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%by1 = mhd_data_single_core(:, :, 6)
                 endif
             else
                 if (var_flag == 0) then
-                    vx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    vy(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    vz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    bx(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
-                    by(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
-                    bz(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vx = mhd_data_single_core(:, :, 3)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vy = mhd_data_single_core(:, :, 4)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vz = mhd_data_single_core(:, :, 5)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bx = mhd_data_single_core(:, :, 6)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%by = mhd_data_single_core(:, :, 7)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bz = mhd_data_single_core(:, :, 8)
                 else
-                    vx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    vy1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    vz1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    bx1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
-                    by1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
-                    bz1(ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vx1 = mhd_data_single_core(:, :, 3)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vy1 = mhd_data_single_core(:, :, 4)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%vz1 = mhd_data_single_core(:, :, 5)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bx1 = mhd_data_single_core(:, :, 6)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%by1 = mhd_data_single_core(:, :, 7)
+                    f_array(ix+1:ix+nx1, iy+1:iy+ny1)%bz1 = mhd_data_single_core(:, :, 8)
                 endif
             endif
         enddo
@@ -377,15 +338,15 @@ module mhd_data_sli
         !< Calculate the magnitude of the magnetic field
         if (mhd_config%nvar .eq. 7) then
             if (var_flag == 0) then
-                btot = sqrt(bx**2 + by**2)
+                f_array%btot = sqrt(f_array%bx**2 + f_array%by**2)
             else
-                btot1 = sqrt(bx1**2 + by1**2)
+                f_array%btot1 = sqrt(f_array%bx1**2 + f_array%by1**2)
             endif
         else
             if (var_flag == 0) then
-                btot = sqrt(bx**2 + by**2 + bz**2)
+                f_array%btot = sqrt(f_array%bx**2 + f_array%by**2 + f_array%bz**2)
             else
-                btot1 = sqrt(bx1**2 + by1**2 + bz1**2)
+                f_array%btot1 = sqrt(f_array%bx1**2 + f_array%by1**2 + f_array%bz1**2)
             endif
         endif
         close(fh)
@@ -411,61 +372,61 @@ module mhd_data_sli
         ny1 = ny - 1
         ny2 = ny - 2
         if (var_flag == 0) then
-            dvx_dx(2:nx1, :) = (vx(3:nx, :) - vx(1:nx2, :)) * idxh
-            dvx_dx(1, :) = (-3.0*vx(1, :) + 4.0*vx(2, :) - vx(3, :)) * idxh
-            dvx_dx(nx, :) = (3.0*vx(nx, :) - 4.0*vx(nx1, :) + vx(nx2, :)) * idxh
-            dvy_dy(:, 2:ny1) = (vy(:, 3:ny)-vy(:, 1:ny2)) * idyh
-            dvy_dy(:, 1) = (-3.0*vy(:, 1) + 4.0*vy(:, 2) - vy(:, 3)) * idyh
-            dvy_dy(:, ny) = (3.0*vy(:, ny) - 4.0*vy(:, ny1) + vy(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dvx_dx = (f_array(3:nx, :)%vx - f_array(1:nx2, :)%vx) * idxh
+            fgrad_array(1, :)%dvx_dx = (-3.0*f_array(1, :)%vx + 4.0*f_array(2, :)%vx - f_array(3, :)%vx) * idxh
+            fgrad_array(nx, :)%dvx_dx = (3.0*f_array(nx, :)%vx - 4.0*f_array(nx1, :)%vx + f_array(nx2, :)%vx) * idxh
+            fgrad_array(:, 2:ny1)%dvy_dy = (f_array(:, 3:ny)%vy - f_array(:, 1:ny2)%vy) * idyh
+            fgrad_array(:, 1)%dvy_dy = (-3.0*f_array(:, 1)%vy + 4.0*f_array(:, 2)%vy - f_array(:, 3)%vy) * idyh
+            fgrad_array(:, ny)%dvy_dy = (3.0*f_array(:, ny)%vy - 4.0*f_array(:, ny1)%vy + f_array(:, ny2)%vy) * idyh
 
-            dbx_dx(2:nx1, :) = (bx(3:nx, :) - bx(1:nx2, :)) * idxh
-            dbx_dx(1, :) = (-3.0*bx(1, :) + 4.0*bx(2, :) - bx(3, :)) * idxh
-            dbx_dx(nx, :) = (3.0*bx(nx, :) - 4.0*bx(nx1, :) + bx(nx2, :)) * idxh
-            dbx_dy(:, 2:ny1) = (bx(:, 3:ny)-bx(:, 1:ny2)) * idyh
-            dbx_dy(:, 1) = (-3.0*bx(:, 1) + 4.0*bx(:, 2) - bx(:, 3)) * idyh
-            dbx_dy(:, ny) = (3.0*bx(:, ny) - 4.0*bx(:, ny1) + bx(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dbx_dx = (f_array(3:nx, :)%bx - f_array(1:nx2, :)%bx) * idxh
+            fgrad_array(1, :)%dbx_dx = (-3.0*f_array(1, :)%bx + 4.0*f_array(2, :)%bx - f_array(3, :)%bx) * idxh
+            fgrad_array(nx, :)%dbx_dx = (3.0*f_array(nx, :)%bx - 4.0*f_array(nx1, :)%bx + f_array(nx2, :)%bx) * idxh
+            fgrad_array(:, 2:ny1)%dbx_dy = (f_array(:, 3:ny)%bx-f_array(:, 1:ny2)%bx) * idyh
+            fgrad_array(:, 1)%dbx_dy = (-3.0*f_array(:, 1)%bx + 4.0*f_array(:, 2)%bx - f_array(:, 3)%bx) * idyh
+            fgrad_array(:, ny)%dbx_dy = (3.0*f_array(:, ny)%bx - 4.0*f_array(:, ny1)%bx + f_array(:, ny2)%bx) * idyh
 
-            dby_dx(2:nx1, :) = (by(3:nx, :) - by(1:nx2, :)) * idxh
-            dby_dx(1, :) = (-3.0*by(1, :) + 4.0*by(2, :) - by(3, :)) * idxh
-            dby_dx(nx, :) = (3.0*by(nx, :) - 4.0*by(nx1, :) + by(nx2, :)) * idxh
-            dby_dy(:, 2:ny1) = (by(:, 3:ny)-by(:, 1:ny2)) * idyh
-            dby_dy(:, 1) = (-3.0*by(:, 1) + 4.0*by(:, 2) - by(:, 3)) * idyh
-            dby_dy(:, ny) = (3.0*by(:, ny) - 4.0*by(:, ny1) + by(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dby_dx = (f_array(3:nx, :)%by - f_array(1:nx2, :)%by) * idxh
+            fgrad_array(1, :)%dby_dx = (-3.0*f_array(1, :)%by + 4.0*f_array(2, :)%by - f_array(3, :)%by) * idxh
+            fgrad_array(nx, :)%dby_dx = (3.0*f_array(nx, :)%by - 4.0*f_array(nx1, :)%by + f_array(nx2, :)%by) * idxh
+            fgrad_array(:, 2:ny1)%dby_dy = (f_array(:, 3:ny)%by - f_array(:, 1:ny2)%by) * idyh
+            fgrad_array(:, 1)%dby_dy = (-3.0*f_array(:, 1)%by + 4.0*f_array(:, 2)%by - f_array(:, 3)%by) * idyh
+            fgrad_array(:, ny)%dby_dy = (3.0*f_array(:, ny)%by - 4.0*f_array(:, ny1)%by + f_array(:, ny2)%by) * idyh
 
-            dbtot_dx(2:nx1, :) = (btot(3:nx, :) - btot(1:nx2, :)) * idxh
-            dbtot_dx(1, :) = (-3.0*btot(1, :) + 4.0*btot(2, :) - btot(3, :)) * idxh
-            dbtot_dx(nx, :) = (3.0*btot(nx, :) - 4.0*btot(nx1, :) + btot(nx2, :)) * idxh
-            dbtot_dy(:, 2:ny1) = (btot(:, 3:ny)-btot(:, 1:ny2)) * idyh
-            dbtot_dy(:, 1) = (-3.0*btot(:, 1) + 4.0*btot(:, 2) - btot(:, 3)) * idyh
-            dbtot_dy(:, ny) = (3.0*btot(:, ny) - 4.0*btot(:, ny1) + btot(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dbtot_dx = (f_array(3:nx, :)%btot - f_array(1:nx2, :)%btot) * idxh
+            fgrad_array(1, :)%dbtot_dx = (-3.0*f_array(1, :)%btot + 4.0*f_array(2, :)%btot - f_array(3, :)%btot) * idxh
+            fgrad_array(nx, :)%dbtot_dx = (3.0*f_array(nx, :)%btot - 4.0*f_array(nx1, :)%btot + f_array(nx2, :)%btot) * idxh
+            fgrad_array(:, 2:ny1)%dbtot_dy = (f_array(:, 3:ny)%btot-f_array(:, 1:ny2)%btot) * idyh
+            fgrad_array(:, 1)%dbtot_dy = (-3.0*f_array(:, 1)%btot + 4.0*f_array(:, 2)%btot - f_array(:, 3)%btot) * idyh
+            fgrad_array(:, ny)%dbtot_dy = (3.0*f_array(:, ny)%btot - 4.0*f_array(:, ny1)%btot + f_array(:, ny2)%btot) * idyh
         else
-            dvx1_dx(2:nx1, :) = (vx1(3:nx, :) - vx1(1:nx2, :)) * idxh
-            dvx1_dx(1, :) = (-3.0*vx1(1, :) + 4.0*vx1(2, :) - vx1(3, :)) * idxh
-            dvx1_dx(nx, :) = (3.0*vx1(nx, :) - 4.0*vx1(nx1, :) + vx1(nx2, :)) * idxh
-            dvy1_dy(:, 2:ny1) = (vy1(:, 3:ny)-vy1(:, 1:ny2)) * idyh
-            dvy1_dy(:, 1) = (-3.0*vy1(:, 1) + 4.0*vy1(:, 2) - vy1(:, 3)) * idyh
-            dvy1_dy(:, ny) = (3.0*vy1(:, ny) - 4.0*vy1(:, ny1) + vy1(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dvx1_dx = (f_array(3:nx, :)%vx1 - f_array(1:nx2, :)%vx1) * idxh
+            fgrad_array(1, :)%dvx1_dx = (-3.0*f_array(1, :)%vx1 + 4.0*f_array(2, :)%vx1 - f_array(3, :)%vx1) * idxh
+            fgrad_array(nx, :)%dvx1_dx = (3.0*f_array(nx, :)%vx1 - 4.0*f_array(nx1, :)%vx1 + f_array(nx2, :)%vx1) * idxh
+            fgrad_array(:, 2:ny1)%dvy1_dy = (f_array(:, 3:ny)%vy1-f_array(:, 1:ny2)%vy1) * idyh
+            fgrad_array(:, 1)%dvy1_dy = (-3.0*f_array(:, 1)%vy1 + 4.0*f_array(:, 2)%vy1 - f_array(:, 3)%vy1) * idyh
+            fgrad_array(:, ny)%dvy1_dy = (3.0*f_array(:, ny)%vy1 - 4.0*f_array(:, ny1)%vy1 + f_array(:, ny2)%vy1) * idyh
 
-            dbx1_dx(2:nx1, :) = (bx1(3:nx, :) - bx1(1:nx2, :)) * idxh
-            dbx1_dx(1, :) = (-3.0*bx1(1, :) + 4.0*bx1(2, :) - bx1(3, :)) * idxh
-            dbx1_dx(nx, :) = (3.0*bx1(nx, :) - 4.0*bx1(nx1, :) + bx1(nx2, :)) * idxh
-            dbx1_dy(:, 2:ny1) = (bx1(:, 3:ny)-bx1(:, 1:ny2)) * idyh
-            dbx1_dy(:, 1) = (-3.0*bx1(:, 1) + 4.0*bx1(:, 2) - bx1(:, 3)) * idyh
-            dbx1_dy(:, ny) = (3.0*bx1(:, ny) - 4.0*bx1(:, ny1) + bx1(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dbx1_dx = (f_array(3:nx, :)%bx1 - f_array(1:nx2, :)%bx1) * idxh
+            fgrad_array(1, :)%dbx1_dx = (-3.0*f_array(1, :)%bx1 + 4.0*f_array(2, :)%bx1 - f_array(3, :)%bx1) * idxh
+            fgrad_array(nx, :)%dbx1_dx = (3.0*f_array(nx, :)%bx1 - 4.0*f_array(nx1, :)%bx1 + f_array(nx2, :)%bx1) * idxh
+            fgrad_array(:, 2:ny1)%dbx1_dy = (f_array(:, 3:ny)%bx1-f_array(:, 1:ny2)%bx1) * idyh
+            fgrad_array(:, 1)%dbx1_dy = (-3.0*f_array(:, 1)%bx1 + 4.0*f_array(:, 2)%bx1 - f_array(:, 3)%bx1) * idyh
+            fgrad_array(:, ny)%dbx1_dy = (3.0*f_array(:, ny)%bx1 - 4.0*f_array(:, ny1)%bx1 + f_array(:, ny2)%bx1) * idyh
 
-            dby1_dx(2:nx1, :) = (by1(3:nx, :) - by1(1:nx2, :)) * idxh
-            dby1_dx(1, :) = (-3.0*by1(1, :) + 4.0*by1(2, :) - by1(3, :)) * idxh
-            dby1_dx(nx, :) = (3.0*by1(nx, :) - 4.0*by1(nx1, :) + by1(nx2, :)) * idxh
-            dby1_dy(:, 2:ny1) = (by1(:, 3:ny)-by1(:, 1:ny2)) * idyh
-            dby1_dy(:, 1) = (-3.0*by1(:, 1) + 4.0*by1(:, 2) - by1(:, 3)) * idyh
-            dby1_dy(:, ny) = (3.0*by1(:, ny) - 4.0*by1(:, ny1) + by1(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dby1_dx = (f_array(3:nx, :)%by1 - f_array(1:nx2, :)%by1) * idxh
+            fgrad_array(1, :)%dby1_dx = (-3.0*f_array(1, :)%by1 + 4.0*f_array(2, :)%by1 - f_array(3, :)%by1) * idxh
+            fgrad_array(nx, :)%dby1_dx = (3.0*f_array(nx, :)%by1 - 4.0*f_array(nx1, :)%by1 + f_array(nx2, :)%by1) * idxh
+            fgrad_array(:, 2:ny1)%dby1_dy = (f_array(:, 3:ny)%by1-f_array(:, 1:ny2)%by1) * idyh
+            fgrad_array(:, 1)%dby1_dy = (-3.0*f_array(:, 1)%by1 + 4.0*f_array(:, 2)%by1 - f_array(:, 3)%by1) * idyh
+            fgrad_array(:, ny)%dby1_dy = (3.0*f_array(:, ny)%by1 - 4.0*f_array(:, ny1)%by1 + f_array(:, ny2)%by1) * idyh
 
-            dbtot1_dx(2:nx1, :) = (btot1(3:nx, :) - btot1(1:nx2, :)) * idxh
-            dbtot1_dx(1, :) = (-3.0*btot1(1, :) + 4.0*btot1(2, :) - btot1(3, :)) * idxh
-            dbtot1_dx(nx, :) = (3.0*btot1(nx, :) - 4.0*btot1(nx1, :) + btot1(nx2, :)) * idxh
-            dbtot1_dy(:, 2:ny1) = (btot1(:, 3:ny)-btot1(:, 1:ny2)) * idyh
-            dbtot1_dy(:, 1) = (-3.0*btot1(:, 1) + 4.0*btot1(:, 2) - btot1(:, 3)) * idyh
-            dbtot1_dy(:, ny) = (3.0*btot1(:, ny) - 4.0*btot1(:, ny1) + btot1(:, ny2)) * idyh
+            fgrad_array(2:nx1, :)%dbtot1_dx = (f_array(3:nx, :)%btot1 - f_array(1:nx2, :)%btot1) * idxh
+            fgrad_array(1, :)%dbtot1_dx = (-3.0*f_array(1, :)%btot1 + 4.0*f_array(2, :)%btot1 - f_array(3, :)%btot1) * idxh
+            fgrad_array(nx, :)%dbtot1_dx = (3.0*f_array(nx, :)%btot1 - 4.0*f_array(nx1, :)%btot1 + f_array(nx2, :)%btot1) * idxh
+            fgrad_array(:, 2:ny1)%dbtot1_dy = (f_array(:, 3:ny)%btot1-f_array(:, 1:ny2)%btot1) * idyh
+            fgrad_array(:, 1)%dbtot1_dy = (-3.0*f_array(:, 1)%btot1 + 4.0*f_array(:, 2)%btot1 - f_array(:, 3)%btot1) * idyh
+            fgrad_array(:, ny)%dbtot1_dy = (3.0*f_array(:, ny)%btot1 - 4.0*f_array(:, ny1)%btot1 + f_array(:, ny2)%btot1) * idyh
         endif
     end subroutine calc_fields_gradients
 
@@ -482,60 +443,136 @@ module mhd_data_sli
         implicit none
         real(dp), intent(in) :: rx, ry, rt
         integer, intent(in) :: ix, iy
-        real(dp) :: rx1, ry1, rt1, w(2,2)
+        real(dp) :: rx1, ry1, rt1, w1, w2, w3, w4
         integer :: ix1, iy1
         rx1 = 1.0_dp - rx
         ry1 = 1.0_dp - ry
         rt1 = 1.0_dp - rt
         ix1 = ix + 1
         iy1 = iy + 1
-        w(1, 1) = rx1 * ry1
-        w(2, 1) = rx * ry1
-        w(1, 2) = rx1 * ry
-        w(2, 2) = rx * ry
+        w1 = rx1 * ry1
+        w2 = rx * ry1
+        w3 = rx1 * ry
+        w4 = rx * ry
 
-        fields%rho  = sum(rho(ix:ix1, iy:iy1) * w)
-        fields%pres = sum(pres(ix:ix1, iy:iy1) * w)
-        fields%vx   = sum(vx(ix:ix1, iy:iy1) * w)
-        fields%vy   = sum(vy(ix:ix1, iy:iy1) * w)
-        fields%bx   = sum(bx(ix:ix1, iy:iy1) * w)
-        fields%by   = sum(by(ix:ix1, iy:iy1) * w)
-        fields%btot = sum(btot(ix:ix1, iy:iy1) * w)
+        fields%vx    = f_array(ix, iy)%vx    * w1
+        fields%vy    = f_array(ix, iy)%vy    * w1
+        fields%bx    = f_array(ix, iy)%bx    * w1
+        fields%by    = f_array(ix, iy)%by    * w1
+        fields%btot  = f_array(ix, iy)%btot  * w1
+        fields1%vx   = f_array(ix, iy)%vx1   * w1
+        fields1%vy   = f_array(ix, iy)%vy1   * w1
+        fields1%bx   = f_array(ix, iy)%bx1   * w1
+        fields1%by   = f_array(ix, iy)%by1   * w1
+        fields1%btot = f_array(ix, iy)%btot1 * w1
 
-        fields1%rho  = sum(rho1(ix:ix1, iy:iy1) * w)
-        fields1%pres = sum(pres1(ix:ix1, iy:iy1) * w)
-        fields1%vx   = sum(vx1(ix:ix1, iy:iy1) * w)
-        fields1%vy   = sum(vy1(ix:ix1, iy:iy1) * w)
-        fields1%bx   = sum(bx1(ix:ix1, iy:iy1) * w)
-        fields1%by   = sum(by1(ix:ix1, iy:iy1) * w)
-        fields1%btot = sum(btot1(ix:ix1, iy:iy1) * w)
+        fields%vx    = fields%vx     + f_array(ix1, iy)%vx    * w2
+        fields%vy    = fields%vy     + f_array(ix1, iy)%vy    * w2
+        fields%bx    = fields%bx     + f_array(ix1, iy)%bx    * w2
+        fields%by    = fields%by     + f_array(ix1, iy)%by    * w2
+        fields%btot  = fields%btot   + f_array(ix1, iy)%btot  * w2
+        fields1%vx   = fields1%vx    + f_array(ix1, iy)%vx1   * w2
+        fields1%vy   = fields1%vy    + f_array(ix1, iy)%vy1   * w2
+        fields1%bx   = fields1%bx    + f_array(ix1, iy)%bx1   * w2
+        fields1%by   = fields1%by    + f_array(ix1, iy)%by1   * w2
+        fields1%btot = fields1%btot  + f_array(ix1, iy)%btot1 * w2
+
+        fields%vx    = fields%vx     + f_array(ix, iy1)%vx    * w3
+        fields%vy    = fields%vy     + f_array(ix, iy1)%vy    * w3
+        fields%bx    = fields%bx     + f_array(ix, iy1)%bx    * w3
+        fields%by    = fields%by     + f_array(ix, iy1)%by    * w3
+        fields%btot  = fields%btot   + f_array(ix, iy1)%btot  * w3
+        fields1%vx   = fields1%vx    + f_array(ix, iy1)%vx1   * w3
+        fields1%vy   = fields1%vy    + f_array(ix, iy1)%vy1   * w3
+        fields1%bx   = fields1%bx    + f_array(ix, iy1)%bx1   * w3
+        fields1%by   = fields1%by    + f_array(ix, iy1)%by1   * w3
+        fields1%btot = fields1%btot  + f_array(ix, iy1)%btot1 * w3
+
+        fields%vx    = fields%vx     + f_array(ix1, iy1)%vx    * w4
+        fields%vy    = fields%vy     + f_array(ix1, iy1)%vy    * w4
+        fields%bx    = fields%bx     + f_array(ix1, iy1)%bx    * w4
+        fields%by    = fields%by     + f_array(ix1, iy1)%by    * w4
+        fields%btot  = fields%btot   + f_array(ix1, iy1)%btot  * w4
+        fields1%vx   = fields1%vx    + f_array(ix1, iy1)%vx1   * w4
+        fields1%vy   = fields1%vy    + f_array(ix1, iy1)%vy1   * w4
+        fields1%bx   = fields1%bx    + f_array(ix1, iy1)%bx1   * w4
+        fields1%by   = fields1%by    + f_array(ix1, iy1)%by1   * w4
+        fields1%btot = fields1%btot  + f_array(ix1, iy1)%btot1 * w4
 
         !< Time interpolation
-        fields%rho  = fields1%rho * rt1  + fields%rho * rt
-        fields%pres = fields1%pres * rt1 + fields%pres * rt
         fields%vx   = fields1%vx * rt1 + fields%vx * rt
         fields%vy   = fields1%vy * rt1 + fields%vy * rt
         fields%bx   = fields1%bx * rt1 + fields%bx * rt
         fields%by   = fields1%by * rt1 + fields%by * rt
         fields%btot = fields1%btot * rt1 + fields%btot * rt
 
-        gradf%dvx_dx   = sum(dvx_dx(ix:ix1, iy:iy1) * w)
-        gradf%dvy_dy   = sum(dvy_dy(ix:ix1, iy:iy1) * w)
-        gradf%dbx_dx   = sum(dbx_dx(ix:ix1, iy:iy1) * w)
-        gradf%dbx_dy   = sum(dbx_dy(ix:ix1, iy:iy1) * w)
-        gradf%dby_dx   = sum(dby_dx(ix:ix1, iy:iy1) * w)
-        gradf%dby_dy   = sum(dby_dy(ix:ix1, iy:iy1) * w)
-        gradf%dbtot_dx = sum(dbtot_dx(ix:ix1, iy:iy1) * w)
-        gradf%dbtot_dy = sum(dbtot_dy(ix:ix1, iy:iy1) * w)
+        gradf%dvx_dx    = fgrad_array(ix, iy)%dvx_dx    * w1
+        gradf%dvy_dy    = fgrad_array(ix, iy)%dvy_dy    * w1
+        gradf%dbx_dx    = fgrad_array(ix, iy)%dbx_dx    * w1
+        gradf%dbx_dy    = fgrad_array(ix, iy)%dbx_dy    * w1
+        gradf%dby_dx    = fgrad_array(ix, iy)%dby_dx    * w1
+        gradf%dby_dy    = fgrad_array(ix, iy)%dby_dy    * w1
+        gradf%dbtot_dx  = fgrad_array(ix, iy)%dbtot_dx  * w1
+        gradf%dbtot_dy  = fgrad_array(ix, iy)%dbtot_dy  * w1
+        gradf1%dvx_dx   = fgrad_array(ix, iy)%dvx1_dx   * w1
+        gradf1%dvy_dy   = fgrad_array(ix, iy)%dvy1_dy   * w1
+        gradf1%dbx_dx   = fgrad_array(ix, iy)%dbx1_dx   * w1
+        gradf1%dbx_dy   = fgrad_array(ix, iy)%dbx1_dy   * w1
+        gradf1%dby_dx   = fgrad_array(ix, iy)%dby1_dx   * w1
+        gradf1%dby_dy   = fgrad_array(ix, iy)%dby1_dy   * w1
+        gradf1%dbtot_dx = fgrad_array(ix, iy)%dbtot1_dx * w1
+        gradf1%dbtot_dy = fgrad_array(ix, iy)%dbtot1_dy * w1
 
-        gradf1%dvx_dx   = sum(dvx1_dx(ix:ix1, iy:iy1) * w)
-        gradf1%dvy_dy   = sum(dvy1_dy(ix:ix1, iy:iy1) * w)
-        gradf1%dbx_dx   = sum(dbx1_dx(ix:ix1, iy:iy1) * w)
-        gradf1%dbx_dy   = sum(dbx1_dy(ix:ix1, iy:iy1) * w)
-        gradf1%dby_dx   = sum(dby1_dx(ix:ix1, iy:iy1) * w)
-        gradf1%dby_dy   = sum(dby1_dy(ix:ix1, iy:iy1) * w)
-        gradf1%dbtot_dx = sum(dbtot1_dx(ix:ix1, iy:iy1) * w)
-        gradf1%dbtot_dy = sum(dbtot1_dy(ix:ix1, iy:iy1) * w)
+        gradf%dvx_dx    = gradf%dvx_dx    + fgrad_array(ix1, iy)%dvx_dx    * w2
+        gradf%dvy_dy    = gradf%dvy_dy    + fgrad_array(ix1, iy)%dvy_dy    * w2
+        gradf%dbx_dx    = gradf%dbx_dx    + fgrad_array(ix1, iy)%dbx_dx    * w2
+        gradf%dbx_dy    = gradf%dbx_dy    + fgrad_array(ix1, iy)%dbx_dy    * w2
+        gradf%dby_dx    = gradf%dby_dx    + fgrad_array(ix1, iy)%dby_dx    * w2
+        gradf%dby_dy    = gradf%dby_dy    + fgrad_array(ix1, iy)%dby_dy    * w2
+        gradf%dbtot_dx  = gradf%dbtot_dx  + fgrad_array(ix1, iy)%dbtot_dx  * w2
+        gradf%dbtot_dy  = gradf%dbtot_dy  + fgrad_array(ix1, iy)%dbtot_dy  * w2
+        gradf1%dvx_dx   = gradf1%dvx_dx   + fgrad_array(ix1, iy)%dvx1_dx   * w2
+        gradf1%dvy_dy   = gradf1%dvy_dy   + fgrad_array(ix1, iy)%dvy1_dy   * w2
+        gradf1%dbx_dx   = gradf1%dbx_dx   + fgrad_array(ix1, iy)%dbx1_dx   * w2
+        gradf1%dbx_dy   = gradf1%dbx_dy   + fgrad_array(ix1, iy)%dbx1_dy   * w2
+        gradf1%dby_dx   = gradf1%dby_dx   + fgrad_array(ix1, iy)%dby1_dx   * w2
+        gradf1%dby_dy   = gradf1%dby_dy   + fgrad_array(ix1, iy)%dby1_dy   * w2
+        gradf1%dbtot_dx = gradf1%dbtot_dx + fgrad_array(ix1, iy)%dbtot1_dx * w2
+        gradf1%dbtot_dy = gradf1%dbtot_dy + fgrad_array(ix1, iy)%dbtot1_dy * w2
+
+        gradf%dvx_dx    = gradf%dvx_dx    + fgrad_array(ix, iy1)%dvx_dx    * w3
+        gradf%dvy_dy    = gradf%dvy_dy    + fgrad_array(ix, iy1)%dvy_dy    * w3
+        gradf%dbx_dx    = gradf%dbx_dx    + fgrad_array(ix, iy1)%dbx_dx    * w3
+        gradf%dbx_dy    = gradf%dbx_dy    + fgrad_array(ix, iy1)%dbx_dy    * w3
+        gradf%dby_dx    = gradf%dby_dx    + fgrad_array(ix, iy1)%dby_dx    * w3
+        gradf%dby_dy    = gradf%dby_dy    + fgrad_array(ix, iy1)%dby_dy    * w3
+        gradf%dbtot_dx  = gradf%dbtot_dx  + fgrad_array(ix, iy1)%dbtot_dx  * w3
+        gradf%dbtot_dy  = gradf%dbtot_dy  + fgrad_array(ix, iy1)%dbtot_dy  * w3
+        gradf1%dvx_dx   = gradf1%dvx_dx   + fgrad_array(ix, iy1)%dvx1_dx   * w3
+        gradf1%dvy_dy   = gradf1%dvy_dy   + fgrad_array(ix, iy1)%dvy1_dy   * w3
+        gradf1%dbx_dx   = gradf1%dbx_dx   + fgrad_array(ix, iy1)%dbx1_dx   * w3
+        gradf1%dbx_dy   = gradf1%dbx_dy   + fgrad_array(ix, iy1)%dbx1_dy   * w3
+        gradf1%dby_dx   = gradf1%dby_dx   + fgrad_array(ix, iy1)%dby1_dx   * w3
+        gradf1%dby_dy   = gradf1%dby_dy   + fgrad_array(ix, iy1)%dby1_dy   * w3
+        gradf1%dbtot_dx = gradf1%dbtot_dx + fgrad_array(ix, iy1)%dbtot1_dx * w3
+        gradf1%dbtot_dy = gradf1%dbtot_dy + fgrad_array(ix, iy1)%dbtot1_dy * w3
+
+        gradf%dvx_dx    = gradf%dvx_dx    + fgrad_array(ix1, iy1)%dvx_dx    * w4
+        gradf%dvy_dy    = gradf%dvy_dy    + fgrad_array(ix1, iy1)%dvy_dy    * w4
+        gradf%dbx_dx    = gradf%dbx_dx    + fgrad_array(ix1, iy1)%dbx_dx    * w4
+        gradf%dbx_dy    = gradf%dbx_dy    + fgrad_array(ix1, iy1)%dbx_dy    * w4
+        gradf%dby_dx    = gradf%dby_dx    + fgrad_array(ix1, iy1)%dby_dx    * w4
+        gradf%dby_dy    = gradf%dby_dy    + fgrad_array(ix1, iy1)%dby_dy    * w4
+        gradf%dbtot_dx  = gradf%dbtot_dx  + fgrad_array(ix1, iy1)%dbtot_dx  * w4
+        gradf%dbtot_dy  = gradf%dbtot_dy  + fgrad_array(ix1, iy1)%dbtot_dy  * w4
+        gradf1%dvx_dx   = gradf1%dvx_dx   + fgrad_array(ix1, iy1)%dvx1_dx   * w4
+        gradf1%dvy_dy   = gradf1%dvy_dy   + fgrad_array(ix1, iy1)%dvy1_dy   * w4
+        gradf1%dbx_dx   = gradf1%dbx_dx   + fgrad_array(ix1, iy1)%dbx1_dx   * w4
+        gradf1%dbx_dy   = gradf1%dbx_dy   + fgrad_array(ix1, iy1)%dbx1_dy   * w4
+        gradf1%dby_dx   = gradf1%dby_dx   + fgrad_array(ix1, iy1)%dby1_dx   * w4
+        gradf1%dby_dy   = gradf1%dby_dy   + fgrad_array(ix1, iy1)%dby1_dy   * w4
+        gradf1%dbtot_dx = gradf1%dbtot_dx + fgrad_array(ix1, iy1)%dbtot1_dx * w4
+        gradf1%dbtot_dy = gradf1%dbtot_dy + fgrad_array(ix1, iy1)%dbtot1_dy * w4
 
         !< Time interpolation
         gradf%dvx_dx   = gradf1%dvx_dx * rt1 + gradf%dvx_dx * rt
@@ -553,25 +590,23 @@ module mhd_data_sli
     !---------------------------------------------------------------------------
     subroutine copy_fields
         implicit none
-        rho1 = rho
-        pres1 = pres
-        vx1 = vx
-        vy1 = vy
-        bx1 = bx
-        by1 = by
-        btot1 = btot
+        f_array%vx1 = f_array%vx
+        f_array%vy1 = f_array%vy
+        f_array%bx1 = f_array%bx
+        f_array%by1 = f_array%by
+        f_array%btot1 = f_array%btot
         if (mhd_config%nvar .gt. 7) then
-            vz1 = vz
-            bz1 = bz
+            f_array%vz1 = f_array%vz
+            f_array%bz1 = f_array%bz
         endif
 
-        dvx1_dx = dvx_dx
-        dvy1_dy = dvy_dy
-        dbx1_dx = dbx_dx
-        dby1_dx = dby_dx
-        dbx1_dy = dbx_dy
-        dby1_dy = dby_dy
-        dbtot1_dx = dbtot_dx
-        dbtot1_dy = dbtot_dy
+        fgrad_array%dvx1_dx = fgrad_array%dvx_dx
+        fgrad_array%dvy1_dy = fgrad_array%dvy_dy
+        fgrad_array%dbx1_dx = fgrad_array%dbx_dx
+        fgrad_array%dby1_dx = fgrad_array%dby_dx
+        fgrad_array%dbx1_dy = fgrad_array%dbx_dy
+        fgrad_array%dby1_dy = fgrad_array%dby_dy
+        fgrad_array%dbtot1_dx = fgrad_array%dbtot_dx
+        fgrad_array%dbtot1_dy = fgrad_array%dbtot_dy
     end subroutine copy_fields
 end module mhd_data_sli
