@@ -75,7 +75,7 @@ program stochastic
         endif
         call cpu_time(step2)
         if (mpi_rank == master) then
-            print '("Step ", I0, " takes ", f9.4 " seconds.")', tf, step2 - step1
+            print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
         endif
         step1 = step2
     enddo

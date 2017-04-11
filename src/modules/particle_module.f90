@@ -665,8 +665,8 @@ module particle_module
         use mpi_module
         use mhd_data_sli, only: mhd_config
         implicit none
-        integer :: i, ix, iy
-        real(dp) :: weight, p, ip, xmin, xmax, ymin, ymax
+        integer :: i, ix, iy, ip
+        real(dp) :: weight, p, xmin, xmax, ymin, ymax
 
         xmin = mhd_config%xmin
         xmax = mhd_config%xmax

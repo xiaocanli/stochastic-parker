@@ -45,7 +45,7 @@ module random_number_generator
     !---------------------------------------------------------------------------
     !< Uniform number in [0, 1] with double precision
     !---------------------------------------------------------------------------
-    real(dp) function unif_01
+    real(dp) function unif_01()
         implicit none
         unif_01 = genrand_double1(mts1)
     end function unif_01
@@ -54,7 +54,7 @@ module random_number_generator
     !< Generate two normal random variates with mean 0 and variance 1.
     !< http://en.wikipedia.org/wiki/Marsaglia_polar_method
     !---------------------------------------------------------------------------
-    function two_normals result(rands)
+    function two_normals() result(rands)
         implicit none
         real(dp) :: rands(2), sum_sq
         do
