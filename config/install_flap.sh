@@ -9,5 +9,5 @@ else
     FoBiS.py build -mode static-gnu
     cd -
     test "$?BASH_VERSION" = "0" || eval 'setenv() { export "$1=$2"; }'
-    setenv FLAP_DIR FLAP
+    setenv FLAP_DIR ${PWD}/FLAP
 fi
