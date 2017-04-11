@@ -322,14 +322,14 @@ module particle_module
             MPI_COMM_WORLD, ierr)
         call MPI_BCAST(mag_dependency, 1, MPI_INTEGER, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(pindex, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(p0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(pmin, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(pmax, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(b0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(kpara0, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(kret, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(dt_min, 1, MPI_DOUBLE, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pindex, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(p0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pmin, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(pmax, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(b0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(kpara0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(kret, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(dt_min, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nreduce, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
@@ -710,23 +710,23 @@ module particle_module
             endif
         enddo
         
-        call MPI_REDUCE(fx0, fx0_sum, nx, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(fx0, fx0_sum, nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fy0, fy0_sum, ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(fy0, fy0_sum, ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE, MPI_SUM, master, &
+        call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
     end subroutine calc_particle_distributions
 
