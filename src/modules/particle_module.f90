@@ -45,12 +45,12 @@ module particle_module
     real(dp) :: dx, dy, pmin_log, pmax_log, dp_log
 
     real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3
-    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum
-    real(dp), allocatable, dimension(:) :: fp0, fp0_sum
-    real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
-    real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
-    real(dp), allocatable, dimension(:) :: fx0, fx0_sum
-    real(dp), allocatable, dimension(:) :: fy0, fy0_sum
+    ! real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum
+    real(dp), allocatable, dimension(:) :: fp0 !, fp0_sum
+    real(dp), allocatable, dimension(:, :) :: fp1 !, fp1_sum
+    real(dp), allocatable, dimension(:, :) :: fp2 !, fp2_sum
+    real(dp), allocatable, dimension(:) :: fx0 !, fx0_sum
+    real(dp), allocatable, dimension(:) :: fy0 !, fy0_sum
     real(dp), allocatable, dimension(:) :: parray
 
     contains
@@ -370,7 +370,7 @@ module particle_module
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
             ! dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt1 = min(dym/tmp40, (dym/tmp30)**2)
+            dt2 = min(dym/tmp40, (dym/tmp30)**2)
         else
             dt2 = dt_min
         endif
@@ -592,15 +592,15 @@ module particle_module
         allocate(fp2(npp, ny))
         allocate(fx0(nx))
         allocate(fy0(ny))
-        allocate(f0_sum(nx, ny))
-        allocate(f1_sum(nx, ny))
-        allocate(f2_sum(nx, ny))
-        allocate(f3_sum(nx, ny))
-        allocate(fp0_sum(npp))
-        allocate(fp1_sum(npp, nx))
-        allocate(fp2_sum(npp, ny))
-        allocate(fx0_sum(nx))
-        allocate(fy0_sum(ny))
+        ! allocate(f0_sum(nx, ny))
+        ! allocate(f1_sum(nx, ny))
+        ! allocate(f2_sum(nx, ny))
+        ! allocate(f3_sum(nx, ny))
+        ! allocate(fp0_sum(npp))
+        ! allocate(fp1_sum(npp, nx))
+        ! allocate(fp2_sum(npp, ny))
+        ! allocate(fx0_sum(nx))
+        ! allocate(fy0_sum(ny))
         call clean_particle_distributions
 
         !< Intervals for distributions
@@ -610,13 +610,13 @@ module particle_module
         pmax_log = log10(pmax)
         dp_log = (pmax_log - pmin_log) / (npp - 1)
 
-        if (mpi_rank == master) then
+        ! if (mpi_rank == master) then
             allocate(parray(npp))
             parray = 0.0_dp
             do i = 1, npp
                 parray(i) = 10**(pmin_log + (i-1) * dp_log)
             enddo
-        endif
+        ! endif
     end subroutine init_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -633,15 +633,15 @@ module particle_module
         fp2 = 0.0_dp
         fx0 = 0.0_dp
         fy0 = 0.0_dp
-        f0_sum = 0.0_dp
-        f1_sum = 0.0_dp
-        f2_sum = 0.0_dp
-        f3_sum = 0.0_dp
-        fp0_sum = 0.0_dp
-        fp1_sum = 0.0_dp
-        fp2_sum = 0.0_dp
-        fx0_sum = 0.0_dp
-        fy0_sum = 0.0_dp
+        ! f0_sum = 0.0_dp
+        ! f1_sum = 0.0_dp
+        ! f2_sum = 0.0_dp
+        ! f3_sum = 0.0_dp
+        ! fp0_sum = 0.0_dp
+        ! fp1_sum = 0.0_dp
+        ! fp2_sum = 0.0_dp
+        ! fx0_sum = 0.0_dp
+        ! fy0_sum = 0.0_dp
     end subroutine clean_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -651,11 +651,11 @@ module particle_module
         use mpi_module, only: mpi_rank, master
         implicit none
         deallocate(f0, f1, f2, f3, fp0, fp1, fp2, fx0, fy0)
-        deallocate(f0_sum, f1_sum, f2_sum, f3_sum)
-        deallocate(fp0_sum, fp1_sum, fp2_sum, fx0_sum, fy0_sum)
-        if (mpi_rank == master) then
+        ! deallocate(f0_sum, f1_sum, f2_sum, f3_sum)
+        ! deallocate(fp0_sum, fp1_sum, fp2_sum, fx0_sum, fy0_sum)
+        ! if (mpi_rank == master) then
             deallocate(parray)
-        endif
+        ! endif
     end subroutine free_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -710,24 +710,24 @@ module particle_module
             endif
         enddo
         
-        call MPI_REDUCE(fx0, fx0_sum, nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fy0, fy0_sum, ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(fx0, fx0_sum, nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(fy0, fy0_sum, ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
+        ! call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+        !     MPI_COMM_WORLD, ierr)
     end subroutine calc_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -736,11 +736,12 @@ module particle_module
     !<  iframe: time frame index
     !---------------------------------------------------------------------------
     subroutine distributions_diagnostics(iframe)
+        use constants, only: fp, dp
         use mpi_module
         implicit none
         integer, intent(in) :: iframe
-        integer :: ix, iy, ip, fh
-        character(len=4) :: ctime
+        integer :: ix, iy, ip, fh, pos1
+        character(len=4) :: ctime, mrank
         character(len=64) :: fname
         logical :: dir_e
 
@@ -752,61 +753,57 @@ module particle_module
         call calc_particle_distributions
 
         write (ctime,'(i4.4)') iframe
-        if (mpi_rank .eq. 0) then
-            fh = 13
-            fname = 'data/fx-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do ix = 1, nx
-                write (fh, "(E13.6E2)") fx0_sum(ix)
-            enddo
-            close(fh)
+        write (mrank,'(i4.4)') mpi_rank
+        ! if (mpi_rank .eq. 0) then
+        fh = 13
+        fname = 'data/fx-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) fx0
+        close(fh)
 
-            fh = 14
-            fname = 'data/fy-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do iy = 1, ny
-                write (fh, "(E13.6E2)") fy0_sum(iy)
-            enddo
-            close(fh)
+        fh = 14
+        fname = 'data/fy-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) fy0
+        close(fh)
 
-            fh = 15
-            fname = 'data/fp-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do ip = 1, npp
-                write (fh, "(2E13.6E2)") parray(ip), fp0_sum(ip)
-            enddo
-            close(fh)
+        fh = 15
+        fname = 'data/fp-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) parray
+        pos1 = npp * sizeof(dp) + 1
+        write(fh, pos=pos1) fp0
+        close(fh)
 
-            fh = 16
-            fname = 'data/fpx-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do ix = 1, nx
-                do ip = 1, npp
-                    write (fh, "(2E13.6E2)") fp1_sum(ip, ix)
-                enddo
-            enddo
-            close(fh)
+        fh = 16
+        fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) fp1
+        close(fh)
 
-            fh = 17
-            fname = 'data/fpy-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do iy = 1, ny
-                do ip = 1, npp
-                    write (fh, "(2E13.6E2)") fp2_sum(ip, iy)
-                enddo
-            enddo
-            close(fh)
+        fh = 17
+        fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) fp2
+        close(fh)
 
-            fh = 18
-            fname = 'data/fxy-'//ctime//'.dat'
-            open(fh, file=trim(fname), status='unknown')
-            do iy = 1, ny
-                do ix = 1, nx
-                    write (fh, "(4E13.6E2)") f0_sum(ix, iy), f1_sum(ix, iy),&
-                        f2_sum(ix, iy), f3_sum(ix, iy)
-                enddo
-            enddo
-            close(fh)
-        endif
+        fh = 18
+        fname = 'data/fxy-'//ctime//'_'//mrank//'.dat'
+        open(fh, file=trim(fname), access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) f0
+        pos1 = nx * ny * sizeof(dp) + 1
+        write(fh, pos=pos1) f1
+        pos1 = pos1 + nx * ny * sizeof(dp)
+        write(fh, pos=pos1) f2
+        pos1 = pos1 + nx * ny * sizeof(dp)
+        write(fh, pos=pos1) f3
+        close(fh)
+        ! endif
     end subroutine distributions_diagnostics
 end module particle_module
