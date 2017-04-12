@@ -9,7 +9,7 @@ module mhd_data_sli
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
            free_mhd_data, read_mhd_data, broadcast_mhd_config, &
            init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-           interp_fields, copy_fields, save_mhd_config
+           interp_fields, copy_fields, save_mhd_config, save_organized_mhd_data
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -377,6 +377,28 @@ module mhd_data_sli
         endif
         close(fh)
     end subroutine read_mhd_data
+
+    !---------------------------------------------------------------------------
+    !< Save re-organized MHD data into a file
+    !< Args:
+    !<  filename: file name to get the data
+    !<  var_flag: 0 for f_array1 and other numbers for f_array2.
+    !---------------------------------------------------------------------------
+    subroutine save_organized_mhd_data(filename, var_flag)
+        implicit none
+        character(*), intent(in) :: filename
+        integer, intent(in) :: var_flag
+        integer :: fh
+        fh = 35
+        open(unit=fh, file=filename, access='stream', status='unknown', &
+             form='unformatted', action='write')
+        if (var_flag == 0) then
+            write(fh, pos=1) f_array1
+        else
+            write(fh, pos=1) f_array2
+        endif
+        close(fh)
+    end subroutine save_organized_mhd_data
 
     !---------------------------------------------------------------------------
     !< Calculate the gradients of the MHD data arrays.
