@@ -37,38 +37,24 @@ endif (NOT CMAKE_BUILD_TYPE)
 
 # FFLAGS depend on the compiler
 get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} NAME)
-
 if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
-  # gfortran
-  # set (CMAKE_Fortran_FLAGS_RELEASE "-funroll-all-loops -fno-f2c -O3")
-  # set (CMAKE_Fortran_FLAGS_DEBUG   "-fno-f2c -O0 -g")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -march=native -fimplicit-none \
+  set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -fopenmp -march=native -fimplicit-none \
     -Wline-truncation -fwhole-file -std=f2008 -fall-intrinsics -fPIC -cpp")
-  set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fimplicit-none -Wall \
+  set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fopenmp -fimplicit-none -Wall \
     -Wline-truncation -Wcharacter-truncation -Wsurprising -Waliasing \
     -Wimplicit-interface -Wunused-parameter -fwhole-file -fcheck=all \
     -std=f2008 -pedantic -fbacktrace -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
-  # ifort (untested)
-  #set (CMAKE_Fortran_FLAGS_RELEASE "-f77rtl -O3")
-  # set (CMAKE_Fortran_FLAGS_DEBUG   "-f77rtl -O0 -g")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -no-prec-div -fPIC -cpp")
-  set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -traceback -check all \
+  set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -qopenmp -no-prec-div -fPIC -cpp")
+  set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -qopenmp -traceback -check all \
     -check bounds -check uninit -debug all -check arg_temp_created \
     -fpe0 -ftrapuv -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "ftn.*")
   set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -no-prec-div -fPIC -cpp")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "g77")
-  # g77
   set (CMAKE_Fortran_FLAGS_RELEASE "-funroll-all-loops -fno-f2c -O3 -m32")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-fno-f2c -O0 -g -m32")
-else (Fortran_COMPILER_NAME MATCHES "gfortran.*")
-  message ("CMAKE_Fortran_COMPILER full path: " ${CMAKE_Fortran_COMPILER})
-  message ("Fortran compiler: " ${Fortran_COMPILER_NAME})
-  message ("No optimized Fortran compiler flags are known, we just try -O2...")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-O2")
-  set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g")
 endif (Fortran_COMPILER_NAME MATCHES "gfortran.*")
 
 # Define some directories
@@ -82,7 +68,6 @@ set(CMAKE_Fortran_MODULE_DIRECTORY ${LIB})
 # Add subdirectories
 add_subdirectory(src/modules ${LIB})
 add_subdirectory(src/programs ${BIN})
-#add_subdirectory(src/distribution ${BIN})
 
 # build a CPack driven installer package
 include (InstallRequiredSystemLibraries)
