@@ -17,10 +17,11 @@ program stochastic
     use random_number_generator, only: init_prng, delete_prng
     implicit none
     character(len=256) :: dir_mhd_data
-    character(len=256) :: fname, fname1
+    character(len=256) :: fname1, fname2
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag
+    integer :: interp_flag
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -32,22 +33,24 @@ program stochastic
     call init_prng
 
     write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start
-    write(fname, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start + 1
+    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start + 1
     if (mpi_rank == master) then
         ! call read_mhd_config
-        call read_mhd_config_from_outfile(fname1, fname)
+        call read_mhd_config_from_outfile(fname1, fname2)
     endif
+    
+    interp_flag = 1 ! Two time are needed for interpolation
     call broadcast_mhd_config
-    call init_mhd_data
-    call init_fields_gradients
+    call init_mhd_data(interp_flag)
+    call init_fields_gradients(interp_flag)
     call read_particle_params
 
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(nptl, dt, dist_flag)
     call init_particle_distributions
 
-    call read_mhd_data(fname, var_flag=0)
-    call read_mhd_data(fname1, var_flag=1)
+    call read_mhd_data(fname1, var_flag=0)
+    call read_mhd_data(fname2, var_flag=1)
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
 
@@ -69,9 +72,9 @@ program stochastic
         call distributions_diagnostics(tf)
         call copy_fields
         if (tf < t_end) then
-            write(fname, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf + 1
-            call read_mhd_data(fname, var_flag=0)
-            call calc_fields_gradients(var_flag=0)
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf + 1
+            call read_mhd_data(fname2, var_flag=1)
+            call calc_fields_gradients(var_flag=1)
         endif
         call cpu_time(step2)
         if (mpi_rank == master) then
@@ -82,8 +85,8 @@ program stochastic
 
     call free_particle_distributions
     call free_particles
-    call free_fields_gradients
-    call free_mhd_data
+    call free_fields_gradients(interp_flag)
+    call free_mhd_data(interp_flag)
 
     call cpu_time(finish)
     if (mpi_rank == master) then

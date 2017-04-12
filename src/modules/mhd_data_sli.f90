@@ -67,10 +67,12 @@ module mhd_data_sli
 
     ! type(fields_type), allocatable, dimension(:, :) :: f_array
     ! type(fields_gradients_type), allocatable, dimension(:, :) :: fgrad_array
-    real(fp), allocatable, dimension(:, :, :) :: f_array
-    real(fp), allocatable, dimension(:, :, :) :: fgrad_array
-    !dir$ attributes align:64 :: f_array
-    !dir$ attributes align:64 :: fgrad_array
+    real(fp), allocatable, dimension(:, :, :) :: f_array1, f_array2 ! Current,next
+    real(fp), allocatable, dimension(:, :, :) :: fgrad_array1, fgrad_array2
+    !dir$ attributes align:64 :: f_array1
+    !dir$ attributes align:64 :: f_array2
+    !dir$ attributes align:64 :: fgrad_array1
+    !dir$ attributes align:64 :: fgrad_array2
 
     real(fp), allocatable, dimension(:, :, :) :: mhd_data_single_core
 
@@ -222,9 +224,12 @@ module mhd_data_sli
 
     !---------------------------------------------------------------------------
     !< Initialize MHD data arrays. Note that we do not read Az.
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_mhd_data
+    subroutine init_mhd_data(interp_flag)
         implicit none
+        integer, intent(in) :: interp_flag
         integer :: nx, ny, nvar, nxs, nys
         nx = mhd_config%nx
         ny = mhd_config%ny
@@ -232,9 +237,14 @@ module mhd_data_sli
         nxs = mhd_config%nxs
         nys = mhd_config%nys
 
-        ! vx, vy, vz, pad1, bx, by, bz, btot, vx1, vy1, vz1, pad2, bx1, by1, bz1, btot1
-        allocate(f_array(16, nx, ny))
-        f_array = 0.0
+        ! vx, vy, vz, pad1, bx, by, bz, btot
+        allocate(f_array1(8, nx, ny))
+        f_array1 = 0.0
+        ! Next time step
+        if (interp_flag == 1) then
+            allocate(f_array2(8, nx, ny))
+            f_array2 = 0.0
+        endif
 
         allocate(mhd_data_single_core(nxs, nys, nvar))
         mhd_data_single_core = 0.0
@@ -242,34 +252,53 @@ module mhd_data_sli
 
     !---------------------------------------------------------------------------
     !< Initialize the gradients of the MHD data arrays.
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_fields_gradients
+    subroutine init_fields_gradients(interp_flag)
         implicit none
+        integer, intent(in) :: interp_flag
         integer :: nx, ny, nvar, nxs, nys
         nx = mhd_config%nx
         ny = mhd_config%ny
 
         ! dvx_dx, dvy_dy dbx_dx, dbx_dy dby_dx, dby_dy dbtot_dx, dbtot_dy
-        ! dvx1_dx, dvy1_dy dbx1_dx, dbx1_dy dby1_dx, dby1_dy dbtot1_dx, dbtot1_dy
-        allocate(fgrad_array(16, nx, ny))
-        fgrad_array = 0.0
+        allocate(fgrad_array1(8, nx, ny))
+        fgrad_array1 = 0.0
+        ! Next time step
+        if (interp_flag == 1) then
+            allocate(fgrad_array2(8, nx, ny))
+            fgrad_array2 = 0.0
+        endif
     end subroutine init_fields_gradients
 
     !---------------------------------------------------------------------------
     !< Free MHD data arrays
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_mhd_data
+    subroutine free_mhd_data(interp_flag)
         implicit none
-        deallocate(f_array)
+        integer, intent(in) :: interp_flag
+        deallocate(f_array1)
+        if (interp_flag == 1) then
+            deallocate(f_array2)
+        endif
         deallocate(mhd_data_single_core)
     end subroutine free_mhd_data
 
     !---------------------------------------------------------------------------
     !< Free the gradients of the MHD data arrays.
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_fields_gradients
+    subroutine free_fields_gradients(interp_flag)
         implicit none
-        deallocate(fgrad_array)
+        integer, intent(in) :: interp_flag
+        deallocate(fgrad_array1)
+        if (interp_flag == 1) then
+            deallocate(fgrad_array2)
+        endif
     end subroutine free_fields_gradients
 
     !---------------------------------------------------------------------------
@@ -277,7 +306,7 @@ module mhd_data_sli
     !< Args:
     !<  filename: file name to get the data
     !<  var_flag: indicating which set of variables to save the data. 0 for
-    !<            rho, pres etc. and other numbers for rho1, pres1 etc.
+    !<            f_array1 and other numbers for f_array2.
     !---------------------------------------------------------------------------
     subroutine read_mhd_data(filename, var_flag)
         implicit none
@@ -299,31 +328,31 @@ module mhd_data_sli
             read(fh) mhd_data_single_core
             if (mhd_config%nvar .eq. 7) then
                 if (var_flag == 0) then
-                    f_array(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    f_array(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    f_array(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    f_array(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array1(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    f_array1(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    f_array1(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    f_array1(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
                 else
-                    f_array(9,  ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    f_array(10, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    f_array(13, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    f_array(14, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array2(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    f_array2(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    f_array2(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    f_array2(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
                 endif
             else
                 if (var_flag == 0) then
-                    f_array(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    f_array(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    f_array(3, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    f_array(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
-                    f_array(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
-                    f_array(7, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                    f_array1(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    f_array1(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    f_array1(3, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    f_array1(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array1(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
+                    f_array1(7, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
                 else
-                    f_array(9,  ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
-                    f_array(10, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
-                    f_array(11, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
-                    f_array(13, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
-                    f_array(14, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
-                    f_array(15, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
+                    f_array2(1, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 3)
+                    f_array2(2, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 4)
+                    f_array2(3, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 5)
+                    f_array2(5, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 6)
+                    f_array2(6, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 7)
+                    f_array2(7, ix+1:ix+nx1, iy+1:iy+ny1) = mhd_data_single_core(:, :, 8)
                 endif
             endif
         enddo
@@ -331,19 +360,19 @@ module mhd_data_sli
         !< Calculate the magnitude of the magnetic field
         if (mhd_config%nvar .eq. 7) then
             if (var_flag == 0) then
-                f_array(8, :, :) = sqrt(f_array(5, :, :)**2 + f_array(6, :, :)**2)
+                f_array1(8, :, :) = sqrt(f_array1(5, :, :)**2 + f_array1(6, :, :)**2)
             else
-                f_array(16, :, :) = sqrt(f_array(13, :, :)**2 + f_array(14, :, :)**2)
+                f_array2(8, :, :) = sqrt(f_array2(5, :, :)**2 + f_array2(6, :, :)**2)
             endif
         else
             if (var_flag == 0) then
-                f_array(8, :, :) = sqrt(f_array(5, :, :)**2 + &
-                                        f_array(6, :, :)**2 + &
-                                        f_array(7, :, :)**2)
+                f_array1(8, :, :) = sqrt(f_array1(5, :, :)**2 + &
+                                         f_array1(6, :, :)**2 + &
+                                         f_array1(7, :, :)**2)
             else
-                f_array(16, :, :) = sqrt(f_array(13, :, :)**2 + &
-                                         f_array(14, :, :)**2 + &
-                                         f_array(15, :, :)**2)
+                f_array2(8, :, :) = sqrt(f_array2(5, :, :)**2 + &
+                                         f_array2(6, :, :)**2 + &
+                                         f_array2(7, :, :)**2)
             endif
         endif
         close(fh)
@@ -353,7 +382,7 @@ module mhd_data_sli
     !< Calculate the gradients of the MHD data arrays.
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for dvx_dx etc. and other numbers for dvx1_dx etc.
+    !<            0 for fgrad_array1 and other numbers for fgrad_array2.
     !---------------------------------------------------------------------------
     subroutine calc_fields_gradients(var_flag)
         implicit none
@@ -369,149 +398,149 @@ module mhd_data_sli
         ny1 = ny - 1
         ny2 = ny - 2
         if (var_flag == 0) then
-            fgrad_array(1, 2:nx1, :) =  (f_array(1, 3:nx, :) - &
-                                         f_array(1, 1:nx2, :)) * idxh
-            fgrad_array(1, 1, :) = (-3.0*f_array(1, 1, :) + &
-                                     4.0*f_array(1, 2, :) - &
-                                         f_array(1, 3, :)) * idxh
-            fgrad_array(1, nx, :) = (3.0*f_array(1, nx, :) - &
-                                     4.0*f_array(1, nx1, :) + &
-                                         f_array(1, nx2, :)) * idxh
+            fgrad_array1(1, 2:nx1, :) =  (f_array1(1, 3:nx, :) - &
+                                          f_array1(1, 1:nx2, :)) * idxh
+            fgrad_array1(1, 1, :) = (-3.0*f_array1(1, 1, :) + &
+                                      4.0*f_array1(1, 2, :) - &
+                                          f_array1(1, 3, :)) * idxh
+            fgrad_array1(1, nx, :) = (3.0*f_array1(1, nx, :) - &
+                                      4.0*f_array1(1, nx1, :) + &
+                                          f_array1(1, nx2, :)) * idxh
 
-            fgrad_array(2, :, 2:ny1) =  (f_array(2, :, 3:ny) - &
-                                         f_array(2, :, 1:ny2)) * idyh
-            fgrad_array(2, :, 1) = (-3.0*f_array(2, :, 1) + &
-                                     4.0*f_array(2, :, 2) - &
-                                         f_array(2, :, 3)) * idyh
-            fgrad_array(2, :, ny) = (3.0*f_array(2, :, ny) - &
-                                     4.0*f_array(2, :, ny1) + &
-                                         f_array(2, :, ny2)) * idyh
+            fgrad_array1(2, :, 2:ny1) =  (f_array1(2, :, 3:ny) - &
+                                          f_array1(2, :, 1:ny2)) * idyh
+            fgrad_array1(2, :, 1) = (-3.0*f_array1(2, :, 1) + &
+                                      4.0*f_array1(2, :, 2) - &
+                                          f_array1(2, :, 3)) * idyh
+            fgrad_array1(2, :, ny) = (3.0*f_array1(2, :, ny) - &
+                                      4.0*f_array1(2, :, ny1) + &
+                                          f_array1(2, :, ny2)) * idyh
 
-            fgrad_array(3, 2:nx1, :) =  (f_array(5, 3:nx, :) - &
-                                         f_array(5, 1:nx2, :)) * idxh
-            fgrad_array(3, 1, :) = (-3.0*f_array(5, 1, :) + &
-                                     4.0*f_array(5, 2, :) - &
-                                         f_array(5, 3, :)) * idxh
-            fgrad_array(3, nx, :) = (3.0*f_array(5, nx, :) - &
-                                     4.0*f_array(5, nx1, :) + &
-                                         f_array(5, nx2, :)) * idxh
+            fgrad_array1(3, 2:nx1, :) =  (f_array1(5, 3:nx, :) - &
+                                          f_array1(5, 1:nx2, :)) * idxh
+            fgrad_array1(3, 1, :) = (-3.0*f_array1(5, 1, :) + &
+                                      4.0*f_array1(5, 2, :) - &
+                                          f_array1(5, 3, :)) * idxh
+            fgrad_array1(3, nx, :) = (3.0*f_array1(5, nx, :) - &
+                                      4.0*f_array1(5, nx1, :) + &
+                                          f_array1(5, nx2, :)) * idxh
 
-            fgrad_array(4, :, 2:ny1) =  (f_array(5, :, 3:ny) - &
-                                         f_array(5, :, 1:ny2)) * idyh
-            fgrad_array(4, :, 1) = (-3.0*f_array(5, :, 1) + &
-                                     4.0*f_array(5, :, 2) - &
-                                         f_array(5, :, 3)) * idyh
-            fgrad_array(4, :, ny) = (3.0*f_array(5, :, ny) - &
-                                     4.0*f_array(5, :, ny1) + &
-                                         f_array(5, :, ny2)) * idyh
+            fgrad_array1(4, :, 2:ny1) =  (f_array1(5, :, 3:ny) - &
+                                          f_array1(5, :, 1:ny2)) * idyh
+            fgrad_array1(4, :, 1) = (-3.0*f_array1(5, :, 1) + &
+                                      4.0*f_array1(5, :, 2) - &
+                                          f_array1(5, :, 3)) * idyh
+            fgrad_array1(4, :, ny) = (3.0*f_array1(5, :, ny) - &
+                                      4.0*f_array1(5, :, ny1) + &
+                                          f_array1(5, :, ny2)) * idyh
 
-            fgrad_array(5, 2:nx1, :) =  (f_array(6, 3:nx, :) - &
-                                         f_array(6, 1:nx2, :)) * idxh
-            fgrad_array(5, 1, :) = (-3.0*f_array(6, 1, :) + &
-                                     4.0*f_array(6, 2, :) - &
-                                         f_array(6, 3, :)) * idxh
-            fgrad_array(5, nx, :) = (3.0*f_array(6, nx, :) - &
-                                     4.0*f_array(6, nx1, :) + &
-                                         f_array(6, nx2, :)) * idxh
+            fgrad_array1(5, 2:nx1, :) =  (f_array1(6, 3:nx, :) - &
+                                          f_array1(6, 1:nx2, :)) * idxh
+            fgrad_array1(5, 1, :) = (-3.0*f_array1(6, 1, :) + &
+                                      4.0*f_array1(6, 2, :) - &
+                                          f_array1(6, 3, :)) * idxh
+            fgrad_array1(5, nx, :) = (3.0*f_array1(6, nx, :) - &
+                                      4.0*f_array1(6, nx1, :) + &
+                                          f_array1(6, nx2, :)) * idxh
 
-            fgrad_array(6, :, 2:ny1) =  (f_array(6, :, 3:ny) - &
-                                         f_array(6, :, 1:ny2)) * idyh
-            fgrad_array(6, :, 1) = (-3.0*f_array(6, :, 1) + &
-                                     4.0*f_array(6, :, 2) - &
-                                         f_array(6, :, 3)) * idyh
-            fgrad_array(6, :, ny) = (3.0*f_array(6, :, ny) - &
-                                     4.0*f_array(6, :, ny1) + &
-                                         f_array(6, :, ny2)) * idyh
+            fgrad_array1(6, :, 2:ny1) =  (f_array1(6, :, 3:ny) - &
+                                          f_array1(6, :, 1:ny2)) * idyh
+            fgrad_array1(6, :, 1) = (-3.0*f_array1(6, :, 1) + &
+                                      4.0*f_array1(6, :, 2) - &
+                                          f_array1(6, :, 3)) * idyh
+            fgrad_array1(6, :, ny) = (3.0*f_array1(6, :, ny) - &
+                                      4.0*f_array1(6, :, ny1) + &
+                                          f_array1(6, :, ny2)) * idyh
 
-            fgrad_array(7, 2:nx1, :) =  (f_array(8, 3:nx, :) - &
-                                         f_array(8, 1:nx2, :)) * idxh
-            fgrad_array(7, 1, :) = (-3.0*f_array(8, 1, :) + &
-                                     4.0*f_array(8, 2, :) - &
-                                         f_array(8, 3, :)) * idxh
-            fgrad_array(7, nx, :) = (3.0*f_array(8, nx, :) - &
-                                     4.0*f_array(8, nx1, :) + &
-                                         f_array(8, nx2, :)) * idxh
+            fgrad_array1(7, 2:nx1, :) =  (f_array1(8, 3:nx, :) - &
+                                          f_array1(8, 1:nx2, :)) * idxh
+            fgrad_array1(7, 1, :) = (-3.0*f_array1(8, 1, :) + &
+                                      4.0*f_array1(8, 2, :) - &
+                                          f_array1(8, 3, :)) * idxh
+            fgrad_array1(7, nx, :) = (3.0*f_array1(8, nx, :) - &
+                                      4.0*f_array1(8, nx1, :) + &
+                                          f_array1(8, nx2, :)) * idxh
 
-            fgrad_array(8, :, 2:ny1) =  (f_array(8, :, 3:ny) - &
-                                         f_array(8, :, 1:ny2)) * idyh
-            fgrad_array(8, :, 1) = (-3.0*f_array(8, :, 1) + &
-                                     4.0*f_array(8, :, 2) - &
-                                         f_array(8, :, 3)) * idyh
-            fgrad_array(8, :, ny) = (3.0*f_array(8, :, ny) - &
-                                     4.0*f_array(8, :, ny1) + &
-                                         f_array(8, :, ny2)) * idyh
+            fgrad_array1(8, :, 2:ny1) =  (f_array1(8, :, 3:ny) - &
+                                          f_array1(8, :, 1:ny2)) * idyh
+            fgrad_array1(8, :, 1) = (-3.0*f_array1(8, :, 1) + &
+                                      4.0*f_array1(8, :, 2) - &
+                                          f_array1(8, :, 3)) * idyh
+            fgrad_array1(8, :, ny) = (3.0*f_array1(8, :, ny) - &
+                                      4.0*f_array1(8, :, ny1) + &
+                                          f_array1(8, :, ny2)) * idyh
         else
-            fgrad_array(9, 2:nx1, :) =  (f_array(9, 3:nx, :) - &
-                                         f_array(9, 1:nx2, :)) * idxh
-            fgrad_array(9, 1, :) = (-3.0*f_array(9, 1, :) + &
-                                     4.0*f_array(9, 2, :) - &
-                                         f_array(9, 3, :)) * idxh
-            fgrad_array(9, nx, :) = (3.0*f_array(9, nx, :) - &
-                                     4.0*f_array(9, nx1, :) + &
-                                         f_array(9, nx2, :)) * idxh
+            fgrad_array2(1, 2:nx1, :) =  (f_array2(1, 3:nx, :) - &
+                                          f_array2(1, 1:nx2, :)) * idxh
+            fgrad_array2(1, 1, :) = (-3.0*f_array2(1, 1, :) + &
+                                      4.0*f_array2(1, 2, :) - &
+                                          f_array2(1, 3, :)) * idxh
+            fgrad_array2(1, nx, :) = (3.0*f_array2(1, nx, :) - &
+                                      4.0*f_array2(1, nx1, :) + &
+                                          f_array2(1, nx2, :)) * idxh
 
-            fgrad_array(10, :, 2:ny1) =  (f_array(10, :, 3:ny) - &
-                                          f_array(10, :, 1:ny2)) * idyh
-            fgrad_array(10, :, 1) = (-3.0*f_array(10, :, 1) + &
-                                      4.0*f_array(10, :, 2) - &
-                                          f_array(10, :, 3)) * idyh
-            fgrad_array(10, :, ny) = (3.0*f_array(10, :, ny) - &
-                                      4.0*f_array(10, :, ny1) + &
-                                          f_array(10, :, ny2)) * idyh
+            fgrad_array2(2, :, 2:ny1) =  (f_array2(2, :, 3:ny) - &
+                                          f_array2(2, :, 1:ny2)) * idyh
+            fgrad_array2(2, :, 1) = (-3.0*f_array2(2, :, 1) + &
+                                      4.0*f_array2(2, :, 2) - &
+                                          f_array2(2, :, 3)) * idyh
+            fgrad_array2(2, :, ny) = (3.0*f_array2(2, :, ny) - &
+                                      4.0*f_array2(2, :, ny1) + &
+                                          f_array2(2, :, ny2)) * idyh
 
-            fgrad_array(11, 2:nx1, :) =  (f_array(13, 3:nx, :) - &
-                                          f_array(13, 1:nx2, :)) * idxh
-            fgrad_array(11, 1, :) = (-3.0*f_array(13, 1, :) + &
-                                      4.0*f_array(13, 2, :) - &
-                                          f_array(13, 3, :)) * idxh
-            fgrad_array(11, nx, :) = (3.0*f_array(13, nx, :) - &
-                                      4.0*f_array(13, nx1, :) + &
-                                          f_array(13, nx2, :)) * idxh
+            fgrad_array2(3, 2:nx1, :) =  (f_array2(5, 3:nx, :) - &
+                                          f_array2(5, 1:nx2, :)) * idxh
+            fgrad_array2(3, 1, :) = (-3.0*f_array2(5, 1, :) + &
+                                      4.0*f_array2(5, 2, :) - &
+                                          f_array2(5, 3, :)) * idxh
+            fgrad_array2(3, nx, :) = (3.0*f_array2(5, nx, :) - &
+                                      4.0*f_array2(5, nx1, :) + &
+                                          f_array2(5, nx2, :)) * idxh
 
-            fgrad_array(12, :, 2:ny1) =  (f_array(13, :, 3:ny) - &
-                                          f_array(13, :, 1:ny2)) * idyh
-            fgrad_array(12, :, 1) = (-3.0*f_array(13, :, 1) + &
-                                      4.0*f_array(13, :, 2) - &
-                                          f_array(13, :, 3)) * idyh
-            fgrad_array(12, :, ny) = (3.0*f_array(13, :, ny) - &
-                                      4.0*f_array(13, :, ny1) + &
-                                          f_array(13, :, ny2)) * idyh
+            fgrad_array2(4, :, 2:ny1) =  (f_array2(5, :, 3:ny) - &
+                                          f_array2(5, :, 1:ny2)) * idyh
+            fgrad_array2(4, :, 1) = (-3.0*f_array2(5, :, 1) + &
+                                      4.0*f_array2(5, :, 2) - &
+                                          f_array2(5, :, 3)) * idyh
+            fgrad_array2(4, :, ny) = (3.0*f_array2(5, :, ny) - &
+                                      4.0*f_array2(5, :, ny1) + &
+                                          f_array2(5, :, ny2)) * idyh
 
-            fgrad_array(13, 2:nx1, :) =  (f_array(14, 3:nx, :) - &
-                                          f_array(14, 1:nx2, :)) * idxh
-            fgrad_array(13, 1, :) = (-3.0*f_array(14, 1, :) + &
-                                      4.0*f_array(14, 2, :) - &
-                                          f_array(14, 3, :)) * idxh
-            fgrad_array(13, nx, :) = (3.0*f_array(14, nx, :) - &
-                                      4.0*f_array(14, nx1, :) + &
-                                          f_array(14, nx2, :)) * idxh
+            fgrad_array2(5, 2:nx1, :) =  (f_array2(6, 3:nx, :) - &
+                                          f_array2(6, 1:nx2, :)) * idxh
+            fgrad_array2(5, 1, :) = (-3.0*f_array2(6, 1, :) + &
+                                      4.0*f_array2(6, 2, :) - &
+                                          f_array2(6, 3, :)) * idxh
+            fgrad_array2(5, nx, :) = (3.0*f_array2(6, nx, :) - &
+                                      4.0*f_array2(6, nx1, :) + &
+                                          f_array2(6, nx2, :)) * idxh
 
-            fgrad_array(14, :, 2:ny1) =  (f_array(14, :, 3:ny) - &
-                                          f_array(14, :, 1:ny2)) * idyh
-            fgrad_array(14, :, 1) = (-3.0*f_array(14, :, 1) + &
-                                      4.0*f_array(14, :, 2) - &
-                                          f_array(14, :, 3)) * idyh
-            fgrad_array(14, :, ny) = (3.0*f_array(14, :, ny) - &
-                                      4.0*f_array(14, :, ny1) + &
-                                          f_array(14, :, ny2)) * idyh
+            fgrad_array2(6, :, 2:ny1) =  (f_array2(6, :, 3:ny) - &
+                                          f_array2(6, :, 1:ny2)) * idyh
+            fgrad_array2(6, :, 1) = (-3.0*f_array2(6, :, 1) + &
+                                      4.0*f_array2(6, :, 2) - &
+                                          f_array2(6, :, 3)) * idyh
+            fgrad_array2(6, :, ny) = (3.0*f_array2(6, :, ny) - &
+                                      4.0*f_array2(6, :, ny1) + &
+                                          f_array2(6, :, ny2)) * idyh
 
-            fgrad_array(15, 2:nx1, :) =  (f_array(16, 3:nx, :) - &
-                                          f_array(16, 1:nx2, :)) * idxh
-            fgrad_array(15, 1, :) = (-3.0*f_array(16, 1, :) + &
-                                      4.0*f_array(16, 2, :) - &
-                                          f_array(16, 3, :)) * idxh
-            fgrad_array(15, nx, :) = (3.0*f_array(16, nx, :) - &
-                                      4.0*f_array(16, nx1, :) + &
-                                          f_array(16, nx2, :)) * idxh
+            fgrad_array2(7, 2:nx1, :) =  (f_array2(8, 3:nx, :) - &
+                                          f_array2(8, 1:nx2, :)) * idxh
+            fgrad_array2(7, 1, :) = (-3.0*f_array2(8, 1, :) + &
+                                      4.0*f_array2(8, 2, :) - &
+                                          f_array2(8, 3, :)) * idxh
+            fgrad_array2(7, nx, :) = (3.0*f_array2(8, nx, :) - &
+                                      4.0*f_array2(8, nx1, :) + &
+                                          f_array2(8, nx2, :)) * idxh
 
-            fgrad_array(16, :, 2:ny1) =  (f_array(16, :, 3:ny) - &
-                                          f_array(16, :, 1:ny2)) * idyh
-            fgrad_array(16, :, 1) = (-3.0*f_array(16, :, 1) + &
-                                      4.0*f_array(16, :, 2) - &
-                                          f_array(16, :, 3)) * idyh
-            fgrad_array(16, :, ny) = (3.0*f_array(16, :, ny) - &
-                                      4.0*f_array(16, :, ny1) + &
-                                          f_array(16, :, ny2)) * idyh
+            fgrad_array2(8, :, 2:ny1) =  (f_array2(8, :, 3:ny) - &
+                                          f_array2(8, :, 1:ny2)) * idyh
+            fgrad_array2(8, :, 1) = (-3.0*f_array2(8, :, 1) + &
+                                      4.0*f_array2(8, :, 2) - &
+                                          f_array2(8, :, 3)) * idyh
+            fgrad_array2(8, :, ny) = (3.0*f_array2(8, :, ny) - &
+                                      4.0*f_array2(8, :, ny1) + &
+                                          f_array2(8, :, ny2)) * idyh
         endif
     end subroutine calc_fields_gradients
 
@@ -540,32 +569,28 @@ module mhd_data_sli
         w3 = rx1 * ry
         w4 = rx * ry
 
-        fields  = f_array(1:8,  ix, iy) * w1
-        fields1 = f_array(9:16, ix, iy) * w1
+        fields = f_array1(:,  ix, iy) * w1
+        fields = fields + f_array1(:,  ix1, iy) * w2
+        fields = fields + f_array1(:,  ix, iy1) * w3
+        fields = fields + f_array1(:,  ix1, iy1) * w4
 
-        fields  = fields  + f_array(1:8,  ix1, iy) * w2
-        fields1 = fields1 + f_array(9:16, ix1, iy) * w2
-
-        fields  = fields  + f_array(1:8,  ix, iy1) * w3
-        fields1 = fields1 + f_array(9:16, ix, iy1) * w3
-
-        fields  = fields  + f_array(1:8,  ix1, iy1) * w4
-        fields1 = fields1 + f_array(9:16, ix1, iy1) * w4
+        fields1  = f_array2(:,  ix, iy) * w1
+        fields1  = fields1  + f_array2(:,  ix1, iy) * w2
+        fields1  = fields1  + f_array2(:,  ix, iy1) * w3
+        fields1  = fields1  + f_array2(:,  ix1, iy1) * w4
 
         !< Time interpolation
         fields = fields * rt1 + fields1 * rt
 
-        gradf  = fgrad_array(1:8,  ix, iy) * w1
-        gradf1 = fgrad_array(9:16, ix, iy) * w1
+        gradf  = fgrad_array1(:,  ix, iy) * w1
+        gradf  = gradf  + fgrad_array1(:,  ix1, iy) * w2
+        gradf  = gradf  + fgrad_array1(:,  ix, iy1) * w3
+        gradf  = gradf  + fgrad_array1(:,  ix1, iy1) * w4
 
-        gradf  = gradf  + fgrad_array(1:8,  ix1, iy) * w2
-        gradf1 = gradf1 + fgrad_array(9:16, ix1, iy) * w2
-
-        gradf  = gradf  + fgrad_array(1:8,  ix, iy1) * w3
-        gradf1 = gradf1 + fgrad_array(9:16, ix, iy1) * w3
-
-        gradf  = gradf  + fgrad_array(1:8,  ix1, iy1) * w4
-        gradf1 = gradf1 + fgrad_array(9:16, ix1, iy1) * w4
+        gradf1  = fgrad_array2(:,  ix, iy) * w1
+        gradf1  = gradf1  + fgrad_array2(:,  ix1, iy) * w2
+        gradf1  = gradf1  + fgrad_array2(:,  ix, iy1) * w3
+        gradf1  = gradf1  + fgrad_array2(:,  ix1, iy1) * w4
 
         !< Time interpolation
         gradf = gradf * rt1 + gradf1 * rt
@@ -576,18 +601,7 @@ module mhd_data_sli
     !---------------------------------------------------------------------------
     subroutine copy_fields
         implicit none
-        f_array(9,  :, :) = f_array(1, :, :)
-        f_array(10, :, :) = f_array(2, :, :)
-        if (mhd_config%nvar .gt. 7) then
-            f_array(11, :, :) = f_array(3, :, :)
-        endif
-        f_array(12, :, :) = f_array(4, :, :)
-        f_array(13, :, :) = f_array(5, :, :)
-        if (mhd_config%nvar .gt. 7) then
-            f_array(14, :, :) = f_array(6, :, :)
-        endif
-        f_array(15, :, :) = f_array(7, :, :)
-
-        fgrad_array(9:16,  :, :) = fgrad_array(1:8, :, :)
+        f_array1 = f_array2
+        fgrad_array1 = fgrad_array2
     end subroutine copy_fields
 end module mhd_data_sli
