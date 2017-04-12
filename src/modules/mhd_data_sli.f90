@@ -9,7 +9,7 @@ module mhd_data_sli
     public read_mhd_config, read_mhd_config_from_outfile, init_mhd_data, &
            free_mhd_data, read_mhd_data, broadcast_mhd_config, &
            init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-           interp_fields, copy_fields
+           interp_fields, copy_fields, save_mhd_config
 
     type mhd_configuration
         real(dp) :: dx, dy, xmin, xmax, ymin, ymax, lx, ly  ! Grid sizes
@@ -179,6 +179,20 @@ module mhd_data_sli
 
         call echo_mhd_config_info
     end subroutine read_mhd_config_from_outfile
+
+    !---------------------------------------------------------------------------
+    !< Save MHD configuration to file
+    !---------------------------------------------------------------------------
+    subroutine save_mhd_config(filename)
+        implicit none
+        character(*), intent(in) :: filename
+        integer :: fh
+        fh = 25
+        open(unit=fh, file=filename, access='stream', status='unknown', &
+             form='unformatted', action='write')
+        write(fh, pos=1) mhd_config
+        close(fh)
+    end subroutine save_mhd_config
 
     !---------------------------------------------------------------------------
     !< Broadcast MHD configuration
