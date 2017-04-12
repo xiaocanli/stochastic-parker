@@ -11,5 +11,5 @@ lib/
 diffusion[0-9].sh
 outfile
 *.map
-FLAP
-mt_stream
+./FLAP
+./mt_stream
