@@ -10,6 +10,9 @@ add_definitions(${MPI_Fortran_COMPILE_FLAGS})
 include_directories(${MPI_Fortran_INCLUDE_PATH})
 link_directories(${MPI_Fortran_LIBRARIES})
 
+get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} NAME)
+include(cmake/submodules.cmake)
+
 # set(HDF5_USE_STATIC_LIBRARIES ON)
 # find_package(HDF5 COMPONENTS Fortran REQUIRED)
 # #find_path(HDF5_INCLUDE include/hdf5.mod HINTS ${HDF5_ROOT})
@@ -22,8 +25,10 @@ link_directories(${MPI_Fortran_LIBRARIES})
 # link_directories(${HDF5_Fortran_LIBRARIES})
 # MESSAGE(${HDF5_Fortran_LIBRARIES})
 
-include_directories($ENV{FLAP_DIR}/static/mod)
-link_directories($ENV{FLAP_DIR}/static)
+# FLAP to deal with command line arguments
+set(FLAP_DIR ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/FLAP)
+include_directories(${FLAP_DIR}/static/mod)
+link_directories(${FLAP_DIR}/static)
 
 # use mt_stream to generate random numbers
 include_directories($ENV{MT_STREAM})
@@ -36,7 +41,6 @@ if (NOT CMAKE_BUILD_TYPE)
 endif (NOT CMAKE_BUILD_TYPE)
 
 # FFLAGS depend on the compiler
-get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} NAME)
 if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
   set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -fopenmp -march=native -fimplicit-none \
     -Wline-truncation -fwhole-file -std=f2008 -fall-intrinsics -fPIC -cpp")
@@ -55,7 +59,7 @@ elseif (Fortran_COMPILER_NAME MATCHES "ftn.*")
 elseif (Fortran_COMPILER_NAME MATCHES "g77")
   set (CMAKE_Fortran_FLAGS_RELEASE "-funroll-all-loops -fno-f2c -O3 -m32")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-fno-f2c -O0 -g -m32")
-endif (Fortran_COMPILER_NAME MATCHES "gfortran.*")
+endif()
 
 # Define some directories
 set(SRC ${CMAKE_SOURCE_DIR}/src)
