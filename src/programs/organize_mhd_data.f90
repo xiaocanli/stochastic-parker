@@ -3,14 +3,14 @@
 !*******************************************************************************
 program organize_mhd_data
     use constants, only: fp, dp
-    use mhd_data_sli, only: read_mhd_config_from_outfile, save_mhd_config, &
-        init_mhd_data, free_mhd_data, read_mhd_data, save_organized_mhd_data
+    use mhd_data_sli, only: read_mhd_config_from_outfile, init_mhd_data, &
+        free_mhd_data, read_mhd_data, save_organized_mhd_data
+    use mhd_config_module, only: save_mhd_config, echo_mhd_config
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
     real(dp) :: start, finish, step1, step2
     integer :: t_start, t_end, tf
-    integer :: interp_flag
 
     call cpu_time(start)
 
@@ -20,29 +20,29 @@ program organize_mhd_data
     write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start + 1
     call read_mhd_config_from_outfile(fname1, fname2)
+    call echo_mhd_config
+
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
     call save_mhd_config(fname2)
 
-    interp_flag = 0 ! Do not need two time frames for interpolation
-
-    call init_mhd_data(interp_flag)
+    call init_mhd_data
 
     call cpu_time(step1)
 
     do tf = t_start, t_end
         write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf
-        call read_mhd_data(fname1, var_flag=0)
+        call read_mhd_data(fname1)
         write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf
-        call save_organized_mhd_data(fname2, var_flag=0)
+        call save_organized_mhd_data(fname2)
         call cpu_time(step2)
         print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
         step1 = step2
     enddo
 
-    call free_mhd_data(interp_flag)
+    call free_mhd_data
 
     call cpu_time(finish)
-    print '("Time = ",f9.4," seconds.")',finish-start
+    print '("Time = ",f9.4," seconds.")',finish - start
 
     contains
 

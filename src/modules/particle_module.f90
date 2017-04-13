@@ -92,7 +92,7 @@ module particle_module
     !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
     !---------------------------------------------------------------------------
     subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag)
-        use mhd_data_sli, only: mhd_config
+        use mhd_config_module, only: mhd_config
         use mpi_module, only: mpi_rank, master
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -132,7 +132,8 @@ module particle_module
     !< Move particles using the MHD simulation data as background fields
     !---------------------------------------------------------------------------
     subroutine particle_mover
-        use mhd_data_sli, only: mhd_config, interp_fields, fields, gradf
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_fields
         implicit none
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
         real(dp) :: t0, px, py, rx, ry, rt, rt1
@@ -210,21 +211,21 @@ module particle_module
     !< Calculate the spatial diffusion coefficients
     !---------------------------------------------------------------------------
     subroutine calc_spatial_diffusion_coefficients
-        use mhd_data_sli, only: fields, gradf
+        use mhd_data_parallel, only: fields, gradf
         implicit none
         real(dp) :: pnorm
         real(dp) :: bx, by, b, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbx_dy, dby_dy, db_dx, db_dy
 
-        b = fields%btot
-        bx = fields%bx
-        by = fields%by
-        db_dx = gradf%dbtot_dx
-        db_dy = gradf%dbtot_dy
-        dbx_dx = gradf%dbx_dx
-        dbx_dy = gradf%dbx_dy
-        dby_dx = gradf%dby_dx
-        dby_dy = gradf%dby_dy
+        b = fields(8)
+        bx = fields(5)
+        by = fields(6)
+        dbx_dx = gradf(3)
+        dbx_dy = gradf(4)
+        dby_dx = gradf(5)
+        dby_dy = gradf(6)
+        db_dx = gradf(7)
+        db_dy = gradf(8)
         ib2 = 1.0_dp / b**2
         ib3 = 1.0_dp / b**3
         ib4 = ib2**2
@@ -262,7 +263,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine read_particle_params
         use read_config, only: get_variable
-        use mhd_data_sli, only: mhd_config
+        use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
         real(fp) :: temp
@@ -343,18 +344,19 @@ module particle_module
     !<  dtf: the time interval of the MHD fields
     !---------------------------------------------------------------------------
     subroutine set_time_step(t0, dtf)
-        use mhd_data_sli, only: fields, mhd_config
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: fields
         implicit none
         real(dp), intent(in) :: t0, dtf
         real(dp) :: tmp30, tmp40, bx, by, b, vx, vy, dxm, dym, dt1, dt2
         skperp = dsqrt(2.0*kperp)
         skpara_perp = dsqrt(2.0*(kpara-kperp))
 
-        vx = fields%vx
-        vy = fields%vy
-        bx = fields%bx
-        by = fields%by
-        b = fields%btot
+        vx = fields(1)
+        vy = fields(2)
+        bx = fields(5)
+        by = fields(6)
+        b = fields(8)
         dxm = mhd_config%dx
         dym = mhd_config%dy
 
@@ -396,7 +398,8 @@ module particle_module
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle(rt, deltax, deltay, deltap)
-        use mhd_data_sli, only: fields, gradf, mhd_config, interp_fields
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: fields, gradf, interp_fields
         use random_number_generator, only: unif_01
         implicit none
         real(dp), intent(in) :: rt
@@ -410,13 +413,13 @@ module particle_module
         real(dp) :: lx, ly
         integer :: ix, iy
 
-        b = fields%btot
-        bx = fields%bx
-        by = fields%by
-        vx = fields%vx
-        vy = fields%vy
-        dvx_dx = gradf%dvx_dx
-        dvy_dy = gradf%dvy_dy
+        vx = fields(1)
+        vy = fields(2)
+        bx = fields(5)
+        by = fields(6)
+        b = fields(8)
+        dvx_dx = gradf(1)
+        dvy_dy = gradf(2)
         xmin = mhd_config%xmin
         ymin = mhd_config%ymin
         xmax = mhd_config%xmax
@@ -454,9 +457,9 @@ module particle_module
         call calc_spatial_diffusion_coefficients
 
         !< Magnetic field at the predicted position
-        b1 = fields%btot
-        bx1 = fields%bx
-        by1 = fields%by
+        bx1 = fields(5)
+        by1 = fields(6)
+        b1 = fields(8)
 
         skperp1 = dsqrt(2.0*kperp)
         skpara_perp1 = dsqrt(2.0*(kpara-kperp))
@@ -579,7 +582,7 @@ module particle_module
     !< Initialize the particle distributions
     !---------------------------------------------------------------------------
     subroutine init_particle_distributions
-        use mhd_data_sli, only: mhd_config
+        use mhd_config_module, only: mhd_config
         use mpi_module, only: mpi_rank, master
         implicit none
         integer :: i
@@ -663,7 +666,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine calc_particle_distributions
         use mpi_module
-        use mhd_data_sli, only: mhd_config
+        use mhd_config_module, only: mhd_config
         implicit none
         integer :: i, ix, iy, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax
@@ -754,56 +757,56 @@ module particle_module
 
         write (ctime,'(i4.4)') iframe
         write (mrank,'(i4.4)') mpi_rank
-        ! if (mpi_rank .eq. 0) then
-        fh = 13
-        fname = 'data/fx-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) fx0
-        close(fh)
+        ! ! if (mpi_rank .eq. 0) then
+        ! fh = 13
+        ! fname = 'data/fx-'//ctime//'_'//mrank//'.dat'
+        ! open(fh, file=trim(fname), access='stream', status='unknown', &
+        !      form='unformatted', action='write')
+        ! write(fh, pos=1) fx0
+        ! close(fh)
 
-        fh = 14
-        fname = 'data/fy-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) fy0
-        close(fh)
+        ! fh = 14
+        ! fname = 'data/fy-'//ctime//'_'//mrank//'.dat'
+        ! open(fh, file=trim(fname), access='stream', status='unknown', &
+        !      form='unformatted', action='write')
+        ! write(fh, pos=1) fy0
+        ! close(fh)
 
         fh = 15
         fname = 'data/fp-'//ctime//'_'//mrank//'.dat'
         open(fh, file=trim(fname), access='stream', status='unknown', &
              form='unformatted', action='write')
         write(fh, pos=1) parray
-        pos1 = npp * sizeof(dp) + 1
+        pos1 = npp * sizeof(1.0_dp) + 1
         write(fh, pos=pos1) fp0
         close(fh)
 
-        fh = 16
-        fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) fp1
-        close(fh)
+        ! fh = 16
+        ! fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
+        ! open(fh, file=trim(fname), access='stream', status='unknown', &
+        !      form='unformatted', action='write')
+        ! write(fh, pos=1) fp1
+        ! close(fh)
 
-        fh = 17
-        fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) fp2
-        close(fh)
+        ! fh = 17
+        ! fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
+        ! open(fh, file=trim(fname), access='stream', status='unknown', &
+        !      form='unformatted', action='write')
+        ! write(fh, pos=1) fp2
+        ! close(fh)
 
-        fh = 18
-        fname = 'data/fxy-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) f0
-        pos1 = nx * ny * sizeof(dp) + 1
-        write(fh, pos=pos1) f1
-        pos1 = pos1 + nx * ny * sizeof(dp)
-        write(fh, pos=pos1) f2
-        pos1 = pos1 + nx * ny * sizeof(dp)
-        write(fh, pos=pos1) f3
-        close(fh)
+        ! fh = 18
+        ! fname = 'data/fxy-'//ctime//'_'//mrank//'.dat'
+        ! open(fh, file=trim(fname), access='stream', status='unknown', &
+        !      form='unformatted', action='write')
+        ! write(fh, pos=1) f0
+        ! pos1 = nx * ny * sizeof(1.0_dp) + 1
+        ! write(fh, pos=pos1) f1
+        ! pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+        ! write(fh, pos=pos1) f2
+        ! pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+        ! write(fh, pos=pos1) f3
+        ! close(fh)
         ! endif
     end subroutine distributions_diagnostics
 end module particle_module

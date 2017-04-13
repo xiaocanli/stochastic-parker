@@ -5,16 +5,18 @@
 program stochastic
     use constants, only: fp, dp
     use mpi_module
-    use mhd_data_sli, only: read_mhd_config, read_mhd_config_from_outfile, &
-        broadcast_mhd_config, init_mhd_data, free_mhd_data, read_mhd_data, &
-        init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-        copy_fields
+    use mhd_config_module, only: load_mhd_config, mhd_config
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, remove_particles, split_particle, &
         init_particle_distributions, free_particle_distributions, &
         distributions_diagnostics, quick_check
     use random_number_generator, only: init_prng, delete_prng
+    use mhd_data_parallel, only: init_field_data, free_field_data, &
+        read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
+        calc_fields_gradients, copy_fields
+    use simulation_setup_module, only: read_simuation_mpi_topology, &
+        set_field_configuration, fconfig
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
@@ -32,25 +34,27 @@ program stochastic
     call get_cmd_args
     call init_prng
 
-    write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start
-    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', t_start + 1
-    if (mpi_rank == master) then
-        ! call read_mhd_config
-        call read_mhd_config_from_outfile(fname1, fname2)
-    endif
-    
+    !< Configurations
+    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
+    call load_mhd_config(fname2)
+    call read_simuation_mpi_topology
+    call set_field_configuration(whole_data_flag=1)
+
+    !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
-    call broadcast_mhd_config
-    call init_mhd_data(interp_flag)
-    call init_fields_gradients(interp_flag)
+    call init_field_data(interp_flag, mhd_config%nx, mhd_config%ny, mhd_config%nz)
+    call init_fields_gradients(interp_flag, mhd_config%nx, mhd_config%ny, mhd_config%nz)
     call read_particle_params
 
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(nptl, dt, dist_flag)
     call init_particle_distributions
 
-    call read_mhd_data(fname1, var_flag=0)
-    call read_mhd_data(fname2, var_flag=1)
+    write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
+    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
+    call read_field_data_parallel(fname1, var_flag=0)
+    call read_field_data_parallel(fname2, var_flag=1)
+
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
 
@@ -58,6 +62,7 @@ program stochastic
 
     call distributions_diagnostics(t_start)
 
+    !< Time loop
     do tf = t_start + 1, t_end
         call particle_mover
         call remove_particles
@@ -72,8 +77,8 @@ program stochastic
         call distributions_diagnostics(tf)
         call copy_fields
         if (tf < t_end) then
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf + 1
-            call read_mhd_data(fname2, var_flag=1)
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
+            call read_field_data_parallel(fname2, var_flag=1)
             call calc_fields_gradients(var_flag=1)
         endif
         call cpu_time(step2)
@@ -86,7 +91,7 @@ program stochastic
     call free_particle_distributions
     call free_particles
     call free_fields_gradients(interp_flag)
-    call free_mhd_data(interp_flag)
+    call free_field_data(interp_flag)
 
     call cpu_time(finish)
     if (mpi_rank == master) then
