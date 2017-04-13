@@ -8,9 +8,8 @@ program organize_mhd_data
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
-    integer :: nptl_max, nptl
-    real(dp) :: start, finish, step1, step2, dt
-    integer :: t_start, t_end, tf, dist_flag, split_flag
+    real(dp) :: start, finish, step1, step2
+    integer :: t_start, t_end, tf
     integer :: interp_flag
 
     call cpu_time(start)
