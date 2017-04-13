@@ -35,3 +35,8 @@ dt_min = 1E-6
 !< Sizes of distributions
 nreduce = 4
 npp = 128
+
+!< Simulation MPI topology
+mpi_sizex = 4
+mpi_sizey = 8
+mpi_sizez = 1
