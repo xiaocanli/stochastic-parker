@@ -4,7 +4,8 @@
 program organize_mhd_data
     use constants, only: fp, dp
     use mhd_data_sli, only: read_mhd_config_from_outfile, init_mhd_data, &
-        free_mhd_data, read_mhd_data, save_organized_mhd_data
+        free_mhd_data, read_mhd_data, save_organized_mhd_data, &
+        adjust_mhd_data_boundary
     use mhd_config_module, only: save_mhd_config, echo_mhd_config
     implicit none
     character(len=256) :: dir_mhd_data
@@ -32,6 +33,7 @@ program organize_mhd_data
     do tf = t_start, t_end
         write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'bin_out', tf
         call read_mhd_data(fname1)
+        call adjust_mhd_data_boundary
         write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf
         call save_organized_mhd_data(fname2)
         call cpu_time(step2)

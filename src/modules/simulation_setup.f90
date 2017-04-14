@@ -16,6 +16,7 @@ module simulation_setup_module
 
     !< Dimensions of v and B in memory
     type field_configuration
+        integer :: nxg, nyg, nzg    ! Number of grids with ghost cells
         integer :: nxf, nyf, nzf
         integer :: ix_min, ix_max, iy_min, iy_max, iz_min, iz_max
     end type field_configuration
@@ -79,7 +80,10 @@ module simulation_setup_module
 
 
     !---------------------------------------------------------------------------
-    !< Set data boundaries
+    !< Set data boundaries. We assume the MHD data has been re-organized and
+    !< add ghost cells on each side. Ghost cells are not included in un-resolved
+    !< dimensions. For example, for 2D MHD simulation with grid nx*ny*1, the
+    !< re-organized data has dimension (nx + 4) * (ny + 4) * 1
     !---------------------------------------------------------------------------
     subroutine set_data_boundaries(mrank, msize, n, ntot, imin, imax)
         implicit none
@@ -87,21 +91,22 @@ module simulation_setup_module
         integer, intent(out) :: imin, imax
         if (mrank == 0) then
             imin = 1
-            if (ntot > (n + 2)) then
-                imax = n + 2
+            !< This avoids overflow when ntot is small, e.g. 2D simulation
+            if (ntot > (n + 4)) then
+                imax = n + 4
             else
                 imax = ntot
             endif
         else if (mrank == msize- 1) then
-            imax = ntot
-            if (ntot - n - 1 < 1) then
+            imax = ntot + 4
+            if (ntot - n + 1 < 1) then
                 imin = 1
             else
-                imin = ntot - n - 1
+                imin = ntot - n + 1
             endif
         else
-            imin = mrank * n - 1
-            imax = (mrank + 1) * n + 2
+            imin = mrank * n + 1
+            imax = (mrank + 1) * n + 4
         endif
     end subroutine set_data_boundaries
 
@@ -110,11 +115,25 @@ module simulation_setup_module
     !< Args:
     !<  whole_data_flag: whether to load the whole dataset. 0 for no and
     !<      other numbers for yes
+    !<  ndim: the number of dimensions. 1, 2 or 3
     !---------------------------------------------------------------------------
-    subroutine set_field_configuration(whole_data_flag)
+    subroutine set_field_configuration(whole_data_flag, ndim)
         implicit none
-        integer, intent(in) :: whole_data_flag 
+        integer, intent(in) :: whole_data_flag, ndim 
         integer :: ix, iy, iz, nx, ny, nz
+
+        fconfig%nxg = mhd_config%nx + 4
+        if (ndim > 1) then
+            fconfig%nyg = mhd_config%ny + 4
+            if (ndim > 2) then
+                fconfig%nzg = mhd_config%nz + 4
+            else
+                fconfig%nzg = mhd_config%nz
+            endif
+        else
+            fconfig%nyg = mhd_config%ny
+            fconfig%nzg = mhd_config%nz
+        endif
 
         if (whole_data_flag == 0) then
             iz = mpi_rank / (mpi_sizex * mpi_sizey)
@@ -127,10 +146,22 @@ module simulation_setup_module
 
             call set_data_boundaries(ix, mpi_sizex, nx, mhd_config%nx, &
                                      fconfig%ix_min, fconfig%ix_max)
-            call set_data_boundaries(iy, mpi_sizey, ny, mhd_config%ny, &
-                                     fconfig%iy_min, fconfig%iy_max)
-            call set_data_boundaries(iz, mpi_sizez, nz, mhd_config%nz, &
-                                     fconfig%iz_min, fconfig%iz_max)
+            if (ndim > 1) then
+                call set_data_boundaries(iy, mpi_sizey, ny, mhd_config%ny, &
+                                         fconfig%iy_min, fconfig%iy_max)
+                if (ndim > 2) then
+                    call set_data_boundaries(iz, mpi_sizez, nz, mhd_config%nz, &
+                                             fconfig%iz_min, fconfig%iz_max)
+                else
+                    fconfig%iz_min = 1
+                    fconfig%iz_max = 1
+                endif
+            else
+                fconfig%iy_min = 1
+                fconfig%iy_max = 1
+                fconfig%iz_min = 1
+                fconfig%iz_max = 1
+            endif
 
             fconfig%nxf = fconfig%ix_max - fconfig%ix_min + 1
             fconfig%nyf = fconfig%iy_max - fconfig%iy_min + 1
@@ -139,12 +170,25 @@ module simulation_setup_module
             fconfig%ix_min = 1
             fconfig%iy_min = 1
             fconfig%iz_min = 1
-            fconfig%ix_max = mhd_config%nx
-            fconfig%iy_max = mhd_config%ny
-            fconfig%iz_max = mhd_config%nz
-            fconfig%nxf = mhd_config%nx
-            fconfig%nyf = mhd_config%ny
-            fconfig%nzf = mhd_config%nz
+            fconfig%ix_max = mhd_config%nx + 4
+            fconfig%nxf = mhd_config%nx + 4
+            
+            if (ndim > 1) then
+                fconfig%iy_max = mhd_config%ny + 4
+                fconfig%nyf = mhd_config%ny + 4
+                if (ndim > 2) then
+                    fconfig%iz_max = mhd_config%nz + 4
+                    fconfig%nzf = mhd_config%nz + 4
+                else
+                    fconfig%iz_max = mhd_config%nz
+                    fconfig%nzf = mhd_config%nz
+                endif
+            else
+                fconfig%iy_max = mhd_config%ny
+                fconfig%nyf = mhd_config%ny
+                fconfig%iz_max = mhd_config%nz
+                fconfig%nzf = mhd_config%nz
+            endif
         endif
     end subroutine set_field_configuration
 

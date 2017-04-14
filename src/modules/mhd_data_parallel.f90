@@ -29,17 +29,30 @@ module mhd_data_parallel
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
     !<  nx, ny, nz: the dimensions of the data
+    !<  ndim: number of actual dimension of the data. 1, 2 or 3
     !---------------------------------------------------------------------------
-    subroutine init_field_data(interp_flag, nx, ny, nz)
+    subroutine init_field_data(interp_flag, nx, ny, nz, ndim)
         implicit none
-        integer, intent(in) :: interp_flag, nx, ny, nz
+        integer, intent(in) :: interp_flag, nx, ny, nz, ndim
 
         !< vx, vy, vz, pad1, bx, by, bz, btot
-        allocate(f_array1(8, nx, ny, nz))
+        if (ndim == 1) then
+            allocate(f_array1(8, -1:nx+2, 1, 1))
+        else if (ndim == 2) then
+            allocate(f_array1(8, -1:nx+2, -1:ny+2, 1))
+        else
+            allocate(f_array1(8, -1:nx+2, -1:ny+2, -1:nz+2))
+        endif
         f_array1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            allocate(f_array2(8, nx, ny, nz))
+            if (ndim == 1) then
+                allocate(f_array2(8, -1:nx+2, 1, 1))
+            else if (ndim == 2) then
+                allocate(f_array2(8, -1:nx+2, -1:ny+2, 1))
+            else
+                allocate(f_array2(8, -1:nx+2, -1:ny+2, -1:nz+2))
+            endif
             f_array2 = 0.0
         endif
     end subroutine init_field_data
@@ -49,19 +62,32 @@ module mhd_data_parallel
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
     !<  nx, ny, nz: the dimensions of the data
+    !<  ndim: number of actual dimension of the data. 1, 2 or 3
     !---------------------------------------------------------------------------
-    subroutine init_fields_gradients(interp_flag, nx, ny, nz)
+    subroutine init_fields_gradients(interp_flag, nx, ny, nz, ndim)
         implicit none
-        integer, intent(in) :: interp_flag, nx, ny, nz
+        integer, intent(in) :: interp_flag, nx, ny, nz, ndim
 
         !< dvx_dx, dvy_dy, dvz_dz, dbx_dx, dbx_dy, dbx_dz
         !< dby_dx, dby_dy, dby_dz, dbz_dx, dbz_dy, dbz_dz
         !< dbtot_dx, dbtot_dy, dbtot_dz, pad1
-        allocate(fgrad_array1(16, nx, ny, nz))
+        if (ndim == 1) then
+            allocate(fgrad_array1(16, -1:nx+2, 1, 1))
+        else if (ndim == 2) then
+            allocate(fgrad_array1(16, -1:nx+2, -1:ny+2, 1))
+        else
+            allocate(fgrad_array1(16, -1:nx+2, -1:ny+2, -1:nz+2))
+        endif
         fgrad_array1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            allocate(fgrad_array2(16, nx, ny, nz))
+            if (ndim == 1) then
+                allocate(fgrad_array2(16, -1:nx+2, 1, 1))
+            else if (ndim == 2) then
+                allocate(fgrad_array2(16, -1:nx+2, -1:ny+2, 1))
+            else
+                allocate(fgrad_array2(16, -1:nx+2, -1:ny+2, -1:nz+2))
+            endif
             fgrad_array2 = 0.0
         endif
     end subroutine init_fields_gradients
@@ -105,7 +131,6 @@ module mhd_data_parallel
         use mpi_io_module, only: set_mpi_datatype, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
         use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
         character(*), intent(in) :: filename
@@ -114,9 +139,9 @@ module mhd_data_parallel
         integer, dimension(4) :: sizes, subsizes, starts
         integer(kind=MPI_OFFSET_KIND) :: disp, offset
         sizes(1) = 8 ! vx, vy, vz, pad1, bx, by, bz, btot
-        sizes(2) = mhd_config%nx
-        sizes(3) = mhd_config%ny
-        sizes(4) = mhd_config%nz
+        sizes(2) = fconfig%nxg
+        sizes(3) = fconfig%nyg
+        sizes(4) = fconfig%nzg
         subsizes(1) = 8
         subsizes(2) = fconfig%nxf
         subsizes(3) = fconfig%nyf
@@ -125,6 +150,7 @@ module mhd_data_parallel
         starts(2) = fconfig%ix_min - 1
         starts(3) = fconfig%iy_min - 1
         starts(4) = fconfig%iz_min - 1
+        fh = 11
         if (all(sizes == subsizes)) then
             open(unit=fh, file=filename, access='stream', status='unknown', &
                  form='unformatted', action='read')

@@ -20,6 +20,7 @@ module mhd_config_module
         integer :: nxs = 1, nys = 1, nzs = 1       ! Grid dimensions for a single MPI process
         integer :: topox = 1, topoy = 1, topoz = 1 ! MHD simulation topology
         integer :: nvar = 9                        ! Number of output variables
+        integer :: bcx = 0, bcy = 0, bcz = 0       ! 0 for periodic, 1 for others
     end type mhd_configuration
 
     type(mhd_configuration) :: mhd_config
@@ -30,12 +31,14 @@ module mhd_config_module
     !< Set MHD configuration information
     !---------------------------------------------------------------------------
     subroutine set_mhd_config(dx, dy, dz, xmin, ymin, zmin, xmax, ymax, zmax, &
-            lx, ly, lz, dt_out, nx, ny, nz, nxs, nys, nzs, topox, topoy, topoz, nvar)
+            lx, ly, lz, dt_out, nx, ny, nz, nxs, nys, nzs, topox, topoy, topoz, &
+            nvar, bcx, bcy, bcz)
         implicit none
         real(dp), intent(in) :: dx, dy, dz, xmin, ymin, zmin, xmax, ymax, zmax
         real(dp), intent(in) :: lx, ly, lz, dt_out
         integer, intent(in) :: nx, ny, nz, nxs, nys, nzs
         integer, intent(in) :: topox, topoy, topoz, nvar
+        integer, intent(in) :: bcx, bcy, bcz
         mhd_config%dx = dx
         mhd_config%dy = dy
         mhd_config%dz = dz
@@ -59,6 +62,9 @@ module mhd_config_module
         mhd_config%topoy = topoy
         mhd_config%topoz = topoz
         mhd_config%nvar = nvar
+        mhd_config%bcx = bcx
+        mhd_config%bcy = bcy
+        mhd_config%bcz = bcz
     end subroutine set_mhd_config
 
     !---------------------------------------------------------------------------
@@ -70,10 +76,14 @@ module mhd_config_module
         write(*, "(A)") " MHD simulation information."
         write(*, "(A,F7.2,A,F7.2,A,F7.2)") " lx, ly, lz = ", &
             mhd_config%lx, ',', mhd_config%ly, ',', mhd_config%lz
-        write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz = ", &
-            mhd_config%nx, ',', mhd_config%ny, ',', mhd_config%nz
         write(*, "(A,F9.6,A,F9.6,A,F9.6)") " dx, dy, dz = ", &
             mhd_config%dx, ',', mhd_config%dy, ',', mhd_config%dz
+        write(*, "(A,F9.6,A,F9.6,A,F9.6)") " xmin, ymin, zmin = ", &
+            mhd_config%xmin, ',', mhd_config%ymin, ',', mhd_config%zmin
+        write(*, "(A,F9.6,A,F9.6,A,F9.6)") " xmax, ymax, zmax = ", &
+            mhd_config%xmax, ',', mhd_config%ymax, ',', mhd_config%zmax
+        write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz = ", &
+            mhd_config%nx, ',', mhd_config%ny, ',', mhd_config%nz
         write(*, "(A,I0)") " Number of output variables: ", mhd_config%nvar
         write(*, "(A,I0,A,I0,A,I0)") " MHD topology: ", mhd_config%topox, &
             " * ", mhd_config%topoy, " * ", mhd_config%topoz
@@ -81,6 +91,21 @@ module mhd_config_module
             mhd_config%nxs, ",", mhd_config%nys, ",", mhd_config%nzs
         write(*, "(A,F7.3)") " Time interval for MHD data output: ", &
             mhd_config%dt_out
+        if (mhd_config%bcx == 0) then
+            write(*, "(A)") " MHD simulation is periodic along x"
+        else
+            write(*, "(A)") " MHD simulation is not periodic along x"
+        endif
+        if (mhd_config%bcy == 0) then
+            write(*, "(A)") " MHD simulation is periodic along y"
+        else
+            write(*, "(A)") " MHD simulation is not periodic along y"
+        endif
+        if (mhd_config%bcz == 0) then
+            write(*, "(A)") " MHD simulation is periodic along z"
+        else
+            write(*, "(A)") " MHD simulation is not periodic along z"
+        endif
         print *, "---------------------------------------------------"
     end subroutine echo_mhd_config
 
@@ -128,7 +153,7 @@ module mhd_config_module
         call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
         offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER
-        blockcounts(1) = 10
+        blockcounts(1) = 13
         ! Define structured type and commit it. 
         call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
             mhd_config_type, ierr)

@@ -6,7 +6,8 @@ module mhd_data_sli
     implicit none
     private
     public read_mhd_config_from_outfile, init_mhd_data, free_mhd_data, &
-           read_mhd_data, save_organized_mhd_data, read_organized_mhd_data
+           read_mhd_data, save_organized_mhd_data, read_organized_mhd_data, &
+           adjust_mhd_data_boundary
 
     type file_header
         integer, dimension(4) :: nx4
@@ -41,6 +42,7 @@ module mhd_data_sli
         real(dp) :: lx, ly, lz, dt_out
         integer :: nx, ny, nz, nxs, nys, nzs
         integer :: topox, topoy, topoz, nvar
+        integer :: bcx, bcy, bcz
 
         fh = 20
         open(unit=fh, file=filename, access='stream', status='unknown', &
@@ -78,9 +80,13 @@ module mhd_data_sli
         nz = 1
         nzs = 1
         topoz = 1
+        bcx = 0
+        bcy = 0
+        bcz = 0
 
         call set_mhd_config(dx, dy, dz, xmin, ymin, zmin, xmax, ymax, zmax, &
-            lx, ly, lz, dt_out, nx, ny, nz, nxs, nys, nzs, topox, topoy, topoz, nvar)
+            lx, ly, lz, dt_out, nx, ny, nz, nxs, nys, nzs, topox, topoy, topoz, &
+            nvar, bcx, bcy, bcz)
 
     end subroutine read_mhd_config_from_outfile
 
@@ -99,8 +105,10 @@ module mhd_data_sli
         nys = mhd_config%nys
         nzs = mhd_config%nzs
 
-        ! vx, vy, vz, pad1, bx, by, bz, btot
-        allocate(f_array(8, nx, ny, nz))
+        !< 2D MHD fields are increased by 4 grids along x and y, so 4 ghost
+        !< cells are included for calculating the derivatives
+        !< vx, vy, vz, pad1, bx, by, bz, btot
+        allocate(f_array(8, -1:nx + 2, -1:ny + 2, nz))
         f_array = 0.0
 
         allocate(mhd_data_single_core(nxs, nys, nzs, nvar))
@@ -164,6 +172,43 @@ module mhd_data_sli
         endif
         close(fh)
     end subroutine read_mhd_data
+
+    !---------------------------------------------------------------------------
+    !< Adjust MHD data arrays at the boundaries. Currently, only periodic
+    !< boundary is carefully implemented for now.
+    !---------------------------------------------------------------------------
+    subroutine adjust_mhd_data_boundary
+        use mhd_config_module, only: mhd_config
+        implicit none
+        integer :: nx, ny, nz
+
+        nx = mhd_config%nx
+        ny = mhd_config%ny
+        nz = mhd_config%nz
+
+        if (mhd_config%bcx == 0 .and. mhd_config%bcy == 0) then
+            ! 4 borders
+            f_array(:, -1:0, :, :) = f_array(:, nx-2:nx-1, :, :)
+            f_array(:, nx+1:nx+2, :, :) = f_array(:, 2:3, :, :)
+            f_array(:, :, -1:0, :) = f_array(:, :, ny-2:ny-1, :)
+            f_array(:, :, ny+1:ny+2, :) = f_array(:, :, 2:3, :)
+            ! 4 corners
+            f_array(:, -1:0, -1:0, :) = f_array(:, nx-2:nx-1, ny-2:ny-1, :)
+            f_array(:, nx+1:nx+2, -1:0, :) = f_array(:, 2:3, ny-2:ny-1, :)
+            f_array(:, -1:0, ny+1:ny+2, :) = f_array(:, nx-2:nx-1, 2:3, :)
+            f_array(:, nx+1:nx+2, ny+1:ny+2, :) = f_array(:, 2:3, 2:3, :)
+        else
+            !< Just copy nearby fields for now
+            f_array(:, -1, :, :) = f_array(:, 1, :, :)
+            f_array(:, 0, :, :) = f_array(:, 1, :, :)
+            f_array(:, nx+1, :, :) = f_array(:, nx, :, :)
+            f_array(:, nx+2, :, :) = f_array(:, nx, :, :)
+            f_array(:, :, -1, :) = f_array(:, :, 1, :)
+            f_array(:, :, 0, :) = f_array(:, :, 1, :)
+            f_array(:, :, ny+1, :) = f_array(:, :, ny, :)
+            f_array(:, :, ny+2, :) = f_array(:, :, ny, :)
+        endif
+    end subroutine adjust_mhd_data_boundary
 
     !---------------------------------------------------------------------------
     !< Save re-organized MHD data into a file

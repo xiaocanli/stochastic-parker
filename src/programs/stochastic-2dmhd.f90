@@ -23,7 +23,7 @@ program stochastic
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag
-    integer :: interp_flag
+    integer :: interp_flag, nx, ny, nz
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -38,12 +38,15 @@ program stochastic
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
     call load_mhd_config(fname2)
     call read_simuation_mpi_topology
-    call set_field_configuration(whole_data_flag=1)
+    call set_field_configuration(whole_data_flag=1, ndim=2)
 
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
-    call init_field_data(interp_flag, mhd_config%nx, mhd_config%ny, mhd_config%nz)
-    call init_fields_gradients(interp_flag, mhd_config%nx, mhd_config%ny, mhd_config%nz)
+    nx = mhd_config%nx
+    ny = mhd_config%ny
+    nz = mhd_config%nz
+    call init_field_data(interp_flag, nx, ny, nz, ndim=2)
+    call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
     call read_particle_params
 
     call init_particles(nptl_max)
