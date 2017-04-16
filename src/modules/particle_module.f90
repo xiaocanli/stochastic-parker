@@ -214,7 +214,7 @@ module particle_module
         use mhd_data_parallel, only: fields, gradf
         implicit none
         real(dp) :: pnorm
-        real(dp) :: bx, by, b, ib2, ib3, ib4
+        real(dp) :: bx, by, b, ib1, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbx_dy, dby_dy, db_dx, db_dy
 
         b = fields(8)
@@ -226,25 +226,26 @@ module particle_module
         dby_dy = gradf(6)
         db_dx = gradf(7)
         db_dy = gradf(8)
-        ib2 = 1.0_dp / b**2
-        ib3 = 1.0_dp / b**3
-        ib4 = ib2**2
+        ib1 = 1.0_dp / b
+        ib2 = ib1 * ib1
+        ib3 = ib1 * ib2
+        ib4 = ib2 * ib2
         
         pnorm = 1.0_dp
         if (mag_dependency == 1) then
             pnorm = pnorm * b0
         endif
         if (momentum_dependency == 1) then
-            pnorm = pnorm * ptl%p**pindex / p0**pindex
+            pnorm = pnorm * (ptl%p / p0)**pindex
         endif
 
         kpara = kpara0 * pnorm
         kperp = kpara * kret
 
         if (mag_dependency == 1) then
-            dkxx_dx = -kperp*db_dx*ib2 + (kperp-kpara)*db_dx*bx**2*ib4 + &
+            dkxx_dx = -kperp*db_dx*ib2 + (kperp-kpara)*db_dx*bx*bx*ib4 + &
                 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib4
-            dkyy_dy = -kperp*db_dy*ib2 + (kperp-kpara)*db_dy*by**2*ib4 + &
+            dkyy_dy = -kperp*db_dy*ib2 + (kperp-kpara)*db_dy*by*by*ib4 + &
                 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib4
             dkxy_dx = (kperp-kpara)*db_dx*bx*by*ib4 + (kpara-kperp) * &
                 ((dbx_dx*by+bx*dby_dx)*ib3 - 2.0*bx*by*db_dx*ib4)
@@ -364,7 +365,7 @@ module particle_module
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
             ! dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt1 = min(dxm/tmp40, (dxm/tmp30)**2)
+            dt1 = min(dxm/tmp40, (dxm/tmp30) * (dxm/tmp30))
         else
             dt1 = dt_min
         endif
@@ -372,7 +373,7 @@ module particle_module
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
             ! dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt2 = min(dym/tmp40, (dym/tmp30)**2)
+            dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30))
         else
             dt2 = dt_min
         endif
@@ -471,12 +472,12 @@ module particle_module
 
         deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt + ran1*skperp*sdt + &
                  ran3*skpara_perp*sdt*bx/b + &
-                 (skperp1-skperp)*(ran1**2-1.0)*sdt/2.0 + &
-                 (skpara_perp1*bx1/b1-skpara_perp*bx/b)*(ran3**2-1.0)*sdt/2.0
+                 (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
+                 (skpara_perp1*bx1/b1-skpara_perp*bx/b)*(ran3*ran3-1.0)*sdt/2.0
         deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt + ran2*skperp*sdt + &
                  ran3*skpara_perp*sdt*by/b + &
-                 (skperp1-skperp)*(ran2**2-1.0)*sdt/2.0 + &
-                 (skpara_perp1*by1/b1-skpara_perp*by/b)*(ran3**2-1.0)*sdt/2.0
+                 (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
+                 (skpara_perp1*by1/b1-skpara_perp*by/b)*(ran3*ran3-1.0)*sdt/2.0
         deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
         ptl%x = ptl%x + deltax 
         ptl%y = ptl%y + deltay 
