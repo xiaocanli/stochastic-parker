@@ -14,11 +14,15 @@ module mhd_data_parallel
 
     real(dp), dimension(8) :: fields, fields1
     real(dp), dimension(16) :: gradf, gradf1
+    !dir$ attributes align:64 :: fields
+    !dir$ attributes align:64 :: fields1
+    !dir$ attributes align:128 :: gradf
+    !dir$ attributes align:128 :: gradf1
 
     real(fp), allocatable, dimension(:, :, :, :) :: f_array1, f_array2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: fgrad_array1, fgrad_array2
-    !dir$ attributes align:64 :: f_array1
-    !dir$ attributes align:64 :: f_array2
+    !dir$ attributes align:32 :: f_array1
+    !dir$ attributes align:32 :: f_array2
     !dir$ attributes align:64 :: fgrad_array1
     !dir$ attributes align:64 :: fgrad_array2
 
@@ -152,6 +156,9 @@ module mhd_data_parallel
         starts(4) = fconfig%iz_min - 1
         fh = 11
         if (all(sizes == subsizes)) then
+            if (mpi_rank == master) then
+                write(*, "(A)") " Each MPI rank reads the whole data set."
+            endif
             open(unit=fh, file=filename, access='stream', status='unknown', &
                  form='unformatted', action='read')
             if (var_flag == 0) then
@@ -178,6 +185,9 @@ module mhd_data_parallel
                 call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array2)
             endif
             call MPI_FILE_CLOSE(fh, ierror)
+        endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished reading MHD data."
         endif
     end subroutine read_field_data_parallel
 
@@ -364,38 +374,38 @@ module mhd_data_parallel
         integer, intent(in) :: ix, iy
         real(dp) :: rx1, ry1, rt1, w1, w2, w3, w4
         integer :: ix1, iy1, i
-        rx1 = 1.0_dp - rx
-        ry1 = 1.0_dp - ry
-        rt1 = 1.0_dp - rt
         ix1 = ix + 1
         iy1 = iy + 1
+        rx1 = 1.0 - rx
+        ry1 = 1.0 - ry
+        rt1 = 1.0 - rt
         w1 = rx1 * ry1
         w2 = rx * ry1
         w3 = rx1 * ry
         w4 = rx * ry
 
-        fields = f_array1(:,  ix, iy, 1) * w1
-        fields = fields + f_array1(:,  ix1, iy, 1) * w2
-        fields = fields + f_array1(:,  ix, iy1, 1) * w3
-        fields = fields + f_array1(:,  ix1, iy1, 1) * w4
+        fields = f_array1(:, ix, iy, 1) * w1
+        fields = fields + f_array1(:, ix1, iy, 1) * w2
+        fields = fields + f_array1(:, ix, iy1, 1) * w3
+        fields = fields + f_array1(:, ix1, iy1, 1) * w4
 
-        fields1  = f_array2(:,  ix, iy, 1) * w1
-        fields1  = fields1  + f_array2(:,  ix1, iy, 1) * w2
-        fields1  = fields1  + f_array2(:,  ix, iy1, 1) * w3
-        fields1  = fields1  + f_array2(:,  ix1, iy1, 1) * w4
+        fields1 = f_array2(:, ix, iy, 1) * w1
+        fields1 = fields1 + f_array2(:, ix1, iy, 1) * w2
+        fields1 = fields1 + f_array2(:, ix, iy1, 1) * w3
+        fields1 = fields1 + f_array2(:, ix1, iy1, 1) * w4
 
         !< Time interpolation
         fields = fields * rt1 + fields1 * rt
 
-        gradf  = fgrad_array1(:,  ix, iy, 1) * w1
-        gradf  = gradf  + fgrad_array1(:,  ix1, iy, 1) * w2
-        gradf  = gradf  + fgrad_array1(:,  ix, iy1, 1) * w3
-        gradf  = gradf  + fgrad_array1(:,  ix1, iy1, 1) * w4
+        gradf = fgrad_array1(:, ix, iy, 1) * w1
+        gradf = gradf + fgrad_array1(:, ix1, iy, 1) * w2
+        gradf = gradf + fgrad_array1(:, ix, iy1, 1) * w3
+        gradf = gradf + fgrad_array1(:, ix1, iy1, 1) * w4
 
-        gradf1  = fgrad_array2(:,  ix, iy, 1) * w1
-        gradf1  = gradf1  + fgrad_array2(:,  ix1, iy, 1) * w2
-        gradf1  = gradf1  + fgrad_array2(:,  ix, iy1, 1) * w3
-        gradf1  = gradf1  + fgrad_array2(:,  ix1, iy1, 1) * w4
+        gradf1 = fgrad_array2(:, ix, iy, 1) * w1
+        gradf1 = gradf1 + fgrad_array2(:, ix1, iy, 1) * w2
+        gradf1 = gradf1 + fgrad_array2(:, ix, iy1, 1) * w3
+        gradf1 = gradf1 + fgrad_array2(:, ix1, iy1, 1) * w4
 
         !< Time interpolation
         gradf = gradf * rt1 + gradf1 * rt
