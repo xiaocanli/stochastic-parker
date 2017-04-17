@@ -5,6 +5,7 @@ module particle_module
     use constants, only: fp, dp
     implicit none
     private
+    save
     public init_particles, free_particles, inject_particles_spatial_uniform, &
         read_particle_params, particle_mover, remove_particles, split_particle, &
         init_particle_distributions, clean_particle_distributions, &
@@ -15,9 +16,11 @@ module particle_module
         real(dp) :: weight, t, dt   !< Particle weight, time and time step
         integer  :: split_times     !< Particle splitting times
         integer  :: count_flag      !< Only count particle when it is 1
+        integer(dp) :: tag          !< Particle tag
     end type particle_type
 
     type(particle_type), allocatable, dimension(:) :: ptls
+    !dir$ attributes align:64 :: ptls
     type(particle_type) :: ptl
 
     integer :: nptl_current         !< Number of particles currently in the box
@@ -30,19 +33,18 @@ module particle_module
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
     real(dp) :: pindex              !< power index for the momentum dependency 
-    !< These two depends on the simulation normalizations
-    real(dp) :: p0  !< the standard deviation of the Gaussian distribution of momentum
-    real(dp) :: pmin  !< Minimum particle momentum
-    real(dp) :: pmax  !< Maximum particle momentum
+    real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
     real(dp) :: kpara, kperp, dkxx_dx, dkyy_dy, dkxy_dx, dkxy_dy
     real(dp) :: skperp, skpara_perp
 
     real(dp) :: dt_min  !< Minimum time step
 
-    !< Dimensions of particle distributions
-    integer :: nx, ny, npp, nreduce
+    !< Parameters for particle distributions
+    real(dp) :: pmin  !< Minimum particle momentum
+    real(dp) :: pmax  !< Maximum particle momentum
     real(dp) :: dx, dy, pmin_log, pmax_log, dp_log
+    integer :: nx, ny, npp, nreduce
 
     real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3
     ! real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum
@@ -73,6 +75,7 @@ module particle_module
         ptls%dt = 0.0
         ptls%split_times = 0
         ptls%count_flag = 0
+        ptls%tag = 0
         nptl_current = 0     ! No particle initially
     end subroutine init_particles
 
@@ -124,6 +127,7 @@ module particle_module
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%tag = nptl_current
         enddo
         leak = 0.0_dp
     end subroutine inject_particles_spatial_uniform
@@ -528,6 +532,7 @@ module particle_module
                 ptl%weight = 0.5**(1.0 + ptl%split_times)
                 ptl%split_times = ptl%split_times + 1
                 ptls(nptl_current) = ptl
+                ptls(nptl_current)%tag = nptl_current
                 ptls(i) = ptl
             endif
         enddo
