@@ -16,8 +16,9 @@ module simulation_setup_module
 
     !< Dimensions of v and B in memory
     type field_configuration
-        integer :: nxg, nyg, nzg    ! Number of grids with ghost cells
-        integer :: nxf, nyf, nzf
+        integer :: nxg, nyg, nzg    ! Total number of MHD grids with ghost cells
+        integer :: nxf, nyf, nzf    ! Local grid sizes with ghost cells
+        integer :: nx, ny, nz       ! Local grid size without ghost cells 
         integer :: ix_min, ix_max, iy_min
         integer :: iy_max, iz_min, iz_max
         real(dp) :: xmin, ymin, zmin
@@ -75,7 +76,7 @@ module simulation_setup_module
             !< echo the information
             print *, "---------------------------------------------------"
             write(*, "(A)") " Simulation MPI toplogy: "
-            write(*, "(A,I0,A,I0,A,I0)") "x, y, z: ", mpi_sizex, " ", &
+            write(*, "(A,I0,A,I0,A,I0)") " x, y, z: ", mpi_sizex, " ", &
                 mpi_sizey, " ", mpi_sizez
             print *, "---------------------------------------------------"
         endif
@@ -181,6 +182,9 @@ module simulation_setup_module
             fconfig%nxf = fconfig%ix_max - fconfig%ix_min + 1
             fconfig%nyf = fconfig%iy_max - fconfig%iy_min + 1
             fconfig%nzf = fconfig%iz_max - fconfig%iz_min + 1
+            fconfig%nx = nx
+            fconfig%ny = ny
+            fconfig%nz = nz
         else
             fconfig%ix_min = 1
             fconfig%iy_min = 1
@@ -212,6 +216,31 @@ module simulation_setup_module
             fconfig%xmax = mhd_config%xmax
             fconfig%ymax = mhd_config%ymax
             fconfig%zmax = mhd_config%zmax
+
+            fconfig%nx = mhd_config%nx
+            fconfig%ny = mhd_config%ny
+            fconfig%nz = mhd_config%nz
+
+            if (mpi_rank == master) then
+                !< echo the configuration information
+                print *, "---------------------------------------------------"
+                write(*, "(A)") " Field configuration in the simulation: "
+                write(*, "(A,I0,A,I0,A,I0)") " nxg, nyg, nzg: ", fconfig%nxg, &
+                    " ", fconfig%nyg, " ", fconfig%nzg
+                write(*, "(A,I0,A,I0,A,I0)") " nxf, nyf, nzf: ", fconfig%nxf, &
+                    " ", fconfig%nyf, " ", fconfig%nzf
+                write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz: ", fconfig%nx, &
+                    " ", fconfig%ny, " ", fconfig%nz
+                write(*, "(A,I0,A,I0,A,I0)") " ix_min, iy_min, iz_min: ", &
+                    fconfig%ix_min, " ", fconfig%iy_min, " ", fconfig%iz_min
+                write(*, "(A,I0,A,I0,A,I0)") " ix_max, iy_max, iz_max: ", &
+                    fconfig%ix_max, " ", fconfig%iy_max, " ", fconfig%iz_max
+                write(*, "(A,F9.2,A,F9.2,A,F9.2)") " xmin, ymin, zmin: ", &
+                    fconfig%xmin, " ", fconfig%ymin, " ", fconfig%zmin
+                write(*, "(A,F9.2,A,F9.2,A,F9.2)") " xmax, ymax, zmax: ", &
+                    fconfig%xmax, " ", fconfig%ymax, " ", fconfig%zmax
+                print *, "---------------------------------------------------"
+            endif
         endif
     end subroutine set_field_configuration
 
