@@ -42,14 +42,15 @@ endif (NOT CMAKE_BUILD_TYPE)
 
 # FFLAGS depend on the compiler
 if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -fopenmp -march=native -fimplicit-none \
+  set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -g -fopenmp -march=native -fimplicit-none \
     -Wline-truncation -fwhole-file -std=f2008 -fall-intrinsics -fPIC -cpp")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fopenmp -fimplicit-none -Wall \
     -Wline-truncation -Wcharacter-truncation -Wsurprising -Waliasing \
     -Wimplicit-interface -Wunused-parameter -fwhole-file -fcheck=all \
     -std=f2008 -pedantic -fbacktrace -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -qopenmp -no-prec-div -fPIC -cpp")
+  set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -g -qopenmp -no-prec-div -fPIC \
+    -cpp -qopt-report=5 -qopt-report-phase=vec")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -qopenmp -traceback -check all \
     -check bounds -check uninit -debug all -check arg_temp_created \
     -fpe0 -ftrapuv -fPIC -cpp")
