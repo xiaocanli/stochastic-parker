@@ -95,7 +95,7 @@ module particle_module
     !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
     !---------------------------------------------------------------------------
     subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag)
-        use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
         use mpi_module, only: mpi_rank, master
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -105,10 +105,10 @@ module particle_module
         real(dp) :: xmin, ymin, xmax, ymax
         real(dp) :: rands(2)
 
-        xmin = mhd_config%xmin
-        xmax = mhd_config%xmax
-        ymin = mhd_config%ymin
-        ymax = mhd_config%ymax
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
 
         do i = 1, nptl
             nptl_current = nptl_current + 1
@@ -130,6 +130,9 @@ module particle_module
             ptls(nptl_current)%tag = nptl_current
         enddo
         leak = 0.0_dp
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles"
+        endif
     end subroutine inject_particles_spatial_uniform
 
     !---------------------------------------------------------------------------
@@ -137,6 +140,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine particle_mover
         use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields
         implicit none
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
@@ -145,12 +149,12 @@ module particle_module
         integer :: i, ix, iy
 
         dtf = mhd_config%dt_out
-        xmin = mhd_config%xmin
-        xmax = mhd_config%xmax
-        ymin = mhd_config%ymin
-        ymax = mhd_config%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
 
         do i = 1, nptl_current
             ptl = ptls(i)
@@ -268,7 +272,8 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine read_particle_params
         use read_config, only: get_variable
-        use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
+        use simulation_setup_module, only: mpi_sizex, mpi_sizey
         use mpi_module
         implicit none
         real(fp) :: temp
@@ -293,8 +298,8 @@ module particle_module
             dt_min = get_variable(fh, 'dt_min', '=')
             temp = get_variable(fh, 'nreduce', '=')
             nreduce = int(temp)
-            nx = mhd_config%nx / nreduce
-            ny = mhd_config%ny / nreduce
+            nx = fconfig%nx / nreduce
+            ny = fconfig%ny / nreduce
             temp = get_variable(fh, 'npp', '=')
             npp = int(temp)
             close(fh)
@@ -340,6 +345,14 @@ module particle_module
         call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        if (nx * nreduce /= fconfig%nx .or. ny * nreduce /= fconfig%ny) then
+            if (mpi_rank == master) then 
+                write(*, "(A)") "Wrong factor 'nreduce' for particle distribution"
+            endif
+            call MPI_FINALIZE(ierr)
+            stop
+        endif
     end subroutine read_particle_params
 
     !---------------------------------------------------------------------------
@@ -404,6 +417,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine push_particle(rt, deltax, deltay, deltap)
         use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: fields, gradf, interp_fields
         use random_number_generator, only: unif_01
         implicit none
@@ -415,7 +429,6 @@ module particle_module
         real(dp) :: bx1, by1, b1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: lx, ly
         integer :: ix, iy
 
         vx = fields(1)
@@ -425,14 +438,12 @@ module particle_module
         b = fields(8)
         dvx_dx = gradf(1)
         dvy_dy = gradf(2)
-        xmin = mhd_config%xmin
-        ymin = mhd_config%ymin
-        xmax = mhd_config%xmax
-        ymax = mhd_config%ymax
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
-        lx = mhd_config%lx
-        ly = mhd_config%ly
 
         sdt = dsqrt(ptl%dt)
         xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
@@ -626,6 +637,9 @@ module particle_module
                 parray(i) = 10**(pmin_log + (i-1) * dp_log)
             enddo
         ! endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished Initializing particle distributions."
+        endif
     end subroutine init_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -672,15 +686,15 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine calc_particle_distributions
         use mpi_module
-        use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
         implicit none
         integer :: i, ix, iy, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax
 
-        xmin = mhd_config%xmin
-        xmax = mhd_config%xmax
-        ymin = mhd_config%ymin
-        ymax = mhd_config%ymax
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
         
         call clean_particle_distributions
 
