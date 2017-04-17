@@ -10,9 +10,12 @@ module simulation_setup_module
     save
 
     public mpi_sizex, mpi_sizey, mpi_sizez, fconfig
-    public read_simuation_mpi_topology, set_field_configuration
+    public read_simuation_mpi_topology, set_field_configuration, &
+        read_particle_boundary_conditions
 
     integer :: mpi_sizex, mpi_sizey, mpi_sizez
+    integer :: pbcx, pbcy, pbcz
+    integer, dimension(6) :: neighbors
 
     !< Dimensions of v and B in memory
     type field_configuration
@@ -82,6 +85,55 @@ module simulation_setup_module
         endif
     end subroutine read_simuation_mpi_topology
 
+    !---------------------------------------------------------------------------
+    !< Read particle boundary conditions
+    !---------------------------------------------------------------------------
+    subroutine read_particle_boundary_conditions
+        use read_config, only: get_variable
+        implicit none
+        real(fp) :: temp
+        integer, dimension(3) :: pbcs
+        integer :: nx, ny, nz, fh
+        if (mpi_rank == master) then
+            fh = 10
+            open(unit=fh, file='config/conf.dat', status='old')
+            temp = get_variable(fh, 'pbcx', '=')
+            pbcs(1) = int(temp)
+            temp = get_variable(fh, 'pbcy', '=')
+            pbcs(2) = int(temp)
+            temp = get_variable(fh, 'pbcz', '=')
+            pbcs(3) = int(temp)
+            close(fh)
+        endif
+
+        call MPI_BCAST(pbcs, 3, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        pbcx = pbcs(1)
+        pbcy = pbcs(2)
+        pbcz = pbcs(3)
+
+        if (mpi_rank == master) then
+            !< echo the information
+            print *, "---------------------------------------------------"
+            write(*, "(A)") " Particle boundary conditions: "
+            if (pbcx == 0) then
+                write(*, "(A)") " Particles are periodic along x."
+            else
+                write(*, "(A)") " Particles are open along x."
+            endif
+            if (pbcy == 0) then
+                write(*, "(A)") " Particles are periodic along y."
+            else
+                write(*, "(A)") " Particles are open along y."
+            endif
+            if (pbcz == 0) then
+                write(*, "(A)") " Particles are periodic along z."
+            else
+                write(*, "(A)") " Particles are open along z."
+            endif
+            print *, "---------------------------------------------------"
+        endif
+    end subroutine read_particle_boundary_conditions
 
     !---------------------------------------------------------------------------
     !< Set data boundaries. We assume the MHD data has been re-organized and

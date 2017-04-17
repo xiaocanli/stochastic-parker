@@ -36,6 +36,12 @@ dt_min = 1E-6
 nreduce = 4
 npp = 128
 
+!< Particle boundary conditions
+!< 0: periodic, 1: open
+pbcx = 0
+pbcy = 0
+pbcz = 0
+
 !< Simulation MPI topology
 mpi_sizex = 4
 mpi_sizey = 8

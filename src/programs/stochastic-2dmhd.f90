@@ -16,7 +16,7 @@ program stochastic
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
         calc_fields_gradients, copy_fields
     use simulation_setup_module, only: read_simuation_mpi_topology, &
-        set_field_configuration, fconfig
+        set_field_configuration, fconfig, read_particle_boundary_conditions
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
@@ -41,6 +41,7 @@ program stochastic
         call echo_mhd_config
     endif
     call read_simuation_mpi_topology
+    call read_particle_boundary_conditions
     call set_field_configuration(whole_data_flag=1, ndim=2)
 
     !< Initialization
