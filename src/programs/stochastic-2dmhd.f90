@@ -5,7 +5,7 @@
 program stochastic
     use constants, only: fp, dp
     use mpi_module
-    use mhd_config_module, only: load_mhd_config, mhd_config
+    use mhd_config_module, only: load_mhd_config, mhd_config, echo_mhd_config
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, remove_particles, split_particle, &
@@ -37,6 +37,9 @@ program stochastic
     !< Configurations
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
     call load_mhd_config(fname2)
+    if (mpi_rank == master) then
+        call echo_mhd_config
+    endif
     call read_simuation_mpi_topology
     call set_field_configuration(whole_data_flag=1, ndim=2)
 
