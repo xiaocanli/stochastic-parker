@@ -11,7 +11,7 @@ module simulation_setup_module
 
     public mpi_sizex, mpi_sizey, mpi_sizez, fconfig
     public read_simuation_mpi_topology, set_field_configuration, &
-        read_particle_boundary_conditions
+        read_particle_boundary_conditions, set_neighbors
 
     integer :: mpi_sizex, mpi_sizey, mpi_sizez
     integer :: pbcx, pbcy, pbcz
@@ -296,4 +296,81 @@ module simulation_setup_module
         endif
     end subroutine set_field_configuration
 
+    !---------------------------------------------------------------------------
+    !< Set neighbors along one direction
+    !< Args:
+    !<  mrank: rank along this direction
+    !<  msize: size along this direction
+    !<  neighs: neighbors along this direction
+    !---------------------------------------------------------------------------
+    subroutine set_neighbor_one_direction(mrank, msize, neighs)
+        implicit none
+        integer, intent(in) :: mrank, msize
+        integer, dimension(2), intent(out) :: neighs
+        if (mrank == 0) then
+            neighs(1) = msize - 1
+            neighs(2) = mrank + 1
+        else if (mrank == msize - 1) then
+            neighs(1) = mrank - 1
+            neighs(2) = 0
+        else
+            neighs(1) = mrank - 1
+            neighs(2) = mrank + 1
+        endif
+    end subroutine set_neighbor_one_direction
+
+
+    !---------------------------------------------------------------------------
+    !< Set neighbors for each mpi_rank
+    !< Args:
+    !<  whole_data_flag: whether to load the whole dataset. 0 for no and
+    !<      other numbers for yes
+    !---------------------------------------------------------------------------
+    subroutine set_neighbors(whole_data_flag)
+        implicit none
+        integer, intent(in) :: whole_data_flag
+        integer :: ix, iy, iz, size_xy
+        integer, dimension(2) :: ne(2)
+        iz = mpi_rank / (mpi_sizex * mpi_sizey)
+        iy = mod(mpi_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+        ix = mod(mpi_rank, mpi_sizex)
+        size_xy = mpi_sizex * mpi_sizey
+        if (whole_data_flag == 0) then
+            if (pbcx == 0) then  ! Periodic boundary condition
+                if (mpi_sizex == 1) then
+                    neighbors(1:2) = iy + iz * mpi_sizey
+                else
+                    call set_neighbor_one_direction(ix, mpi_sizex, ne)
+                    neighbors(1) = ne(1) + iy * mpi_sizex + iz * size_xy
+                    neighbors(2) = ne(2) + iy * mpi_sizex + iz * size_xy
+                endif
+            else
+                neighbors(1:2) = -1
+            endif
+            if (pbcy == 0) then
+                if (mpi_sizey == 1) then
+                    neighbors(3:4) = ix + iz * mpi_sizex
+                else
+                    call set_neighbor_one_direction(iy, mpi_sizey, ne)
+                    neighbors(3) = ix + ne(1) * mpi_sizex + iz * size_xy
+                    neighbors(4) = ix + ne(2) * mpi_sizex + iz * size_xy
+                endif
+            else
+                neighbors(3:4) = -1
+            endif
+            if (pbcz == 0) then
+                if (mpi_sizez == 1) then
+                    neighbors(5:6) = ix + iy * mpi_sizex
+                else
+                    call set_neighbor_one_direction(iz, mpi_sizez, ne)
+                    neighbors(5) = ix + iy * mpi_sizex + ne(1) * size_xy
+                    neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
+                endif
+            else
+                neighbors(5:6) = -1
+            endif
+        else
+            neighbors = mpi_rank
+        endif
+    end subroutine set_neighbors
 end module simulation_setup_module
