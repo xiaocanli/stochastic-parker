@@ -43,14 +43,14 @@ program stochastic
     endif
     call read_simuation_mpi_topology
     call read_particle_boundary_conditions
-    call set_field_configuration(whole_data_flag=1, ndim=2)
-    call set_neighbors(whole_data_flag=1)
+    call set_field_configuration(whole_data_flag=0, ndim=2)
+    call set_neighbors(whole_data_flag=0)
 
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
-    nx = mhd_config%nx
-    ny = mhd_config%ny
-    nz = mhd_config%nz
+    nx = fconfig%nx
+    ny = fconfig%ny
+    nz = fconfig%nz
     call init_field_data(interp_flag, nx, ny, nz, ndim=2)
     call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
     call read_particle_params
