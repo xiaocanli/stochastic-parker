@@ -141,29 +141,12 @@ module simulation_setup_module
     !< dimensions. For example, for 2D MHD simulation with grid nx*ny*1, the
     !< re-organized data has dimension (nx + 4) * (ny + 4) * 1
     !---------------------------------------------------------------------------
-    subroutine set_data_boundaries(mrank, msize, n, ntot, imin, imax)
+    subroutine set_data_boundaries(mrank, n, imin, imax)
         implicit none
-        integer, intent(in) :: mrank, msize, n, ntot
+        integer, intent(in) :: mrank, n
         integer, intent(out) :: imin, imax
-        if (mrank == 0) then
-            imin = 1
-            !< This avoids overflow when ntot is small, e.g. 2D simulation
-            if (ntot > (n + 4)) then
-                imax = n + 4
-            else
-                imax = ntot
-            endif
-        else if (mrank == msize- 1) then
-            imax = ntot + 4
-            if (ntot - n + 1 < 1) then
-                imin = 1
-            else
-                imin = ntot - n + 1
-            endif
-        else
-            imin = mrank * n + 1
-            imax = (mrank + 1) * n + 4
-        endif
+        imin = mrank * n + 1
+        imax = (mrank + 1) * n + 4
     end subroutine set_data_boundaries
 
     !---------------------------------------------------------------------------
@@ -200,18 +183,15 @@ module simulation_setup_module
             ny = mhd_config%ny / mpi_sizey
             nz = mhd_config%nz / mpi_sizez
 
-            call set_data_boundaries(ix, mpi_sizex, nx, mhd_config%nx, &
-                                     fconfig%ix_min, fconfig%ix_max)
+            call set_data_boundaries(ix, nx, fconfig%ix_min, fconfig%ix_max)
             fconfig%xmin = (ix - 0.5) * mhd_config%dx
             fconfig%xmax = fconfig%xmin + nx * mhd_config%dx
             if (ndim > 1) then
-                call set_data_boundaries(iy, mpi_sizey, ny, mhd_config%ny, &
-                                         fconfig%iy_min, fconfig%iy_max)
+                call set_data_boundaries(iy, ny, fconfig%iy_min, fconfig%iy_max)
                 fconfig%ymin = (iy - 0.5) * mhd_config%dy
                 fconfig%ymax = fconfig%ymin + ny * mhd_config%dy
                 if (ndim > 2) then
-                    call set_data_boundaries(iz, mpi_sizez, nz, mhd_config%nz, &
-                                             fconfig%iz_min, fconfig%iz_max)
+                    call set_data_boundaries(iz, nz, fconfig%iz_min, fconfig%iz_max)
                     fconfig%zmin = (iz - 0.5) * mhd_config%dz
                     fconfig%zmax = fconfig%zmin + nz * mhd_config%dz
                 else
@@ -272,27 +252,27 @@ module simulation_setup_module
             fconfig%nx = mhd_config%nx
             fconfig%ny = mhd_config%ny
             fconfig%nz = mhd_config%nz
+        endif
 
-            if (mpi_rank == master) then
-                !< echo the configuration information
-                print *, "---------------------------------------------------"
-                write(*, "(A)") " Field configuration in the simulation: "
-                write(*, "(A,I0,A,I0,A,I0)") " nxg, nyg, nzg: ", fconfig%nxg, &
-                    " ", fconfig%nyg, " ", fconfig%nzg
-                write(*, "(A,I0,A,I0,A,I0)") " nxf, nyf, nzf: ", fconfig%nxf, &
-                    " ", fconfig%nyf, " ", fconfig%nzf
-                write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz: ", fconfig%nx, &
-                    " ", fconfig%ny, " ", fconfig%nz
-                write(*, "(A,I0,A,I0,A,I0)") " ix_min, iy_min, iz_min: ", &
-                    fconfig%ix_min, " ", fconfig%iy_min, " ", fconfig%iz_min
-                write(*, "(A,I0,A,I0,A,I0)") " ix_max, iy_max, iz_max: ", &
-                    fconfig%ix_max, " ", fconfig%iy_max, " ", fconfig%iz_max
-                write(*, "(A,F9.2,A,F9.2,A,F9.2)") " xmin, ymin, zmin: ", &
-                    fconfig%xmin, " ", fconfig%ymin, " ", fconfig%zmin
-                write(*, "(A,F9.2,A,F9.2,A,F9.2)") " xmax, ymax, zmax: ", &
-                    fconfig%xmax, " ", fconfig%ymax, " ", fconfig%zmax
-                print *, "---------------------------------------------------"
-            endif
+        if (mpi_rank == master) then
+            !< echo the configuration information
+            print *, "---------------------------------------------------"
+            write(*, "(A)") " Field configuration in the simulation: "
+            write(*, "(A,I0,A,I0,A,I0)") " nxg, nyg, nzg: ", fconfig%nxg, &
+                " ", fconfig%nyg, " ", fconfig%nzg
+            write(*, "(A,I0,A,I0,A,I0)") " nxf, nyf, nzf: ", fconfig%nxf, &
+                " ", fconfig%nyf, " ", fconfig%nzf
+            write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz: ", fconfig%nx, &
+                " ", fconfig%ny, " ", fconfig%nz
+            write(*, "(A,I0,A,I0,A,I0)") " ix_min, iy_min, iz_min: ", &
+                fconfig%ix_min, " ", fconfig%iy_min, " ", fconfig%iz_min
+            write(*, "(A,I0,A,I0,A,I0)") " ix_max, iy_max, iz_max: ", &
+                fconfig%ix_max, " ", fconfig%iy_max, " ", fconfig%iz_max
+            write(*, "(A,F12.5,A,F12.5,A,F12.5)") " xmin, ymin, zmin: ", &
+                fconfig%xmin, " ", fconfig%ymin, " ", fconfig%zmin
+            write(*, "(A,F12.5,A,F12.5,A,F12.5)") " xmax, ymax, zmax: ", &
+                fconfig%xmax, " ", fconfig%ymax, " ", fconfig%zmax
+            print *, "---------------------------------------------------"
         endif
     end subroutine set_field_configuration
 
