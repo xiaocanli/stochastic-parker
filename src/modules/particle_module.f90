@@ -146,6 +146,7 @@ module particle_module
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
         real(dp) :: t0, px, py, rx, ry, rt, rt1
         real(dp) :: deltax, deltay, deltap
+        real(dp) :: dx_max, dy_max
         integer :: i, ix, iy
 
         dtf = mhd_config%dt_out
@@ -156,16 +157,15 @@ module particle_module
         ymin = fconfig%ymin
         ymax = fconfig%ymax
 
+        dx_max = 0.0
+        dy_max = 0.0
+
         do i = 1, nptl_current
             ptl = ptls(i)
             t0 = ptl%t
             do while ((ptl%t - t0) < dtf .and. ptl%count_flag == 1)
                 if(ptl%p < 0.0) exit
-                !< Periodic boundary condition
-                if (ptl%x > xmax) ptl%x = ptl%x - xmax + xmin
-                if (ptl%x < xmin) ptl%x = xmax - (xmin - ptl%x)
-                if (ptl%y > ymax) ptl%y = ptl%y - ymax + ymin
-                if (ptl%y < ymin) ptl%y = ymax - (ymin - ptl%y)
+                call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
 
                 px = (ptl%x-xmin) / dxm
                 py = (ptl%y-ymin) / dym
@@ -181,6 +181,13 @@ module particle_module
                 call calc_spatial_diffusion_coefficients
                 call set_time_step(t0, dtf)
                 call push_particle(rt, deltax, deltay, deltap)
+
+                if (abs(deltax) > dx_max) then
+                    dx_max = abs(deltax)
+                endif
+                if (abs(deltay) > dy_max) then
+                    dy_max = abs(deltay)
+                endif
             enddo
 
             if ((ptl%t - t0) > dtf) then
@@ -205,15 +212,39 @@ module particle_module
                 call push_particle(rt, deltax, deltay, deltap)
             endif
 
-            !< Periodic boundary condition
-            if (ptl%x > xmax) ptl%x = ptl%x - xmax + xmin
-            if (ptl%x < xmin) ptl%x = xmax - (xmin - ptl%x)
-            if (ptl%y > ymax) ptl%y = ptl%y - ymax + ymin
-            if (ptl%y < ymin) ptl%y = ymax - (ymin - ptl%y)
+            call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
 
             ptls(i) = ptl
         enddo
+
+        ! print*, dx_max, dy_max
     end subroutine particle_mover
+
+    !---------------------------------------------------------------------------
+    !< Particle boundary conditions
+    !< Args:
+    !<  x, y: particle positions
+    !<  xmin, xmax: min and max along the x-direction
+    !<  ymin, ymax: min and max along the y-direction
+    !---------------------------------------------------------------------------
+    subroutine particle_boundary_condition(x, y, xmin, xmax, ymin, ymax)
+        implicit none
+        real(dp), intent(in) :: xmin, xmax, ymin, ymax
+        real(dp), intent(inout) :: x, y
+
+        if (x > xmax) then
+            x = x - xmax + xmin
+        endif
+        if (x < xmin) then
+            x = xmax - (xmin - x)
+        endif
+        if (y > ymax) then
+            y = y - ymax + ymin
+        endif
+        if (y < ymin) then
+            y = ymax - (ymin - y)
+        endif
+    end subroutine particle_boundary_condition
 
     !---------------------------------------------------------------------------
     !< Calculate the spatial diffusion coefficients
@@ -225,9 +256,9 @@ module particle_module
         real(dp) :: bx, by, b, ib1, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbx_dy, dby_dy, db_dx, db_dy
 
-        b = fields(8)
         bx = fields(5)
         by = fields(6)
+        b = fields(8)
         dbx_dx = gradf(3)
         dbx_dy = gradf(4)
         dby_dx = gradf(5)
@@ -419,7 +450,7 @@ module particle_module
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: fields, gradf, interp_fields
-        use random_number_generator, only: unif_01
+        use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: rt
         real(dp), intent(out) :: deltax, deltay, deltap
@@ -429,6 +460,7 @@ module particle_module
         real(dp) :: bx1, by1, b1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
+        real(dp) :: rands(2)
         integer :: ix, iy
 
         vx = fields(1)
@@ -456,11 +488,7 @@ module particle_module
             return
         endif
 
-        !< Periodic boundary condition
-        if (xtmp > xmax) xtmp = xtmp - xmax + xmin
-        if (xtmp < xmin) xtmp = xmax - (xmin - xtmp)
-        if (ytmp > ymax) ytmp = ytmp - ymax + ymin
-        if (ytmp < ymin) ytmp = ymax - (ymin - ytmp)
+        call particle_boundary_condition(xtmp, ytmp, xmin, xmax, ymin, ymax)
 
         px = (xtmp - xmin) / dxm
         py = (ytmp - ymin) / dym
@@ -470,6 +498,11 @@ module particle_module
         ry = py + 1 - iy
         rt1 = 1.0_dp - rt
         call interp_fields(ix, iy, rx, ry, rt)
+
+        ! Before dkxx_dx, dkxy_dy, dkxy_dx, dkyy_dy are updated
+        deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
+        deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
+
         call calc_spatial_diffusion_coefficients
 
         !< Magnetic field at the predicted position
@@ -485,12 +518,16 @@ module particle_module
         ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
         ran3 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
 
-        deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt + ran1*skperp*sdt + &
-                 ran3*skpara_perp*sdt*bx/b + &
+        ! rands = two_normals()
+        ! ran1 = rands(1)
+        ! ran2 = rands(2)
+        ! rands = two_normals()
+        ! ran3 = rands(1)
+
+        deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx/b + &
                  (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
                  (skpara_perp1*bx1/b1-skpara_perp*bx/b)*(ran3*ran3-1.0)*sdt/2.0
-        deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt + ran2*skperp*sdt + &
-                 ran3*skpara_perp*sdt*by/b + &
+        deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by/b + &
                  (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
                  (skpara_perp1*by1/b1-skpara_perp*by/b)*(ran3*ran3-1.0)*sdt/2.0
         deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
