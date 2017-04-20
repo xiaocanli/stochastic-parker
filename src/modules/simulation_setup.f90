@@ -9,11 +9,13 @@ module simulation_setup_module
     private
     save
 
-    public mpi_sizex, mpi_sizey, mpi_sizez, fconfig
+    public mpi_sizex, mpi_sizey, mpi_sizez, fconfig, mpi_ix, mpi_iy, mpi_iz, &
+        neighbors
     public read_simuation_mpi_topology, set_field_configuration, &
         read_particle_boundary_conditions, set_neighbors
 
     integer :: mpi_sizex, mpi_sizey, mpi_sizez
+    integer :: mpi_ix, mpi_iy, mpi_iz
     integer :: pbcx, pbcy, pbcz
     integer, dimension(6) :: neighbors
 
@@ -62,6 +64,9 @@ module simulation_setup_module
         ny = mhd_config%ny
         nz = mhd_config%nz
 
+        mpi_iz = mpi_rank / (mpi_sizex * mpi_sizey)
+        mpi_iy = mod(mpi_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+        mpi_ix = mod(mpi_rank, mpi_sizex)
 
         !< check the topology for consistency
         if (mpi_sizex*mpi_sizey*mpi_sizez /= mpi_size .or. &
