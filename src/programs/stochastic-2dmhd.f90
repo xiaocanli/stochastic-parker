@@ -10,7 +10,8 @@ program stochastic
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, remove_particles, split_particle, &
         init_particle_distributions, free_particle_distributions, &
-        distributions_diagnostics, quick_check
+        distributions_diagnostics, quick_check, set_particle_datatype_mpi, &
+        free_particle_datatype_mpi
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -58,6 +59,7 @@ program stochastic
     call init_particles(nptl_max)
     call inject_particles_spatial_uniform(nptl, dt, dist_flag)
     call init_particle_distributions
+    call set_particle_datatype_mpi
 
     write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
@@ -74,7 +76,6 @@ program stochastic
     !< Time loop
     do tf = t_start + 1, t_end
         call particle_mover
-        call remove_particles
         if (split_flag == 1) then
             call split_particle
         endif
@@ -97,6 +98,7 @@ program stochastic
         step1 = step2
     enddo
 
+    call free_particle_datatype_mpi
     call free_particle_distributions
     call free_particles
     call free_fields_gradients(interp_flag)

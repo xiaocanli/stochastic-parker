@@ -9,21 +9,28 @@ module particle_module
     public init_particles, free_particles, inject_particles_spatial_uniform, &
         read_particle_params, particle_mover, remove_particles, split_particle, &
         init_particle_distributions, clean_particle_distributions, &
-        free_particle_distributions, distributions_diagnostics, quick_check
+        free_particle_distributions, distributions_diagnostics, quick_check, &
+        set_particle_datatype_mpi, free_particle_datatype_mpi
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
         real(dp) :: weight, t, dt   !< Particle weight, time and time step
         integer  :: split_times     !< Particle splitting times
         integer  :: count_flag      !< Only count particle when it is 1
-        integer(dp) :: tag          !< Particle tag
+        integer  :: tag             !< Particle tag
+        integer  :: pad1
     end type particle_type
 
+    integer :: particle_datatype_mpi
     type(particle_type), allocatable, dimension(:) :: ptls
+    type(particle_type), allocatable, dimension(:, :) :: senders
+    type(particle_type), allocatable, dimension(:, :) :: recvers
+    integer, dimension(4) :: nsenders, nrecvers
     !dir$ attributes align:64 :: ptls
-    type(particle_type) :: ptl
+    type(particle_type) :: ptl, ptl1
 
     integer :: nptl_current         !< Number of particles currently in the box
+    integer :: nptl_old             !< Number of particles without receivers
     integer :: nptl_max             !< Maximum number of particles allowed
     integer :: nptl_new             !< Number of particles from splitting
     real(dp) :: leak                !< Leaking particles considering weight
@@ -76,7 +83,36 @@ module particle_module
         ptls%split_times = 0
         ptls%count_flag = 0
         ptls%tag = 0
+        ptls%pad1 = 0
         nptl_current = 0     ! No particle initially
+
+        !< Particles crossing domain boundaries
+        allocate(senders(nptl_max / 100, 4))
+        allocate(recvers(nptl_max / 100, 4))
+        senders%x = 0.0
+        senders%y = 0.0
+        senders%p = 0.0
+        senders%weight = 0.0
+        senders%t = 0.0
+        senders%dt = 0.0
+        senders%split_times = 0
+        senders%count_flag = 0
+        senders%tag = 0
+        senders%pad1 = 0
+
+        recvers%x = 0.0
+        recvers%y = 0.0
+        recvers%p = 0.0
+        recvers%weight = 0.0
+        recvers%t = 0.0
+        recvers%dt = 0.0
+        recvers%split_times = 0
+        recvers%count_flag = 0
+        recvers%tag = 0
+        recvers%pad1 = 0
+
+        nsenders = 0
+        nrecvers = 0
     end subroutine init_particles
 
     !---------------------------------------------------------------------------
@@ -84,8 +120,40 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine free_particles
         implicit none
-        deallocate(ptls)
+        deallocate(ptls, senders, recvers)
     end subroutine free_particles
+
+    !---------------------------------------------------------------------------
+    !< Set MPI datatype for particle type
+    !---------------------------------------------------------------------------
+    subroutine set_particle_datatype_mpi
+        use mpi_module
+        implicit none
+        integer :: oldtypes(0:1), blockcounts(0:1)
+        integer :: offsets(0:1), extent
+        ! Setup description of the 8 MPI_DOUBLE fields.
+        offsets(0) = 0
+        oldtypes(0) = MPI_DOUBLE_PRECISION
+        blockcounts(0) = 6
+        ! Setup description of the 7 MPI_INTEGER fields.
+        call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
+        offsets(1) = blockcounts(0) * extent
+        oldtypes(1) = MPI_INTEGER
+        blockcounts(1) = 4
+        ! Define structured type and commit it. 
+        call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
+            particle_datatype_mpi, ierr)
+        call MPI_TYPE_COMMIT(particle_datatype_mpi, ierr)
+    end subroutine set_particle_datatype_mpi
+
+    !---------------------------------------------------------------------------
+    !< Free MPI datatype for particle type
+    !---------------------------------------------------------------------------
+    subroutine free_particle_datatype_mpi
+        use mpi_module
+        implicit none
+        call MPI_TYPE_FREE(particle_datatype_mpi, ierr)
+    end subroutine free_particle_datatype_mpi
 
     !---------------------------------------------------------------------------
     !< Inject particles which are spatially uniform
@@ -136,18 +204,21 @@ module particle_module
     end subroutine inject_particles_spatial_uniform
 
     !---------------------------------------------------------------------------
-    !< Move particles using the MHD simulation data as background fields
+    !< Particle mover in one cycle
+    !< Args:
+    !<  t0: the starting time
     !---------------------------------------------------------------------------
-    subroutine particle_mover
+    subroutine particle_mover_one_cycle(t0)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields
+        use mpi_module
         implicit none
+        real(dp), intent(in) :: t0
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
-        real(dp) :: t0, px, py, rx, ry, rt, rt1
+        real(dp) :: px, py, rx, ry, rt, rt1
         real(dp) :: deltax, deltay, deltap
-        real(dp) :: dx_max, dy_max
-        integer :: i, ix, iy
+        integer :: i, ix, iy, j
 
         dtf = mhd_config%dt_out
         dxm = mhd_config%dx
@@ -157,15 +228,26 @@ module particle_module
         ymin = fconfig%ymin
         ymax = fconfig%ymax
 
-        dx_max = 0.0
-        dy_max = 0.0
+        j = 0
 
-        do i = 1, nptl_current
+        do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
-            t0 = ptl%t
-            do while ((ptl%t - t0) < dtf .and. ptl%count_flag == 1)
-                if(ptl%p < 0.0) exit
-                call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+            do while ((ptl%t - t0) < dtf .and. ptl%count_flag /= 0)
+                if (ptl%p < 0.0) then
+                    ptl%count_flag = 0
+                    leak = leak + ptl%weight
+                    exit
+                else
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                    if (ptl%count_flag == 0) then
+                        exit
+                    endif
+                endif
+
+                j = j + 1
+                if (nptl_current == nptl_old + 1) then
+                    print*, mpi_rank, ptl%t, ptl%dt, ptl%tag
+                endif
 
                 px = (ptl%x-xmin) / dxm
                 py = (ptl%y-ymin) / dym
@@ -181,16 +263,13 @@ module particle_module
                 call calc_spatial_diffusion_coefficients
                 call set_time_step(t0, dtf)
                 call push_particle(rt, deltax, deltay, deltap)
-
-                if (abs(deltax) > dx_max) then
-                    dx_max = abs(deltax)
-                endif
-                if (abs(deltay) > dy_max) then
-                    dy_max = abs(deltay)
-                endif
             enddo
 
-            if ((ptl%t - t0) > dtf) then
+            if (nptl_current == nptl_old + 1) then
+                print*, mpi_rank, j
+            endif
+
+            if ((ptl%t - t0) > dtf .and. ptl%count_flag /= 0) then
                 ptl%x = ptl%x - deltax
                 ptl%y = ptl%y - deltay
                 ptl%p = ptl%p - deltap
@@ -210,14 +289,77 @@ module particle_module
                 call interp_fields(ix, iy, rx, ry, rt)
                 call calc_spatial_diffusion_coefficients
                 call push_particle(rt, deltax, deltay, deltap)
+                if (ptl%p < 0.0) then
+                    ptl%count_flag = 0
+                    leak = leak + ptl%weight
+                else
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                endif
             endif
 
-            call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
-
             ptls(i) = ptl
-        enddo
 
-        ! print*, dx_max, dy_max
+        enddo
+    end subroutine particle_mover_one_cycle
+
+    !---------------------------------------------------------------------------
+    !< Move particles using the MHD simulation data as background fields
+    !---------------------------------------------------------------------------
+    subroutine particle_mover
+        use simulation_setup_module, only: fconfig
+        use mpi_module
+        implicit none
+        integer :: i, all_particles_in_box, local_flag, global_flag, ncycle
+        real(dp) :: t0
+        all_particles_in_box = 0
+        nptl_old = 0
+
+        t0 = ptls(1)%t
+
+        ncycle = 0
+        
+        do while (.not. all_particles_in_box)
+            ncycle = ncycle + 1
+            nsenders = 0
+            nrecvers = 0
+            if (nptl_old < nptl_current) then
+                call particle_mover_one_cycle(t0)
+            endif
+            call remove_particles
+            call send_recv_particles
+            call add_neighbor_particles
+            if (sum(nrecvers) > 0) then
+                local_flag = sum(nrecvers)
+            else
+                local_flag = 0
+            endif
+            call MPI_ALLREDUCE(local_flag, global_flag, 1, MPI_INTEGER, &
+                MPI_SUM, MPI_COMM_WORLD, ierr)
+            if (global_flag > 0) then
+                all_particles_in_box = 0
+                ! if (global_flag == 1 .and. (mpi_rank == 1 .or. mpi_rank == 2)) then
+                !     print*, mpi_rank, nsenders(1:2), nrecvers(1:2)
+                !     print*, mpi_rank, recvers(1, 1:2)%x
+                !     print*, mpi_rank, recvers(1, 1:2)%tag
+                !     print*, mpi_rank, recvers(1, 1:2)%dt
+                !     print*, mpi_rank, recvers(1, 1:2)%t
+                !     print*, mpi_rank, senders(1, 1:2)%x
+                !     print*, mpi_rank, senders(1, 1:2)%tag
+                !     print*, mpi_rank, senders(1, 1:2)%dt
+                !     print*, mpi_rank, senders(1, 1:2)%t
+                !     print*, mpi_rank, ptl%t, ptl%dt
+                !     print*, '--------'
+                ! endif
+                ! if (mpi_rank == master) then
+                !     print*, ncycle, global_flag
+                ! endif
+            else
+                all_particles_in_box = 1
+            endif
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A, I0)") "Number of cycles: ", ncycle
+        endif
     end subroutine particle_mover
 
     !---------------------------------------------------------------------------
@@ -228,23 +370,142 @@ module particle_module
     !<  ymin, ymax: min and max along the y-direction
     !---------------------------------------------------------------------------
     subroutine particle_boundary_condition(x, y, xmin, xmax, ymin, ymax)
+        use simulation_setup_module, only: neighbors, mpi_ix, mpi_iy, &
+            mpi_sizex, mpi_sizey
+        use mhd_config_module, only: mhd_config
+        use mpi_module
         implicit none
         real(dp), intent(in) :: xmin, xmax, ymin, ymax
         real(dp), intent(inout) :: x, y
 
-        if (x > xmax) then
-            x = x - xmax + xmin
-        endif
         if (x < xmin) then
-            x = xmax - (xmin - x)
-        endif
-        if (y > ymax) then
-            y = y - ymax + ymin
-        endif
-        if (y < ymin) then
-            y = ymax - (ymin - y)
+            if (neighbors(1) < 0) then
+                leak = leak + ptl%weight
+                ptl%count_flag = 0
+            else if (neighbors(1) == mpi_rank) then
+                x = x - xmin + xmax
+            else if (neighbors(1) == mpi_rank + mpi_sizex - 1) then
+                x = x - mhd_config%xmin + mhd_config%xmax
+                nsenders(1) = nsenders(1) + 1
+                senders(nsenders(1), 1) = ptl
+                ptl%count_flag = 0
+            else
+                nsenders(1) = nsenders(1) + 1
+                senders(nsenders(1), 1) = ptl
+                ptl%count_flag = 0
+            endif
+        else if (x > xmax) then
+            if (neighbors(2) < 0) then
+                leak = leak + ptl%weight
+                ptl%count_flag = 0 !< remove particle
+            else if (neighbors(2) == mpi_rank) then
+                x = x - xmax + xmin
+            else if (neighbors(2) == mpi_iy * mpi_sizex) then !< simulation boundary
+                x = x - mhd_config%xmax + mhd_config%xmin
+                nsenders(2) = nsenders(2) + 1
+                senders(nsenders(2), 2) = ptl
+                ptl%count_flag = 0
+            else
+                nsenders(2) = nsenders(2) + 1
+                senders(nsenders(2), 2) = ptl
+                ptl%count_flag = 0
+            endif
+        else if (y < ymin) then
+            if (neighbors(3) < 0) then
+                leak = leak + ptl%weight
+                ptl%count_flag = 0
+            else if (neighbors(3) == mpi_rank) then
+                y = y - ymin + ymax
+            else if (neighbors(3) == mpi_rank + (mpi_sizey - 1) * mpi_sizex) then
+                y = y - mhd_config%ymin + mhd_config%ymax
+                nsenders(3) = nsenders(3) + 1
+                senders(nsenders(3), 3) = ptl
+                ptl%count_flag = 0
+            else
+                nsenders(3) = nsenders(3) + 1
+                senders(nsenders(3), 3) = ptl
+                ptl%count_flag = 0
+            endif
+        else if (y > ymax) then
+            if (neighbors(4) < 0) then
+                leak = leak + ptl%weight
+                ptl%count_flag = 0
+            else if (neighbors(4) == mpi_rank) then
+                y = y - ymax + ymin
+            else if (neighbors(4) == mpi_ix) then
+                y = y - mhd_config%ymax + mhd_config%ymin
+                nsenders(4) = nsenders(4) + 1
+                senders(nsenders(4), 4) = ptl
+                ptl%count_flag = 0
+            else
+                nsenders(4) = nsenders(4) + 1
+                senders(nsenders(4), 4) = ptl
+                ptl%count_flag = 0
+            endif
         endif
     end subroutine particle_boundary_condition
+
+    !---------------------------------------------------------------------------
+    !< Send and receiver particles from one neighbor
+    !< Args:
+    !<  send_id, recv_id: sender and receiver ID
+    !<  mpi_direc: MPI rank along one direction
+    !---------------------------------------------------------------------------
+    subroutine send_recv_particle_one_neighbor(send_id, recv_id, mpi_direc)
+        use mpi_module
+        use simulation_setup_module, only: neighbors
+        implicit none
+        integer, intent(in) :: send_id, recv_id, mpi_direc
+        integer :: nsend, nrecv
+        nrecv = 0
+        nsend = nsenders(send_id)
+        if (neighbors(send_id) /= mpi_rank) then
+            call MPI_SEND(nsend, 1, MPI_INTEGER, neighbors(send_id), &
+                mpi_rank, MPI_COMM_WORLD, ierr)
+        endif
+        if (neighbors(recv_id) /= mpi_rank) then
+            call MPI_RECV(nrecv, 1, MPI_INTEGER, &
+                neighbors(recv_id), neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+        endif
+        nrecvers(recv_id) = nrecv
+        !< This assumes MPI size along this direction is even
+        if (mpi_direc / 2 == 0) then
+            if (nsend > 0) then
+                call MPI_SEND(senders(1:nsend, send_id), nsend, &
+                    particle_datatype_mpi, neighbors(send_id), mpi_rank, &
+                    MPI_COMM_WORLD, ierr)
+            endif
+            if (nrecv > 0) then
+                call MPI_RECV(recvers(1:nrecv, recv_id), nrecv, &
+                    particle_datatype_mpi, neighbors(recv_id), &
+                    neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+            endif
+        else
+            if (nrecv > 0) then
+                call MPI_RECV(recvers(1:nrecv, recv_id), nrecv, &
+                    particle_datatype_mpi, neighbors(recv_id), &
+                    neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+            endif
+            if (nsend > 0) then
+                call MPI_SEND(senders(1:nsend, send_id), nsend, &
+                    particle_datatype_mpi, neighbors(send_id), mpi_rank, &
+                    MPI_COMM_WORLD, ierr)
+            endif
+        endif
+    end subroutine send_recv_particle_one_neighbor
+
+    !---------------------------------------------------------------------------
+    !< Send particles to neighbors
+    !---------------------------------------------------------------------------
+    subroutine send_recv_particles
+        use mpi_module
+        use simulation_setup_module, only: neighbors, mpi_ix, mpi_iy
+        implicit none
+        call send_recv_particle_one_neighbor(1, 2, mpi_ix) !< Right -> Left
+        call send_recv_particle_one_neighbor(2, 1, mpi_ix) !< Left -> Right
+        call send_recv_particle_one_neighbor(3, 4, mpi_iy) !< Top -> Bottom
+        call send_recv_particle_one_neighbor(4, 3, mpi_iy) !< Bottom -> Top
+    end subroutine send_recv_particles
 
     !---------------------------------------------------------------------------
     !< Calculate the spatial diffusion coefficients
@@ -454,11 +715,12 @@ module particle_module
         implicit none
         real(dp), intent(in) :: rt
         real(dp), intent(out) :: deltax, deltay, deltap
-        real(dp) :: xtmp, ytmp, ptmp
+        real(dp) :: xtmp, ytmp
         real(dp) :: sdt, dvx_dx, dvy_dy
         real(dp) :: bx, by, b, vx, vy, px, py, rx, ry, rt1
         real(dp) :: bx1, by1, b1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
+        reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rands(2)
         integer :: ix, iy
@@ -476,19 +738,31 @@ module particle_module
         ymax = fconfig%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
+        dxmh = 0.5 * dxm
+        dymh = 0.5 * dym
+
+        !< The field data has two ghost cells, so the particles can cross the
+        !< boundary without causing segment fault errors
+        xmin1 = xmin - dxmh
+        ymin1 = ymin - dymh
+        xmax1 = xmax + dxmh
+        ymax1 = ymax + dymh
+
+        deltax = 0.0
+        deltay = 0.0
+        deltap = 0.0
 
         sdt = dsqrt(ptl%dt)
         xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
         ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by/b)*sdt
-        ptmp = ptl%p - ptl%p*(dvx_dx+dvy_dy)*ptl%dt/3.0d0
 
-        if (ptmp .lt. 0.0_dp) then
-            ptl%count_flag = 0
-            leak = leak + ptl%weight
-            return
-        endif
-
-        call particle_boundary_condition(xtmp, ytmp, xmin, xmax, ymin, ymax)
+        !< Make sure the point is still in the box
+        do while (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1)
+            ptl%dt = ptl%dt * 0.5
+            sdt = dsqrt(ptl%dt)
+            xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
+            ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by/b)*sdt
+        enddo
 
         px = (xtmp - xmin) / dxm
         py = (ytmp - ymin) / dym
@@ -547,15 +821,31 @@ module particle_module
         do while (i <= nptl_current)
             if (ptls(i)%count_flag == 0) then
                 !< Switch current with the last particle
-                ptl = ptls(nptl_current)
+                ptl1 = ptls(nptl_current)
                 ptls(nptl_current) = ptls(i)
-                ptls(i) = ptl
+                ptls(i) = ptl1
                 nptl_current = nptl_current - 1
             else
                 i = i + 1
             endif
         enddo
     end subroutine remove_particles
+
+    !---------------------------------------------------------------------------
+    !< Add particles from neighbors
+    !---------------------------------------------------------------------------
+    subroutine add_neighbor_particles
+        implicit none
+        integer :: i, j, nrecv
+        nptl_old = nptl_current
+        do i = 1, 4
+            nrecv = nrecvers(i)
+            if (nrecv > 0) then
+                ptls(nptl_current+1:nptl_current+nrecv) = recvers(1:nrecv, i)
+                nptl_current = nptl_current + nrecv
+            endif
+        enddo
+    end subroutine add_neighbor_particles
 
     !---------------------------------------------------------------------------
     !< When a particle get to a certain energy, split it to two particles 
