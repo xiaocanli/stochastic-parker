@@ -35,13 +35,25 @@ def plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=True,
         is_power=True, **kwargs):
     """
     """
-    fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '.dat'
-    data = np.genfromtxt(fname)
+    # fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_0000.dat'
+    fname = '../data/fp-' + str(ct).zfill(4) + '_0000.dat'
+    data = np.fromfile(fname, dtype=np.float64)
+    sz, = data.shape
+    nbins = sz / 2
+    print nbins
     p0 = 0.1
-    p = data[:, 0] / p0
+    p = data[0:nbins] / p0
     elog = p**2
-    fp = data[:, 1] / np.gradient(p)
-    fe = data[:, 1] / np.gradient(elog)
+    fp = data[nbins:] / np.gradient(p)
+    fe = data[nbins:] / np.gradient(elog)
+    for i in range(1, 4):
+        # fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_' + \
+        #         str(i).zfill(4) + '.dat'
+        fname = '../data/fp-' + str(ct).zfill(4) + '_' + \
+                str(i).zfill(4) + '.dat'
+        data = np.fromfile(fname, dtype=np.float64)
+        fp += data[nbins:] / np.gradient(p)
+        fe += data[nbins:] / np.gradient(elog)
 
     if 'color' in kwargs:
         color = kwargs['color']
@@ -80,27 +92,27 @@ def plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=True,
     # ax2.set_xlim([1E-1, 2E2])
     # ax2.set_ylim([1E-1, 1E8])
     ax2.set_xlim([1E-1, 1E3])
-    ax2.set_ylim([1E-1, 1E5])
+    ax2.set_ylim([1E-2, 1E6])
 
     if is_power:
-        # pindex = -2.45
-        # pratio = 1E7
+        pindex = -2.45
+        pratio = 1E7
         # pindex = -3.0
         # pratio = 1E7
-        # power_index = "{%0.2f}" % pindex
-        pindex = -1.5
-        pratio = 1E4
-        power_index = "{%0.1f}" % pindex
+        power_index = "{%0.2f}" % pindex
+        # pindex = -1.5
+        # pratio = 1E4
+        # power_index = "{%0.1f}" % pindex
         fpower = elog[sindex:eindex]**pindex * pratio
         ax2.loglog(elog[sindex:eindex], fpower, linewidth=2, color='k')
         tname = r'$\sim \varepsilon^{' + power_index + '}$'
         # ax2.text(0.6, 0.7, tname, color='black', fontsize=24,
         #         horizontalalignment='left', verticalalignment='center',
         #         transform = ax2.transAxes)
-        print 'Fraction of power-law particles:', \
-                np.sum(data[sindex:eindex, 1]) / np.sum(data[:, 1])
-        print 'Extend in energy of the power-law part:', \
-                elog[eindex] / elog[sindex]
+        # print 'Fraction of power-law particles:', \
+        #         np.sum(data[sindex:eindex, 1]) / np.sum(data[:, 1])
+        # print 'Extend in energy of the power-law part:', \
+        #         elog[eindex] / elog[sindex]
 
 
     ax2.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=font, fontsize=24)
