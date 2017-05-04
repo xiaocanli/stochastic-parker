@@ -309,9 +309,10 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use mpi_module
         implicit none
-        integer :: i, all_particles_in_box, local_flag, global_flag, ncycle
+        integer :: i, local_flag, global_flag, ncycle
+        logical :: all_particles_in_box
         real(dp) :: t0
-        all_particles_in_box = 0
+        all_particles_in_box = .false.
         nptl_old = 0
 
         t0 = ptls(1)%t
@@ -336,7 +337,7 @@ module particle_module
             call MPI_ALLREDUCE(local_flag, global_flag, 1, MPI_INTEGER, &
                 MPI_SUM, MPI_COMM_WORLD, ierr)
             if (global_flag > 0) then
-                all_particles_in_box = 0
+                all_particles_in_box = .false.
                 ! if (global_flag == 1 .and. (mpi_rank == 1 .or. mpi_rank == 2)) then
                 !     print*, mpi_rank, nsenders(1:2), nrecvers(1:2)
                 !     print*, mpi_rank, recvers(1, 1:2)%x
@@ -354,7 +355,7 @@ module particle_module
                 !     print*, ncycle, global_flag
                 ! endif
             else
-                all_particles_in_box = 1
+                all_particles_in_box = .true.
             endif
         enddo
         if (mpi_rank == master) then
