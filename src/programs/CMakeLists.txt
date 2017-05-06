@@ -16,11 +16,11 @@ elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
         $ENV{MT_STREAM}/f_jump_ahead_coeff/f_get_coeff.o)
 endif()
 
-target_link_libraries(stochastic-2dmhd.exec ${MPI_Fortran_LIBRARIES} stochastic
+target_link_libraries(stochastic-2dmhd.exec stochastic ${MPI_Fortran_LIBRARIES}
     flap)
 
 add_executable(organize_mhd_data.exec organize_mhd_data.f90)
-target_link_libraries(organize_mhd_data.exec ${MPI_Fortran_LIBRARIES} stochastic
+target_link_libraries(organize_mhd_data.exec stochastic ${MPI_Fortran_LIBRARIES} 
     flap)
 
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR})
