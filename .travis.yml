@@ -39,5 +39,5 @@ install:
   - source ./config/install_mt_stream.sh
 
 script:
-    - ls "$MT_STREAM"
+    - ls "$MT_STREAM_GCC"
     - mkdir build && cd build && cmake .. && make && make install
