@@ -98,7 +98,7 @@ module simulation_setup_module
         implicit none
         real(fp) :: temp
         integer, dimension(3) :: pbcs
-        integer :: nx, ny, nz, fh
+        integer :: fh
         if (mpi_rank == master) then
             fh = 10
             open(unit=fh, file='config/conf.dat', status='old')

@@ -382,7 +382,7 @@ module mhd_data_parallel
         real(dp), intent(in) :: rx, ry, rt
         integer, intent(in) :: ix, iy
         real(dp) :: rx1, ry1, rt1, w1, w2, w3, w4
-        integer :: ix1, iy1, i
+        integer :: ix1, iy1
         ix1 = ix + 1
         iy1 = iy + 1
         rx1 = 1.0 - rx
