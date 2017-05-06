@@ -7,6 +7,8 @@ program organize_mhd_data
         free_mhd_data, read_mhd_data, save_organized_mhd_data, &
         adjust_mhd_data_boundary
     use mhd_config_module, only: save_mhd_config, echo_mhd_config
+    use flap, only : command_line_interface !< FLAP package
+    use penf
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
@@ -52,14 +54,10 @@ program organize_mhd_data
     !< Get commandline arguments
     !---------------------------------------------------------------------------
     subroutine get_cmd_args
-        use flap                                !< FLAP package
-        use penf
         implicit none
         type(command_line_interface) :: cli     !< Command Line Interface (CLI).
         integer(I4P)                 :: error   !< Error trapping flag.
-        integer :: tstart
-        call cli%init(&
-            progname = 'organize_mhd_data', &
+        call cli%init(progname = 'organize_mhd_data', &
             authors     = 'Xiaocan Li', &
             help        = 'Usage: ', &
             description = "Organize the MHD simulation data ", &

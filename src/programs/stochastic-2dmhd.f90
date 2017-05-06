@@ -19,6 +19,8 @@ program stochastic
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors
+    use flap, only : command_line_interface !< FLAP package
+    use penf
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
@@ -119,8 +121,6 @@ program stochastic
     !< Get commandline arguments
     !---------------------------------------------------------------------------
     subroutine get_cmd_args
-        use flap                                !< FLAP package
-        use penf
         implicit none
         type(command_line_interface) :: cli     !< Command Line Interface (CLI).
         integer(I4P)                 :: error   !< Error trapping flag.
