@@ -31,7 +31,14 @@ include_directories(${FLAP_DIR}/static/mod)
 link_directories(${FLAP_DIR}/static)
 
 # use mt_stream to generate random numbers
-include_directories($ENV{MT_STREAM})
+if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
+    include_directories($ENV{MT_STREAM_GCC})
+elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
+    include_directories($ENV{MT_STREAM})
+else ()
+    message( FATAL_ERROR "Only GNU and Intel are supported, CMake will exit." )
+endif ()
+
 
 # make sure that the default is a RELEASE
 if (NOT CMAKE_BUILD_TYPE)
