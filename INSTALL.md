@@ -34,18 +34,6 @@ $ git clone https://github.com/xiaocanli/stochastic-parker
 ```
 
 ## Install
-- We need to install [FLAP](https://github.com/szaghi/FLAP) first.
-```sh
-$ git clone https://github.com/szaghi/FLAP
-$ cd FLAP
-$ FoBiS.py build -mode static-intel
-```
-After installation, set the environment variable `FLAG_DIR` to the installation
-directory of FLAP. For example,
-```sh
-setenv FLAP_DIR $HOME/local/FLAP
-```
-
 - In the directory `stochastic-parker`,
 ```sh
 $ mkdir build
