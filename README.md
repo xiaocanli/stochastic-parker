@@ -5,7 +5,7 @@ This is a code to solve Parker's cosmic ray transport equation using the
 stochastic method.
 
 ## Status
-https://travis-ci.org/xiaocanli/stochastic-parker.svg?branch=master
+[![Build Status](https://travis-ci.org/xiaocanli/stochastic-parker.svg?branch=master)](https://travis-ci.org/xiaocanli/stochastic-parker)
 
 ## Install
 See our note in [INSTALL.md](INSTALL.md)
