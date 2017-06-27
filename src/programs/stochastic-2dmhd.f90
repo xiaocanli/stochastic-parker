@@ -26,7 +26,7 @@ program stochastic
     character(len=256) :: fname1, fname2
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
-    integer :: t_start, t_end, tf, dist_flag, split_flag
+    integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz
 
     call MPI_INIT(ierr)
@@ -46,8 +46,8 @@ program stochastic
     endif
     call read_simuation_mpi_topology
     call read_particle_boundary_conditions
-    call set_field_configuration(whole_data_flag=0, ndim=2)
-    call set_neighbors(whole_data_flag=0)
+    call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=2)
+    call set_neighbors(whole_data_flag=whole_mhd_data)
 
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
@@ -165,6 +165,10 @@ program stochastic
             help='Flag to split the particles', required=.false., &
             act='store', def='1', error=error)
         if (error/=0) stop
+        call cli%add(switch='--whole_mhd_data', switch_ab='-wm', &
+            help='whether to read the whole MHD data', required=.false., &
+            act='store', def='1', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -181,6 +185,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-sf', val=split_flag, error=error)
         if (error/=0) stop
+        call cli%get(switch='-wm', val=whole_mhd_data, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -196,6 +202,11 @@ program stochastic
             print '(A,I0)', 'The last time frame', t_end
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
+            endif
+            if (whole_mhd_data) then
+                print '(A)', 'Each process reads the whole MHD simulation data'
+            else
+                print '(A)', 'Each process reads only part of the MHD simulation data'
             endif
         endif
     end subroutine get_cmd_args
