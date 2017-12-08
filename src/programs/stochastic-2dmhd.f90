@@ -11,7 +11,10 @@ program stochastic
         particle_mover, remove_particles, split_particle, &
         init_particle_distributions, free_particle_distributions, &
         distributions_diagnostics, quick_check, set_particle_datatype_mpi, &
-        free_particle_datatype_mpi
+        free_particle_datatype_mpi, select_particles_tracking, &
+        init_particle_tracking, free_particle_tracking, &
+        init_tracked_particle_points, free_tracked_particle_points, &
+        negative_particle_tags, save_tracked_particle_points
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -28,6 +31,7 @@ program stochastic
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz
+    integer :: track_particle_flag, nptl_selected, nsteps_interval
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -77,7 +81,7 @@ program stochastic
 
     !< Time loop
     do tf = t_start + 1, t_end
-        call particle_mover
+        call particle_mover(0, nptl_selected, nsteps_interval)
         if (split_flag == 1) then
             call split_particle
         endif
@@ -99,6 +103,51 @@ program stochastic
         endif
         step1 = step2
     enddo
+
+    if (track_particle_flag == 1) then
+        !< We need to reset the random number generator
+        call delete_prng
+        call init_prng
+
+        call init_particle_tracking(nptl_selected)
+        call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
+
+        ! It uses the initial part of the random number series
+        call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+
+        call init_tracked_particle_points(nptl_selected)
+        call negative_particle_tags(nptl_selected)
+
+        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
+        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
+        call read_field_data_parallel(fname1, var_flag=0)
+        call read_field_data_parallel(fname2, var_flag=1)
+
+        call calc_fields_gradients(var_flag=0)
+        call calc_fields_gradients(var_flag=1)
+        !< Time loop
+        do tf = t_start + 1, t_end
+            call particle_mover(1, nptl_selected, nsteps_interval)
+            if (split_flag == 1) then
+                call split_particle
+            endif
+            call copy_fields
+            if (tf < t_end) then
+                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
+                call read_field_data_parallel(fname2, var_flag=1)
+                call calc_fields_gradients(var_flag=1)
+            endif
+            call cpu_time(step2)
+            if (mpi_rank == master) then
+                print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
+            endif
+            step1 = step2
+        enddo
+        call save_tracked_particle_points(nptl_selected)
+        call free_tracked_particle_points
+        call free_particle_tracking
+        call delete_prng
+    endif
 
     call free_particle_datatype_mpi
     call free_particle_distributions
@@ -169,6 +218,18 @@ program stochastic
             help='whether to read the whole MHD data', required=.false., &
             act='store', def='1', error=error)
         if (error/=0) stop
+        call cli%add(switch='--track_particle_flag', switch_ab='-tf', &
+            help='Flag to track some particles', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--nptl_selected', switch_ab='-ns', &
+            help='Number of selected particles to track', required=.false., &
+            act='store', def='100', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--nsteps_interval', switch_ab='-ni', &
+            help='Steps interval to track particles', required=.false., &
+            act='store', def='10', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -186,6 +247,12 @@ program stochastic
         call cli%get(switch='-sf', val=split_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-wm', val=whole_mhd_data, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-tf', val=track_particle_flag, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ns', val=nptl_selected, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ni', val=nsteps_interval, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
@@ -207,6 +274,10 @@ program stochastic
                 print '(A)', 'Each process reads the whole MHD simulation data'
             else
                 print '(A)', 'Each process reads only part of the MHD simulation data'
+            endif
+            if (track_particle_flag) then
+                print '(A,I0)', 'Number of particles to track', nptl_selected
+                print '(A,I0)', 'Steps interval to track particles', nsteps_interval
             endif
         endif
     end subroutine get_cmd_args
