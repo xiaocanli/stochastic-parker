@@ -1348,17 +1348,19 @@ module particle_module
     !< Save tracked particle points
     !< Args:
     !<  nptl_selected: number of selected particles
+    !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
-    subroutine save_tracked_particle_points(nptl_selected)
+    subroutine save_tracked_particle_points(nptl_selected, file_path)
         use mpi_module
         implicit none
         integer, intent(in) :: nptl_selected
+        character(*), intent(in) :: file_path
         character(len=4) :: mrank
         character(len=64) :: fname
         integer :: fh, offset
         write (mrank,'(i4.4)') mpi_rank
         fh = 41
-        fname = 'data/'//'tracked_particle_points_'//mrank//'.dat'
+        fname = trim(file_path)//'tracked_particle_points_'//mrank//'.dat'
         open(unit=fh, file=fname, access='stream', status='unknown', &
             form='unformatted', action='write')     
         write(fh, pos=1) nptl_selected

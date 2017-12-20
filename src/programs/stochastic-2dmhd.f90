@@ -144,7 +144,7 @@ program stochastic
             endif
             step1 = step2
         enddo
-        call save_tracked_particle_points(nptl_selected)
+        call save_tracked_particle_points(nptl_selected, diagnostics_directory)
         call free_tracked_particle_points
         call free_particle_tracking
         call delete_prng
