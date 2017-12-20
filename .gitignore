@@ -14,3 +14,5 @@ outfile
 ./FLAP
 ./mt_stream
 backup
+slurm*
+diffusion[0-9]*.sh
