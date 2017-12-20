@@ -27,6 +27,7 @@ program stochastic
     implicit none
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
+    character(len=128) :: diagnostics_directory
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
@@ -77,7 +78,7 @@ program stochastic
 
     call cpu_time(step1)
 
-    call distributions_diagnostics(t_start)
+    call distributions_diagnostics(t_start, diagnostics_directory)
 
     !< Time loop
     do tf = t_start + 1, t_end
@@ -90,7 +91,7 @@ program stochastic
         else
             call quick_check(tf, .false.)
         endif
-        call distributions_diagnostics(tf)
+        call distributions_diagnostics(tf, diagnostics_directory)
         call copy_fields
         if (tf < t_end) then
             write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
@@ -230,6 +231,10 @@ program stochastic
             help='Steps interval to track particles', required=.false., &
             act='store', def='10', error=error)
         if (error/=0) stop
+        call cli%add(switch='--diagnostics_directory', switch_ab='-dd', &
+            help='Diagnostics directory', required=.false., &
+            act='store', def='data/', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -253,6 +258,8 @@ program stochastic
         call cli%get(switch='-ns', val=nptl_selected, error=error)
         if (error/=0) stop
         call cli%get(switch='-ni', val=nsteps_interval, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-dd', val=diagnostics_directory, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
@@ -279,6 +286,7 @@ program stochastic
                 print '(A,I0)', 'Number of particles to track', nptl_selected
                 print '(A,I0)', 'Steps interval to track particles', nsteps_interval
             endif
+            print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
         endif
     end subroutine get_cmd_args
 end program stochastic

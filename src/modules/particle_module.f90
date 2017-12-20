@@ -75,7 +75,7 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Initialize particle data
     !< Args:
-    !<  nptl_max_allowed: the maximum number of particles allowd
+    !<  nptl_max_allowed: the maximum number of particles allowed
     !---------------------------------------------------------------------------
     subroutine init_particles(nptl_max_allowed)
         implicit none
@@ -578,12 +578,12 @@ module particle_module
         bx = fields(5)
         by = fields(6)
         b = fields(8)
-        dbx_dx = gradf(3)
-        dbx_dy = gradf(4)
-        dby_dx = gradf(5)
-        dby_dy = gradf(6)
-        db_dx = gradf(7)
-        db_dy = gradf(8)
+        dbx_dx = gradf(4)
+        dbx_dy = gradf(5)
+        dby_dx = gradf(7)
+        dby_dy = gradf(8)
+        db_dx = gradf(13)
+        db_dy = gradf(14)
         ib1 = 1.0_dp / b
         ib2 = ib1 * ib1
         ib3 = ib1 * ib2
@@ -1128,15 +1128,17 @@ module particle_module
     !< Diagnostics of the particle distributions
     !< Args:
     !<  iframe: time frame index
+    !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe)
+    subroutine distributions_diagnostics(iframe, file_path)
         use constants, only: fp, dp
         use mpi_module
         implicit none
         integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
         integer :: ix, iy, ip, fh, pos1
         character(len=4) :: ctime, mrank
-        character(len=64) :: fname
+        character(len=128) :: fname
         logical :: dir_e
 
         inquire(file='./data/.', exist=dir_e)
@@ -1148,44 +1150,45 @@ module particle_module
 
         write (ctime,'(i4.4)') iframe
         write (mrank,'(i4.4)') mpi_rank
-        ! ! if (mpi_rank .eq. 0) then
+        if (mpi_rank .eq. 0) then
+            fh = 15
+            ! fname = trim(file_path)//'fp-'//ctime//'_'//mrank//'.dat'
+            fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
+            open(fh, file=trim(fname), access='stream', status='unknown', &
+                 form='unformatted', action='write')
+            write(fh, pos=1) parray
+            pos1 = npp * sizeof(1.0_dp) + 1
+            write(fh, pos=pos1) fp0_sum
+            close(fh)
 
-        fh = 15
-        fname = 'data/fp-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) parray
-        pos1 = npp * sizeof(1.0_dp) + 1
-        write(fh, pos=pos1) fp0
-        close(fh)
+            ! fh = 16
+            ! fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
+            ! open(fh, file=trim(fname), access='stream', status='unknown', &
+            !      form='unformatted', action='write')
+            ! write(fh, pos=1) fp1
+            ! close(fh)
 
-        ! fh = 16
-        ! fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
-        ! open(fh, file=trim(fname), access='stream', status='unknown', &
-        !      form='unformatted', action='write')
-        ! write(fh, pos=1) fp1
-        ! close(fh)
+            ! fh = 17
+            ! fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
+            ! open(fh, file=trim(fname), access='stream', status='unknown', &
+            !      form='unformatted', action='write')
+            ! write(fh, pos=1) fp2
+            ! close(fh)
 
-        ! fh = 17
-        ! fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
-        ! open(fh, file=trim(fname), access='stream', status='unknown', &
-        !      form='unformatted', action='write')
-        ! write(fh, pos=1) fp2
-        ! close(fh)
-
-        fh = 18
-        fname = 'data/fxy-'//ctime//'_'//mrank//'.dat'
-        open(fh, file=trim(fname), access='stream', status='unknown', &
-             form='unformatted', action='write')
-        write(fh, pos=1) f0
-        pos1 = nx * ny * sizeof(1.0_dp) + 1
-        write(fh, pos=pos1) f1
-        pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-        write(fh, pos=pos1) f2
-        pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-        write(fh, pos=pos1) f3
-        close(fh)
-        ! endif
+            fh = 18
+            ! fname = trim(file_path)//'fxy-'//ctime//'_'//mrank//'.dat'
+            fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
+            open(fh, file=trim(fname), access='stream', status='unknown', &
+                 form='unformatted', action='write')
+            write(fh, pos=1) f0_sum
+            pos1 = nx * ny * sizeof(1.0_dp) + 1
+            write(fh, pos=pos1) f1_sum
+            pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+            write(fh, pos=pos1) f2_sum
+            pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+            write(fh, pos=pos1) f3_sum
+            close(fh)
+        endif
     end subroutine distributions_diagnostics
 
     !---------------------------------------------------------------------------
