@@ -14,11 +14,13 @@ program stochastic
         free_particle_datatype_mpi, select_particles_tracking, &
         init_particle_tracking, free_particle_tracking, &
         init_tracked_particle_points, free_tracked_particle_points, &
-        negative_particle_tags, save_tracked_particle_points
+        negative_particle_tags, save_tracked_particle_points, &
+        inject_particles_at_shock
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
-        calc_fields_gradients, copy_fields
+        calc_fields_gradients, copy_fields, init_shock_xpos, free_shock_xpos, &
+        locate_shock_xpos
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors
@@ -33,6 +35,7 @@ program stochastic
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz
     integer :: track_particle_flag, nptl_selected, nsteps_interval
+    integer :: inject_at_shock  ! Inject particles at shock location
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -64,7 +67,6 @@ program stochastic
     call read_particle_params
 
     call init_particles(nptl_max)
-    call inject_particles_spatial_uniform(nptl, dt, dist_flag)
     call init_particle_distributions
     call set_particle_datatype_mpi
 
@@ -75,6 +77,15 @@ program stochastic
 
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
+
+    ! Whether it is a shock problem
+    if (inject_at_shock == 1) then
+        call init_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+        call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+        call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
+    else
+        call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+    endif
 
     call cpu_time(step1)
 
@@ -98,6 +109,10 @@ program stochastic
             call read_field_data_parallel(fname2, var_flag=1)
             call calc_fields_gradients(var_flag=1)
         endif
+        if (inject_at_shock == 1) then
+            call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+            call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+        endif
         call cpu_time(step2)
         if (mpi_rank == master) then
             print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
@@ -114,7 +129,12 @@ program stochastic
         call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
 
         ! It uses the initial part of the random number series
-        call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+        if (inject_at_shock == 1) then
+            call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+            call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
+        else
+            call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+        endif
 
         call init_tracked_particle_points(nptl_selected)
         call negative_particle_tags(nptl_selected)
@@ -138,6 +158,10 @@ program stochastic
                 call read_field_data_parallel(fname2, var_flag=1)
                 call calc_fields_gradients(var_flag=1)
             endif
+            if (inject_at_shock == 1) then
+                call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+                call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+            endif
             call cpu_time(step2)
             if (mpi_rank == master) then
                 print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
@@ -148,6 +172,10 @@ program stochastic
         call free_tracked_particle_points
         call free_particle_tracking
         call delete_prng
+    endif
+
+    if (inject_at_shock == 1) then
+        call free_shock_xpos(interp_flag)
     endif
 
     call free_particle_datatype_mpi
@@ -235,6 +263,10 @@ program stochastic
             help='Diagnostics directory', required=.false., &
             act='store', def='data/', error=error)
         if (error/=0) stop
+        call cli%add(switch='--inject_at_shock', switch_ab='-is', &
+            help='whether to inject particles at shock', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -260,6 +292,8 @@ program stochastic
         call cli%get(switch='-ni', val=nsteps_interval, error=error)
         if (error/=0) stop
         call cli%get(switch='-dd', val=diagnostics_directory, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-is', val=inject_at_shock, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
@@ -287,6 +321,9 @@ program stochastic
                 print '(A,I0)', 'Steps interval to track particles', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
+            if (inject_at_shock) then
+                print '(A)', 'Inject particles at shock location'
+            endif
         endif
     end subroutine get_cmd_args
 end program stochastic

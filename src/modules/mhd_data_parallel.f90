@@ -9,7 +9,8 @@ module mhd_data_parallel
 
     public init_field_data, free_field_data, read_field_data_parallel, &
            init_fields_gradients, free_fields_gradients, calc_fields_gradients, & 
-           interp_fields, copy_fields
+           interp_fields, copy_fields, init_shock_xpos, free_shock_xpos, &
+           locate_shock_xpos, interp_shock_location
     public fields, gradf
 
     real(dp), dimension(8) :: fields, fields1
@@ -25,6 +26,8 @@ module mhd_data_parallel
     !dir$ attributes align:32 :: f_array2
     !dir$ attributes align:64 :: fgrad_array1
     !dir$ attributes align:64 :: fgrad_array2
+
+    integer, allocatable, dimension(:, :) :: shock_xpos1, shock_xpos2  ! Shock x-position indices
 
     contains
 
@@ -166,11 +169,13 @@ module mhd_data_parallel
                     read(fh, pos=1) f_array1
                 endif
                 call MPI_BCAST(f_array1, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
                     read(fh, pos=1) f_array2
                 endif
                 call MPI_BCAST(f_array2, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
             close(fh)
         else
@@ -420,12 +425,115 @@ module mhd_data_parallel
         gradf = gradf * rt1 + gradf1 * rt
     end subroutine interp_fields
 
-    !---------------------------------------------------------------------------
-    ! Copy fields for usage in the next time interval
-    !---------------------------------------------------------------------------
+    !<--------------------------------------------------------------------------
+    !< Copy fields for usage in the next time interval
+    !<--------------------------------------------------------------------------
     subroutine copy_fields
         implicit none
         f_array1 = f_array2
         fgrad_array1 = fgrad_array2
     end subroutine copy_fields
+
+    !---------------------------------------------------------------------------
+    !< Initialize shock x-position indices
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
+    !<  nx, ny, nz: the dimensions of the data
+    !<  ndim: number of actual dimension of the data. 1, 2 or 3
+    !---------------------------------------------------------------------------
+    subroutine init_shock_xpos(interp_flag, nx, ny, nz, ndim)
+        implicit none
+        integer, intent(in) :: interp_flag, nx, ny, nz, ndim
+
+        if (ndim == 1) then
+            allocate(shock_xpos1(1, 1))
+        else if (ndim == 2) then
+            allocate(shock_xpos1(-1:ny+2, 1))
+        else
+            allocate(shock_xpos1(-1:ny+2, -1:nz+2))
+        endif
+        shock_xpos1 = 0
+        ! Next time step
+        if (interp_flag == 1) then
+            if (ndim == 1) then
+                allocate(shock_xpos2(1, 1))
+            else if (ndim == 2) then
+                allocate(shock_xpos2(-1:ny+2, 1))
+            else
+                allocate(shock_xpos2(-1:ny+2, -1:nz+2))
+            endif
+        endif
+        shock_xpos2 = 0
+    end subroutine init_shock_xpos
+
+    !---------------------------------------------------------------------------
+    !< Free shock x-position indices
+    !< Args:
+    !<  interp_flag: whether two time steps are needed for interpolation
+    !---------------------------------------------------------------------------
+    subroutine free_shock_xpos(interp_flag)
+        implicit none
+        integer, intent(in) :: interp_flag
+        deallocate(shock_xpos1)
+        if (interp_flag == 1) then
+            deallocate(shock_xpos2)
+        endif
+    end subroutine free_shock_xpos
+
+    !---------------------------------------------------------------------------
+    !< Locate shock x-position indices. We use Vx to locate the shock here.
+    !< Args:
+    !<  nx, ny, nz: the dimensions of the data
+    !<  interp_flag: whether two time steps are needed for interpolation
+    !---------------------------------------------------------------------------
+    subroutine locate_shock_xpos(interp_flag, nx, ny, nz, ndim)
+        use mpi_module
+        implicit none
+        integer, intent(in) :: interp_flag, nx, ny, nz, ndim
+        if (ndim == 1) then
+            shock_xpos1(1, 1) = maxloc(abs(fgrad_array1(1, :, 1, 1)), dim=1)
+        else if (ndim == 2) then
+            shock_xpos1(:, 1) = maxloc(abs(fgrad_array1(1, :, :, 1)), dim=1)
+        else
+            shock_xpos1(:, :) = maxloc(abs(fgrad_array1(1, :, :, :)), dim=1)
+        endif
+        if (interp_flag == 1) then
+            if (ndim == 1) then
+                shock_xpos2(1, 1) = maxloc(abs(fgrad_array2(1, :, 1, 1)), dim=1)
+            else if (ndim == 2) then
+                shock_xpos2(:, 1) = maxloc(abs(fgrad_array2(1, :, :, 1)), dim=1)
+            else
+                shock_xpos2(:, :) = maxloc(abs(fgrad_array2(1, :, :, :)), dim=1)
+            endif
+        endif
+    end subroutine locate_shock_xpos
+
+    !---------------------------------------------------------------------------
+    !< Interpolate shock location, assuming a 2D shock
+    !< nz is assumed to be 1. We assume shock is propagating along x-direction
+    !< Args:
+    !<  ix, iy: the lower-left corner of the grid.
+    !<  rx, ry: the offset to the lower-left corner of the grid where the
+    !<          the position is. They are normalized to the grid sizes.
+    !<  rt: the offset to the earlier time point of the MHD data. It is
+    !<      normalized to the time interval of the MHD data output.
+    !---------------------------------------------------------------------------
+    function interp_shock_location(iy, ry, rt) result(shock_xpos)
+        implicit none
+        real(dp), intent(in) :: ry, rt
+        integer, intent(in) :: iy
+        real(dp) :: ry1, rt1, sx1, sx2, shock_xpos
+        integer :: iy1
+        iy1 = iy + 1
+        ry1 = 1.0 - ry
+        rt1 = 1.0 - rt
+
+        !< iy starts at 0, so we need to consider the ghost cells
+        sx1 = shock_xpos1(iy-1, 1) * ry1 + shock_xpos1(iy1-1, 1) * ry
+        sx2 = shock_xpos2(iy-1, 1) * ry1 + shock_xpos2(iy1-1, 1) * ry
+
+        !< Time interpolation
+        shock_xpos = sx2 * rt1 + sx1 * rt
+    end function interp_shock_location
+
 end module mhd_data_parallel

@@ -14,7 +14,7 @@ module particle_module
         select_particles_tracking, init_particle_tracking, &
         free_particle_tracking, init_tracked_particle_points, &
         free_tracked_particle_points, negative_particle_tags, &
-        save_tracked_particle_points
+        save_tracked_particle_points, inject_particles_at_shock
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -212,6 +212,60 @@ module particle_module
             write(*, "(A)") "Finished injecting particles"
         endif
     end subroutine inject_particles_spatial_uniform
+
+    !---------------------------------------------------------------------------
+    !< Inject particles at shock
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  ct_mhd: MHD simulation time frame
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_shock(nptl, dt, dist_flag, ct_mhd)
+        use simulation_setup_module, only: fconfig
+        use mpi_module, only: mpi_rank, master
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_shock_location
+        use random_number_generator, only: unif_01, two_normals
+        implicit none
+        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        real(dp), intent(in) :: dt
+        integer :: i, imod2, iy, ix
+        real(dp) :: xmin, ymin, xmax, ymax, dpy, shock_xpos
+        real(dp), dimension(2) :: rands
+
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
+
+        do i = 1, nptl
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            ptls(nptl_current)%y = unif_01()*(ymax-ymin) + ymin
+            dpy = ptls(nptl_current)%y / mhd_config%dy
+            iy = floor(dpy)
+            !< We assume that particles are inject at the earlier shock location
+            shock_xpos = interp_shock_location(iy, dpy - iy, 0.0d0) + 2  ! Two ghost cells
+            ptls(nptl_current)%x = shock_xpos * (xmax - xmin) / fconfig%nxg
+            if (dist_flag == 0) then
+                imod2 = mod(i, 2)
+                if (imod2 == 1) rands = two_normals()
+                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
+            else
+                ptls(nptl_current)%p = p0
+            endif
+            ptls(nptl_current)%weight = 1.0
+            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
+            ptls(nptl_current)%dt = dt
+            ptls(nptl_current)%split_times = 0
+            ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%tag = nptl_current
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles at the shock"
+        endif
+    end subroutine inject_particles_at_shock
 
     !---------------------------------------------------------------------------
     !< Particle mover in one cycle
