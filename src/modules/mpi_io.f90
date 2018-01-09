@@ -13,13 +13,17 @@ module mpi_io_module
     interface read_data_mpi_io
         module procedure &
             read_data_mpi_io_real_4d, read_data_mpi_io_real_3d, &
-            read_data_mpi_io_real_2d, read_data_mpi_io_real_1d
+            read_data_mpi_io_real_2d, read_data_mpi_io_real_1d, &
+            read_data_mpi_io_double_4d, read_data_mpi_io_double_3d, &
+            read_data_mpi_io_double_2d, read_data_mpi_io_double_1d
     end interface read_data_mpi_io
 
     interface write_data_mpi_io
         module procedure &
             write_data_mpi_io_real_3d, write_data_mpi_io_real_2d, &
-            write_data_mpi_io_real_1d
+            write_data_mpi_io_real_1d, &
+            write_data_mpi_io_double_3d, write_data_mpi_io_double_2d, &
+            write_data_mpi_io_double_1d
     end interface write_data_mpi_io
 
     integer :: fileinfo     ! MPI_INFO object
@@ -211,6 +215,74 @@ module mpi_io_module
     end subroutine read_data_mpi_io_real_1d
 
     !---------------------------------------------------------------------------
+    ! Read data from files using MPI/IO for 4D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine read_data_mpi_io_double_4d(fh, datatype, subsizes, disp, offset, rdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(4), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:, :, :, :), intent(out) :: rdata
+
+        call set_file_view_real(fh, datatype, disp)
+        call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
+                product(subsizes), MPI_REAL, status, ierror)
+        call handle_read_error
+    end subroutine read_data_mpi_io_double_4d
+
+    !---------------------------------------------------------------------------
+    ! Read data from files using MPI/IO for 3D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine read_data_mpi_io_double_3d(fh, datatype, subsizes, disp, offset, rdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(3), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:, :, :), intent(out) :: rdata
+
+        call set_file_view_real(fh, datatype, disp)
+        call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
+                product(subsizes), MPI_REAL, status, ierror)
+        call handle_read_error
+    end subroutine read_data_mpi_io_double_3d
+
+    !---------------------------------------------------------------------------
+    ! Read data from files using MPI/IO for 2D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine read_data_mpi_io_double_2d(fh, datatype, subsizes, disp, offset, rdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(2), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:, :), intent(out) :: rdata
+
+        call set_file_view_real(fh, datatype, disp)
+        call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
+                product(subsizes), MPI_REAL, status, ierror)
+        call handle_read_error
+    end subroutine read_data_mpi_io_double_2d
+
+    !---------------------------------------------------------------------------
+    ! Read data from files using MPI/IO for 1D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine read_data_mpi_io_double_1d(fh, datatype, subsizes, disp, offset, rdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(1), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:), intent(out) :: rdata
+
+        call set_file_view_real(fh, datatype, disp)
+        call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
+                subsizes(1), MPI_REAL, status, ierror)
+        call handle_read_error
+    end subroutine read_data_mpi_io_double_1d
+
+    !---------------------------------------------------------------------------
     ! Write data to files using MPI/IO for 3D REAL data.
     ! Input:
     !   fh: file handler.
@@ -271,5 +343,59 @@ module mpi_io_module
                 subsizes(1), MPI_REAL, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_real_1d
+
+    !---------------------------------------------------------------------------
+    ! Write data to files using MPI/IO for 3D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine write_data_mpi_io_double_3d(fh, datatype, subsizes, disp, offset, wdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(3), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:,:,:), intent(in) :: wdata
+
+        call set_file_view_real(fh, datatype, disp)
+
+        call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
+                product(subsizes), MPI_DOUBLE, status, ierror)
+        call handle_write_error
+    end subroutine write_data_mpi_io_double_3d
+
+    !---------------------------------------------------------------------------
+    ! Write data to files using MPI/IO for 2D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine write_data_mpi_io_double_2d(fh, datatype, subsizes, disp, offset, wdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(2), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:,:), intent(in) :: wdata
+
+        call set_file_view_real(fh, datatype, disp)
+
+        call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
+                product(subsizes), MPI_DOUBLE, status, ierror)
+        call handle_write_error
+    end subroutine write_data_mpi_io_double_2d
+
+    !---------------------------------------------------------------------------
+    ! Write data to files using MPI/IO for 1D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine write_data_mpi_io_double_1d(fh, datatype, subsizes, disp, offset, wdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(1), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:), intent(in) :: wdata
+
+        call set_file_view_real(fh, datatype, disp)
+
+        call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
+                subsizes(1), MPI_DOUBLE, status, ierror)
+        call handle_write_error
+    end subroutine write_data_mpi_io_double_1d
 
 end module mpi_io_module
