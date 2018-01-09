@@ -189,15 +189,18 @@ module simulation_setup_module
             nz = mhd_config%nz / mpi_sizez
 
             call set_data_boundaries(ix, nx, fconfig%ix_min, fconfig%ix_max)
-            fconfig%xmin = (ix * nx - 0.5) * mhd_config%dx
+            ! fconfig%xmin = (ix * nx - 0.5) * mhd_config%dx
+            fconfig%xmin = ix * nx * mhd_config%dx
             fconfig%xmax = fconfig%xmin + nx * mhd_config%dx
             if (ndim > 1) then
                 call set_data_boundaries(iy, ny, fconfig%iy_min, fconfig%iy_max)
-                fconfig%ymin = (iy * ny - 0.5) * mhd_config%dy
+                ! fconfig%ymin = (iy * ny - 0.5) * mhd_config%dy
+                fconfig%ymin = iy * ny * mhd_config%dy
                 fconfig%ymax = fconfig%ymin + ny * mhd_config%dy
                 if (ndim > 2) then
                     call set_data_boundaries(iz, nz, fconfig%iz_min, fconfig%iz_max)
-                    fconfig%zmin = (iz * nz - 0.5) * mhd_config%dz
+                    ! fconfig%zmin = (iz * nz - 0.5) * mhd_config%dz
+                    fconfig%zmin = iz * nz * mhd_config%dz
                     fconfig%zmax = fconfig%zmin + nz * mhd_config%dz
                 else
                     fconfig%iz_min = 1

@@ -15,7 +15,7 @@ program stochastic
         init_particle_tracking, free_particle_tracking, &
         init_tracked_particle_points, free_tracked_particle_points, &
         negative_particle_tags, save_tracked_particle_points, &
-        inject_particles_at_shock
+        inject_particles_at_shock, set_mpi_io_data_sizes
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -84,16 +84,23 @@ program stochastic
         call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
         call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
     else
-        call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+        call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
     endif
 
     call cpu_time(step1)
 
-    call distributions_diagnostics(t_start, diagnostics_directory)
+    call set_mpi_io_data_sizes
+    call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data)
 
     !< Time loop
     do tf = t_start + 1, t_end
+        if (mpi_rank == master) then
+            write(*, "(A,I0)") " Starting step ", tf
+        endif
         call particle_mover(0, nptl_selected, nsteps_interval)
+        if (mpi_rank == master) then
+            write(*, "(A)") " Finishing moving particles "
+        endif
         if (split_flag == 1) then
             call split_particle
         endif
@@ -102,8 +109,14 @@ program stochastic
         else
             call quick_check(tf, .false.)
         endif
-        call distributions_diagnostics(tf, diagnostics_directory)
+        call distributions_diagnostics(tf, diagnostics_directory, whole_mhd_data)
+        if (mpi_rank == master) then
+            write(*, "(A)") " Finishing distribution diagnostics "
+        endif
         call copy_fields
+        if (mpi_rank == master) then
+            write(*, "(A)") " Finishing copying fields "
+        endif
         if (tf < t_end) then
             write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
             call read_field_data_parallel(fname2, var_flag=1)
@@ -133,7 +146,7 @@ program stochastic
             call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
             call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
         else
-            call inject_particles_spatial_uniform(nptl, dt, dist_flag)
+            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
         endif
 
         call init_tracked_particle_points(nptl_selected)

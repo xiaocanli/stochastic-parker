@@ -14,7 +14,8 @@ module particle_module
         select_particles_tracking, init_particle_tracking, &
         free_particle_tracking, init_tracked_particle_points, &
         free_tracked_particle_points, negative_particle_tags, &
-        save_tracked_particle_points, inject_particles_at_shock
+        save_tracked_particle_points, inject_particles_at_shock, &
+        set_mpi_io_data_sizes
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -62,13 +63,19 @@ module particle_module
     real(dp) :: pmax  !< Maximum particle momentum
     real(dp) :: dx, dy, pmin_log, pmax_log, dp_log
     integer :: nx, ny, npp, nreduce
+    integer :: nx_mhd_reduced, ny_mhd_reduced
 
-    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3
-    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum
+    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3, f4
+    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum, f4_sum
     real(dp), allocatable, dimension(:) :: fp0, fp0_sum
     real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
     real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
     real(dp), allocatable, dimension(:) :: parray
+
+    !< MPI/IO data sizes
+    integer, dimension(2) :: sizes_fpx, subsizes_fpx, starts_fpx
+    integer, dimension(2) :: sizes_fpy, subsizes_fpy, starts_fpy
+    integer, dimension(2) :: sizes_fxy, subsizes_fxy, starts_fxy
 
     contains
 
@@ -169,13 +176,15 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  ct_mhd: MHD simulation time frame
     !---------------------------------------------------------------------------
-    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag)
+    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd)
         use simulation_setup_module, only: fconfig
         use mpi_module, only: mpi_rank, master
+        use mhd_config_module, only: mhd_config
         use random_number_generator, only: unif_01, two_normals
         implicit none
-        integer, intent(in) :: nptl, dist_flag
+        integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt
         integer :: i, imod2
         real(dp) :: xmin, ymin, xmax, ymax
@@ -200,7 +209,7 @@ module particle_module
                 ptls(nptl_current)%p = p0
             endif
             ptls(nptl_current)%weight = 1.0
-            ptls(nptl_current)%t = 0.0
+            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = 1
@@ -285,6 +294,7 @@ module particle_module
         real(dp), intent(in) :: t0
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
+        real(dp) :: xmin1, xmax1, ymin1, ymax1
         real(dp) :: px, py, rx, ry, rt, rt1
         real(dp) :: deltax, deltay, deltap
         integer :: i, ix, iy, j, tracking_step, offset
@@ -296,34 +306,35 @@ module particle_module
         xmax = fconfig%xmax
         ymin = fconfig%ymin
         ymax = fconfig%ymax
+        xmin1 = xmin - dxm * 0.5
+        xmax1 = xmax + dxm * 0.5
+        ymin1 = ymin - dym * 0.5
+        ymax1 = ymax + dym * 0.5
+        deltax = 0.0
+        deltay = 0.0
+        deltap = 0.0
 
         j = 0
 
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
             do while ((ptl%t - t0) < dtf .and. ptl%count_flag /= 0)
-                ! if (mpi_rank == 12) then
-                !     print*, ptl%t, t0
-                ! endif
                 if (ptl%p < 0.0) then
                     ptl%count_flag = 0
                     leak = leak + ptl%weight
                     exit
                 else
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
                     if (ptl%count_flag == 0) then
                         exit
                     endif
                 endif
-                call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
                 if (ptl%count_flag == 0) then
                     exit
                 endif
 
                 j = j + 1
-                ! if (nptl_current == nptl_old + 1) then
-                !     print*, mpi_rank, ptl%t, ptl%dt, ptl%tag
-                ! endif
 
                 px = (ptl%x-xmin) / dxm
                 py = (ptl%y-ymin) / dym
@@ -353,10 +364,6 @@ module particle_module
                     endif
                 endif
             enddo
-
-            ! if (nptl_current == nptl_old + 1) then
-            !     print*, mpi_rank, j
-            ! endif
 
             if ((ptl%t - t0) > dtf .and. ptl%count_flag /= 0) then
                 ptl%x = ptl%x - deltax
@@ -395,7 +402,7 @@ module particle_module
                     ptl%count_flag = 0
                     leak = leak + ptl%weight
                 else
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
                 endif
             endif
 
@@ -437,8 +444,14 @@ module particle_module
                 call particle_mover_one_cycle(t0, track_particle_flag, &
                     nptl_selected, nsteps_interval)
             endif
+            ! if (mpi_rank == master) then
+            !     write(*, "(A)") "Finishing moving particle for one cycle"
+            ! endif
             call remove_particles
             call send_recv_particles
+            ! if (mpi_rank == master) then
+            !     write(*, "(A)") "Finishing sending and receiving particles"
+            ! endif
             call add_neighbor_particles
             if (sum(nrecvers) > 0) then
                 local_flag = sum(nrecvers)
@@ -449,25 +462,12 @@ module particle_module
                 MPI_SUM, MPI_COMM_WORLD, ierr)
             if (global_flag > 0) then
                 all_particles_in_box = .false.
-                ! if (global_flag == 1 .and. (mpi_rank == 1 .or. mpi_rank == 2)) then
-                !     print*, mpi_rank, nsenders(1:2), nrecvers(1:2)
-                !     print*, mpi_rank, recvers(1, 1:2)%x
-                !     print*, mpi_rank, recvers(1, 1:2)%tag
-                !     print*, mpi_rank, recvers(1, 1:2)%dt
-                !     print*, mpi_rank, recvers(1, 1:2)%t
-                !     print*, mpi_rank, senders(1, 1:2)%x
-                !     print*, mpi_rank, senders(1, 1:2)%tag
-                !     print*, mpi_rank, senders(1, 1:2)%dt
-                !     print*, mpi_rank, senders(1, 1:2)%t
-                !     print*, mpi_rank, ptl%t, ptl%dt
-                !     print*, '--------'
-                ! endif
-                ! if (mpi_rank == master) then
-                !     print*, ncycle, global_flag
-                ! endif
             else
                 all_particles_in_box = .true.
             endif
+            ! if (mpi_rank == master) then
+            !     write(*, "(A, I0)") "Finishing cycle ", ncycle
+            ! endif
         enddo
         if (mpi_rank == master) then
             write(*, "(A, I0)") "Number of cycles: ", ncycle
@@ -678,6 +678,7 @@ module particle_module
         use read_config, only: get_variable
         use simulation_setup_module, only: fconfig
         use simulation_setup_module, only: mpi_sizex, mpi_sizey
+        use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
         real(fp) :: temp
@@ -786,7 +787,7 @@ module particle_module
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
             ! dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt1 = min(dxm/tmp40, (dxm/tmp30) * (dxm/tmp30))
+            dt1 = min(dxm/(tmp40), (dxm/tmp30) * (dxm/tmp30)) * 0.5
         else
             dt1 = dt_min
         endif
@@ -794,7 +795,7 @@ module particle_module
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
             ! dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30))
+            dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30)) * 0.5
         else
             dt2 = dt_min
         endif
@@ -1046,6 +1047,7 @@ module particle_module
         allocate(f1(nx, ny))
         allocate(f2(nx, ny))
         allocate(f3(nx, ny))
+        allocate(f4(nx, ny))
         allocate(fp0(npp))
         allocate(fp1(npp, nx))
         allocate(fp2(npp, ny))
@@ -1053,6 +1055,7 @@ module particle_module
         allocate(f1_sum(nx, ny))
         allocate(f2_sum(nx, ny))
         allocate(f3_sum(nx, ny))
+        allocate(f4_sum(nx, ny))
         allocate(fp0_sum(npp))
         allocate(fp1_sum(npp, nx))
         allocate(fp2_sum(npp, ny))
@@ -1086,6 +1089,7 @@ module particle_module
         f1 = 0.0_dp
         f2 = 0.0_dp
         f3 = 0.0_dp
+        f4 = 0.0_dp
         fp0 = 0.0_dp
         fp1 = 0.0_dp
         fp2 = 0.0_dp
@@ -1093,6 +1097,7 @@ module particle_module
         f1_sum = 0.0_dp
         f2_sum = 0.0_dp
         f3_sum = 0.0_dp
+        f4_sum = 0.0_dp
         fp0_sum = 0.0_dp
         fp1_sum = 0.0_dp
         fp2_sum = 0.0_dp
@@ -1104,8 +1109,8 @@ module particle_module
     subroutine free_particle_distributions
         use mpi_module, only: mpi_rank, master
         implicit none
-        deallocate(f0, f1, f2, f3, fp0, fp1, fp2)
-        deallocate(f0_sum, f1_sum, f2_sum, f3_sum)
+        deallocate(f0, f1, f2, f3, f4, fp0, fp1, fp2)
+        deallocate(f0_sum, f1_sum, f2_sum, f3_sum, f4_sum)
         deallocate(fp0_sum, fp1_sum, fp2_sum)
         ! if (mpi_rank == master) then
             deallocate(parray)
@@ -1114,11 +1119,15 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Accumulate particle distributions
+    !< Args:
+    !<  whole_mhd_data: whether each MPI process holds the whole MHD data
     !---------------------------------------------------------------------------
-    subroutine calc_particle_distributions
+    subroutine calc_particle_distributions(whole_mhd_data)
         use mpi_module
         use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
         implicit none
+        integer, intent(in) :: whole_mhd_data
         integer :: i, ix, iy, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax
 
@@ -1141,17 +1150,16 @@ module particle_module
             weight = ptl%weight
 
             !< Different momentum band
-            if (p > 0.5*p0 .and. p <= 1.5*p0) then
+            if (p <= p0) then
                 f0(ix,iy) = f0(ix,iy) + weight
-            endif
-            if (p > 1.5*p0 .and. p <= 2.5*p0) then
+            else if (p > p0 .and. p <= 2.0*p0) then
                 f1(ix,iy) = f1(ix,iy) + weight
-            endif
-            if (p > 2.5*p0 .and. p <= 3.5*p0) then
+            else if (p > 2.0*p0 .and. p <= 4.0*p0) then
                 f2(ix,iy) = f2(ix,iy) + weight
-            endif
-            if (p > 3.5*p0 .and. p <= 4.5*p0) then
+            else if (p > 4.0*p0 .and. p <= 8.0*p0) then
                 f3(ix,iy) = f3(ix,iy) + weight
+            else
+                f4(ix,iy) = f4(ix,iy) + weight
             endif
 
             if (p > pmin .and. p <= pmax) then
@@ -1162,20 +1170,33 @@ module particle_module
             endif
         enddo
         
-        call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
+        if (whole_mhd_data == 1) then
+            call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(f4, f4_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+        else
+            if (nx == mhd_config%nx / nreduce) then
+                call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, &
+                    master, MPI_COMM_WORLD, ierr)
+            endif
+            if (ny == mhd_config%ny / nreduce) then
+                call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, &
+                    master, MPI_COMM_WORLD, ierr)
+            endif
+        endif
     end subroutine calc_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -1183,16 +1204,22 @@ module particle_module
     !< Args:
     !<  iframe: time frame index
     !<  file_path: save data files to this path
+    !<  whole_mhd_data: whether each MPI process holds the whole MHD data
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe, file_path)
+    subroutine distributions_diagnostics(iframe, file_path, whole_mhd_data)
+        use mpi_io_module, only: set_mpi_datatype, set_mpi_info, fileinfo, &
+            open_data_mpi_io, write_data_mpi_io
+        use mhd_config_module, only: mhd_config
         use constants, only: fp, dp
         use mpi_module
         implicit none
-        integer, intent(in) :: iframe
+        integer, intent(in) :: iframe, whole_mhd_data
         character(*), intent(in) :: file_path
         integer :: ix, iy, ip, fh, pos1
         character(len=4) :: ctime, mrank
         character(len=128) :: fname
+        integer(kind=MPI_OFFSET_KIND) :: disp, offset
+        integer :: mpi_datatype
         logical :: dir_e
 
         inquire(file='./data/.', exist=dir_e)
@@ -1200,13 +1227,12 @@ module particle_module
             call system('mkdir -p ./data')
         endif
 
-        call calc_particle_distributions
+        call calc_particle_distributions(whole_mhd_data)
 
         write (ctime,'(i4.4)') iframe
         write (mrank,'(i4.4)') mpi_rank
         if (mpi_rank .eq. 0) then
             fh = 15
-            ! fname = trim(file_path)//'fp-'//ctime//'_'//mrank//'.dat'
             fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
             open(fh, file=trim(fname), access='stream', status='unknown', &
                  form='unformatted', action='write')
@@ -1214,34 +1240,92 @@ module particle_module
             pos1 = npp * sizeof(1.0_dp) + 1
             write(fh, pos=pos1) fp0_sum
             close(fh)
+        endif
 
-            ! fh = 16
-            ! fname = 'data/fpx-'//ctime//'_'//mrank//'.dat'
-            ! open(fh, file=trim(fname), access='stream', status='unknown', &
-            !      form='unformatted', action='write')
-            ! write(fh, pos=1) fp1
-            ! close(fh)
+        if (whole_mhd_data == 1) then
+            if (mpi_rank == master) then
+                fh = 16
+                fname = trim(file_path)//'fpx-'//ctime//'_sum.dat'
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) fp1_sum
+                close(fh)
 
-            ! fh = 17
-            ! fname = 'data/fpy-'//ctime//'_'//mrank//'.dat'
-            ! open(fh, file=trim(fname), access='stream', status='unknown', &
-            !      form='unformatted', action='write')
-            ! write(fh, pos=1) fp2
-            ! close(fh)
+                fh = 17
+                fname = trim(file_path)//'fpy-'//ctime//'_sum.dat'
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) fp2_sum
+                close(fh)
 
+                fh = 18
+                fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) f0_sum
+                pos1 = nx * ny * sizeof(1.0_dp) + 1
+                write(fh, pos=pos1) f1_sum
+                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+                write(fh, pos=pos1) f2_sum
+                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+                write(fh, pos=pos1) f3_sum
+                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+                write(fh, pos=pos1) f4_sum
+                close(fh)
+            endif
+        else
+            call set_mpi_info
+            ! fpx
+            fh = 16
+            fname = trim(file_path)//'fpx-'//ctime//'_sum.dat'
+            if (nx == mhd_config%nx) then
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) fp1_sum
+                close(fh)
+            else
+                mpi_datatype = set_mpi_datatype(sizes_fpx, subsizes_fpx, starts_fpx)
+                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
+                disp = 0
+                offset = 0
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fpx, disp, offset, fp1)
+                call MPI_FILE_CLOSE(fh, ierror)
+            endif
+
+            ! fpy
+            fh = 17
+            fname = trim(file_path)//'fpy-'//ctime//'_sum.dat'
+            if (ny == mhd_config%ny) then
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) fp2_sum
+                close(fh)
+            else
+                mpi_datatype = set_mpi_datatype(sizes_fpy, subsizes_fpy, starts_fpy)
+                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
+                disp = 0
+                offset = 0
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fpy, disp, offset, fp2)
+                call MPI_FILE_CLOSE(fh, ierror)
+            endif
+
+            ! fxy for different energy band
             fh = 18
-            ! fname = trim(file_path)//'fxy-'//ctime//'_'//mrank//'.dat'
             fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
-            open(fh, file=trim(fname), access='stream', status='unknown', &
-                 form='unformatted', action='write')
-            write(fh, pos=1) f0_sum
-            pos1 = nx * ny * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) f1_sum
-            pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-            write(fh, pos=pos1) f2_sum
-            pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-            write(fh, pos=pos1) f3_sum
-            close(fh)
+            disp = 0
+            offset = 0
+            mpi_datatype = set_mpi_datatype(sizes_fxy, subsizes_fxy, starts_fxy)
+            call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f0)
+            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f1)
+            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f2)
+            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f3)
+            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f4)
+            call MPI_FILE_CLOSE(fh, ierror)
         endif
     end subroutine distributions_diagnostics
 
@@ -1423,4 +1507,26 @@ module particle_module
         write(fh, pos=offset+1) ptl_traj_points
         close(fh)
     end subroutine save_tracked_particle_points
+
+    !---------------------------------------------------------------------------
+    !< Set MPI/IO data sizes for distribution diagnostics
+    !---------------------------------------------------------------------------
+    subroutine set_mpi_io_data_sizes
+        use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: mpi_ix, mpi_iy
+        implicit none
+        nx_mhd_reduced = mhd_config%nx / nreduce
+        ny_mhd_reduced = mhd_config%ny / nreduce
+        sizes_fpx = (/ npp, nx_mhd_reduced /)
+        subsizes_fpx = (/ npp, nx /)
+        starts_fpx = (/ 0, nx * mpi_ix /)
+
+        sizes_fpy = (/ npp, ny_mhd_reduced /)
+        subsizes_fpy = (/ npp, ny /)
+        starts_fpy = (/ 0, ny * mpi_iy /)
+
+        sizes_fxy = (/ nx_mhd_reduced, ny_mhd_reduced /)
+        subsizes_fxy = (/ nx, ny /)
+        starts_fxy = (/ nx * mpi_ix, ny * mpi_iy /)
+    end subroutine set_mpi_io_data_sizes
 end module particle_module
