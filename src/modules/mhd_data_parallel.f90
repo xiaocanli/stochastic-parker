@@ -135,7 +135,7 @@ module mhd_data_parallel
     !<            f_array1 and other numbers for f_array2.
     !---------------------------------------------------------------------------
     subroutine read_field_data_parallel(filename, var_flag)
-        use mpi_io_module, only: set_mpi_datatype, set_mpi_info, fileinfo, &
+        use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
         use simulation_setup_module, only: fconfig
         use mpi_module
@@ -179,7 +179,7 @@ module mhd_data_parallel
             endif
             close(fh)
         else
-            mpi_datatype = set_mpi_datatype(sizes, subsizes, starts)
+            mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
             call set_mpi_info
             call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, fh)
             disp = 0

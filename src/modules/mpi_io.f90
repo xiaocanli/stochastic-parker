@@ -6,7 +6,7 @@ module mpi_io_module
     use mpi_module
     implicit none
     private
-    public set_mpi_datatype
+    public set_mpi_datatype_real, set_mpi_datatype_double
     public open_data_mpi_io, read_data_mpi_io, write_data_mpi_io
     public fileinfo, set_mpi_info
 
@@ -31,9 +31,9 @@ module mpi_io_module
     contains
 
     !---------------------------------------------------------------------------
-    ! Create a MPI data type and commit it.    
+    ! Create a MPI data type for real data and commit it.
     !---------------------------------------------------------------------------
-    function set_mpi_datatype(sizes, subsizes, starts) result(datatype)
+    function set_mpi_datatype_real(sizes, subsizes, starts) result(datatype)
         implicit none
         integer, dimension(:), intent(in) :: sizes, subsizes, starts
         integer :: datatype
@@ -44,7 +44,23 @@ module mpi_io_module
         call MPI_TYPE_CREATE_SUBARRAY(sz, sizes, subsizes, starts, &
                 MPI_ORDER_FORTRAN, MPI_REAL, datatype, ierror)
         call MPI_TYPE_COMMIT(datatype, ierror)
-    end function set_mpi_datatype
+    end function set_mpi_datatype_real
+
+    !---------------------------------------------------------------------------
+    ! Create a MPI data type for double data and commit it.
+    !---------------------------------------------------------------------------
+    function set_mpi_datatype_double(sizes, subsizes, starts) result(datatype)
+        implicit none
+        integer, dimension(:), intent(in) :: sizes, subsizes, starts
+        integer :: datatype
+        integer :: sz
+
+        sz = size(sizes)
+
+        call MPI_TYPE_CREATE_SUBARRAY(sz, sizes, subsizes, starts, &
+                MPI_ORDER_FORTRAN, MPI_DOUBLE, datatype, ierror)
+        call MPI_TYPE_COMMIT(datatype, ierror)
+    end function set_mpi_datatype_double
 
     !---------------------------------------------------------------------------
     ! Create a MPI_INFO object and have proper settings for ROMIO's data-sieving
@@ -90,7 +106,7 @@ module mpi_io_module
     end subroutine open_data_mpi_io
 
     !---------------------------------------------------------------------------
-    ! Set view for the file to read.
+    ! Set view for the file to read for real data.
     ! Inputs:
     !   fh: file handler.
     !   datatype: MPI data type.
@@ -107,6 +123,25 @@ module mpi_io_module
             print*, "Error in MPI_FILE_SET_VIEW: ", trim(err_msg)
         endif
     end subroutine set_file_view_real
+
+    !---------------------------------------------------------------------------
+    ! Set view for the file to read for double data.
+    ! Inputs:
+    !   fh: file handler.
+    !   datatype: MPI data type.
+    !   disp: displacement form the beginning of the file (in bytes).
+    !---------------------------------------------------------------------------
+    subroutine set_file_view_double(fh, datatype, disp)
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp
+        call MPI_FILE_SET_VIEW(fh, disp, MPI_DOUBLE, datatype, 'native', &
+            MPI_INFO_NULL, ierror)
+        if (ierror /= 0) then
+            call MPI_ERROR_STRING(ierror, err_msg, err_length, ierror2)
+            print*, "Error in MPI_FILE_SET_VIEW: ", trim(err_msg)
+        endif
+    end subroutine set_file_view_double
 
     !---------------------------------------------------------------------------
     ! Handle MPI_FILE_READ error.
@@ -225,7 +260,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:, :, :, :), intent(out) :: rdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
                 product(subsizes), MPI_REAL, status, ierror)
         call handle_read_error
@@ -242,7 +277,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:, :, :), intent(out) :: rdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
                 product(subsizes), MPI_REAL, status, ierror)
         call handle_read_error
@@ -259,7 +294,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:, :), intent(out) :: rdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
                 product(subsizes), MPI_REAL, status, ierror)
         call handle_read_error
@@ -276,7 +311,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:), intent(out) :: rdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
                 subsizes(1), MPI_REAL, status, ierror)
         call handle_read_error
@@ -355,7 +390,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:,:,:), intent(in) :: wdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
                 product(subsizes), MPI_DOUBLE, status, ierror)
@@ -373,7 +408,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:,:), intent(in) :: wdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
                 product(subsizes), MPI_DOUBLE, status, ierror)
@@ -391,7 +426,7 @@ module mpi_io_module
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
         real(dp), dimension(:), intent(in) :: wdata
 
-        call set_file_view_real(fh, datatype, disp)
+        call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
                 subsizes(1), MPI_DOUBLE, status, ierror)

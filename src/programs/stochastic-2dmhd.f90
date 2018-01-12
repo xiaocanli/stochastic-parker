@@ -93,7 +93,7 @@ program stochastic
     call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data)
 
     !< Time loop
-    do tf = t_start + 1, t_end
+    do tf = t_start, t_end
         if (mpi_rank == master) then
             write(*, "(A,I0)") " Starting step ", tf
         endif
@@ -105,11 +105,11 @@ program stochastic
             call split_particle
         endif
         if (tf == t_start + 1) then
-            call quick_check(tf, .true.)
+            call quick_check(tf, .true., diagnostics_directory)
         else
-            call quick_check(tf, .false.)
+            call quick_check(tf, .false., diagnostics_directory)
         endif
-        call distributions_diagnostics(tf, diagnostics_directory, whole_mhd_data)
+        call distributions_diagnostics(tf + 1, diagnostics_directory, whole_mhd_data)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "
         endif

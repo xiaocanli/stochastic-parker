@@ -61,7 +61,7 @@ module particle_module
     !< Parameters for particle distributions
     real(dp) :: pmin  !< Minimum particle momentum
     real(dp) :: pmax  !< Maximum particle momentum
-    real(dp) :: dx, dy, pmin_log, pmax_log, dp_log
+    real(dp) :: dx_diag, dy_diag, pmin_log, pmax_log, dp_log
     integer :: nx, ny, npp, nreduce
     integer :: nx_mhd_reduced, ny_mhd_reduced
 
@@ -425,7 +425,7 @@ module particle_module
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
-        real(dp) :: t0
+        real(dp) :: t0, xmin, xmax, ymin, ymax
         all_particles_in_box = .false.
         nptl_old = 0
         nptl_new = 0
@@ -458,6 +458,7 @@ module particle_module
             else
                 local_flag = 0
             endif
+            global_flag = 0
             call MPI_ALLREDUCE(local_flag, global_flag, 1, MPI_INTEGER, &
                 MPI_SUM, MPI_COMM_WORLD, ierr)
             if (global_flag > 0) then
@@ -472,6 +473,25 @@ module particle_module
         if (mpi_rank == master) then
             write(*, "(A, I0)") "Number of cycles: ", ncycle
         endif
+
+        !< Send particles in ghost cells to neighbors.
+        !< We do not need to push particles after they are sent to neighbors.
+        !< To do this, we can reduce number of particles crossing local domain
+        !< domain boundaries in the next step.
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
+        nsenders = 0
+        nrecvers = 0
+        do i = 1, nptl_current
+            ptl = ptls(i)
+            call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+            ptls(i) = ptl
+        enddo
+        call remove_particles
+        call send_recv_particles
+        call add_neighbor_particles
     end subroutine particle_mover
 
     !---------------------------------------------------------------------------
@@ -786,16 +806,16 @@ module particle_module
         tmp30 = skperp + skpara_perp * abs(bx/b)
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
-            ! dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt1 = min(dxm/(tmp40), (dxm/tmp30) * (dxm/tmp30)) * 0.5
+            dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            ! dt1 = min(dxm/(tmp40), (dxm/tmp30) * (dxm/tmp30)) * 0.5
         else
             dt1 = dt_min
         endif
         tmp30 = skperp + skpara_perp * abs(by/b)
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
-            ! dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2)
-            dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30)) * 0.5
+            dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            ! dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30)) * 0.5
         else
             dt2 = dt_min
         endif
@@ -994,12 +1014,14 @@ module particle_module
     !< Args:
     !<  iframe: the time frame
     !<  if_create_file: whether to create a file
+    !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
-    subroutine quick_check(iframe, if_create_file)
+    subroutine quick_check(iframe, if_create_file, file_path)
         use mpi_module, only: mpi_rank, master
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
+        character(*), intent(in) :: file_path
         real(dp) :: pdt_min, pdt_max, pdt_avg, ntot
         integer :: i
         logical :: dir_e
@@ -1021,11 +1043,11 @@ module particle_module
             enddo
             pdt_avg = pdt_avg / nptl_current
             if (if_create_file) then
-                open (17, file='data/quick.dat', status='unknown')
+                open (17, file=trim(file_path)//'quick.dat', status='unknown')
                 write(17, "(A,A)") "iframe, nptl_current, nptl_new, ntot, ", &
                     "leak, pdt_min, pdt_max, pdt_avg"
             else
-                open (17, file='data/quick.dat', status="old", &
+                open (17, file=trim(file_path)//'quick.dat', status="old", &
                     position="append", action="write")
             endif
             write(17, "(I4.4,A,I6.6,A,I6.6,A,5E13.6E2)") &
@@ -1062,8 +1084,10 @@ module particle_module
         call clean_particle_distributions
 
         !< Intervals for distributions
-        dx = mhd_config%lx / (mhd_config%nx / dble(nreduce) - 1)
-        dy = mhd_config%ly / (mhd_config%ny / dble(nreduce) - 1)
+        nx_mhd_reduced = mhd_config%nx / nreduce
+        ny_mhd_reduced = mhd_config%ny / nreduce
+        dx_diag = mhd_config%lx / nx_mhd_reduced
+        dy_diag = mhd_config%ly / ny_mhd_reduced
         pmin_log = log10(pmin)
         pmax_log = log10(pmax)
         dp_log = (pmax_log - pmin_log) / (npp - 1)
@@ -1140,8 +1164,8 @@ module particle_module
 
         do i = 1, nptl_current
             ptl = ptls(i)
-            ix = ceiling((ptl%x - xmin)/dx)
-            iy = ceiling((ptl%y - ymin)/dy)
+            ix = ceiling((ptl%x - xmin)/dx_diag)
+            iy = ceiling((ptl%y - ymin)/dy_diag)
             if (ix < 1) ix = 1
             if (ix > nx) ix = nx
             if (iy < 1) iy = 1
@@ -1150,13 +1174,13 @@ module particle_module
             weight = ptl%weight
 
             !< Different momentum band
-            if (p <= p0) then
+            if (p <= 0.75*p0) then
                 f0(ix,iy) = f0(ix,iy) + weight
-            else if (p > p0 .and. p <= 2.0*p0) then
+            else if (p > 0.75*p0 .and. p <= 1.5*p0) then
                 f1(ix,iy) = f1(ix,iy) + weight
-            else if (p > 2.0*p0 .and. p <= 4.0*p0) then
+            else if (p > 1.5*p0 .and. p <= 3.0*p0) then
                 f2(ix,iy) = f2(ix,iy) + weight
-            else if (p > 4.0*p0 .and. p <= 8.0*p0) then
+            else if (p > 3.0*p0 .and. p <= 6.0*p0) then
                 f3(ix,iy) = f3(ix,iy) + weight
             else
                 f4(ix,iy) = f4(ix,iy) + weight
@@ -1207,7 +1231,7 @@ module particle_module
     !<  whole_mhd_data: whether each MPI process holds the whole MHD data
     !---------------------------------------------------------------------------
     subroutine distributions_diagnostics(iframe, file_path, whole_mhd_data)
-        use mpi_io_module, only: set_mpi_datatype, set_mpi_info, fileinfo, &
+        use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, fileinfo, &
             open_data_mpi_io, write_data_mpi_io
         use mhd_config_module, only: mhd_config
         use constants, only: fp, dp
@@ -1284,7 +1308,7 @@ module particle_module
                 write(fh, pos=1) fp1_sum
                 close(fh)
             else
-                mpi_datatype = set_mpi_datatype(sizes_fpx, subsizes_fpx, starts_fpx)
+                mpi_datatype = set_mpi_datatype_double(sizes_fpx, subsizes_fpx, starts_fpx)
                 call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
                 disp = 0
                 offset = 0
@@ -1301,7 +1325,7 @@ module particle_module
                 write(fh, pos=1) fp2_sum
                 close(fh)
             else
-                mpi_datatype = set_mpi_datatype(sizes_fpy, subsizes_fpy, starts_fpy)
+                mpi_datatype = set_mpi_datatype_double(sizes_fpy, subsizes_fpy, starts_fpy)
                 call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
                 disp = 0
                 offset = 0
@@ -1314,7 +1338,7 @@ module particle_module
             fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
             disp = 0
             offset = 0
-            mpi_datatype = set_mpi_datatype(sizes_fxy, subsizes_fxy, starts_fxy)
+            mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
             call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f0)
             disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
@@ -1515,8 +1539,6 @@ module particle_module
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: mpi_ix, mpi_iy
         implicit none
-        nx_mhd_reduced = mhd_config%nx / nreduce
-        ny_mhd_reduced = mhd_config%ny / nreduce
         sizes_fpx = (/ npp, nx_mhd_reduced /)
         subsizes_fpx = (/ npp, nx /)
         starts_fpx = (/ 0, nx * mpi_ix /)
