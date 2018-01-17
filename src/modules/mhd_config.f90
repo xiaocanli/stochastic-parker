@@ -78,9 +78,9 @@ module mhd_config_module
             mhd_config%lx, ',', mhd_config%ly, ',', mhd_config%lz
         write(*, "(A,F9.6,A,F9.6,A,F9.6)") " dx, dy, dz = ", &
             mhd_config%dx, ',', mhd_config%dy, ',', mhd_config%dz
-        write(*, "(A,F9.6,A,F9.6,A,F9.6)") " xmin, ymin, zmin = ", &
+        write(*, "(A,F12.6,A,F12.6,A,F12.6)") " xmin, ymin, zmin = ", &
             mhd_config%xmin, ',', mhd_config%ymin, ',', mhd_config%zmin
-        write(*, "(A,F9.6,A,F9.6,A,F9.6)") " xmax, ymax, zmax = ", &
+        write(*, "(A,F12.6,A,F12.6,A,F12.6)") " xmax, ymax, zmax = ", &
             mhd_config%xmax, ',', mhd_config%ymax, ',', mhd_config%zmax
         write(*, "(A,I0,A,I0,A,I0)") " nx, ny, nz = ", &
             mhd_config%nx, ',', mhd_config%ny, ',', mhd_config%nz
