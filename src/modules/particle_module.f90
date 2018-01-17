@@ -310,14 +310,18 @@ module particle_module
         xmax1 = xmax + dxm * 0.5
         ymin1 = ymin - dym * 0.5
         ymax1 = ymax + dym * 0.5
-        deltax = 0.0
-        deltay = 0.0
-        deltap = 0.0
 
         j = 0
 
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
+            deltax = 0.0
+            deltay = 0.0
+            deltap = 0.0
+            call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
+            if (ptl%count_flag == 0) then
+                continue
+            endif
             do while ((ptl%t - t0) < dtf .and. ptl%count_flag /= 0)
                 if (ptl%p < 0.0) then
                     ptl%count_flag = 0
@@ -510,7 +514,7 @@ module particle_module
         real(dp), intent(in) :: xmin, xmax, ymin, ymax
         real(dp), intent(inout) :: x, y
 
-        if (x < xmin) then
+        if (x < xmin .and. ptl%count_flag /= 0) then
             if (neighbors(1) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
@@ -526,7 +530,7 @@ module particle_module
                 senders(nsenders(1), 1) = ptl
                 ptl%count_flag = 0
             endif
-        else if (x > xmax) then
+        else if (x > xmax .and. ptl%count_flag /= 0) then
             if (neighbors(2) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0 !< remove particle
@@ -542,7 +546,11 @@ module particle_module
                 senders(nsenders(2), 2) = ptl
                 ptl%count_flag = 0
             endif
-        else if (y < ymin) then
+        endif
+
+        !< We need to make sure the count_flag is not set to 0.
+        !< Otherwise, we met send the particles to two different neighbors.
+        if (y < ymin .and. ptl%count_flag /= 0) then
             if (neighbors(3) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
@@ -558,7 +566,7 @@ module particle_module
                 senders(nsenders(3), 3) = ptl
                 ptl%count_flag = 0
             endif
-        else if (y > ymax) then
+        else if (y > ymax .and. ptl%count_flag /= 0) then
             if (neighbors(4) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
@@ -658,7 +666,11 @@ module particle_module
         dby_dy = gradf(8)
         db_dx = gradf(13)
         db_dy = gradf(14)
-        ib1 = 1.0_dp / b
+        if (b == 0) then
+            ib1 = 0.0
+        else
+            ib1 = 1.0_dp / b
+        endif
         ib2 = ib1 * ib1
         ib3 = ib1 * ib2
         ib4 = ib2 * ib2
@@ -747,7 +759,7 @@ module particle_module
                 write(*, "(A)") " kappa doesn't depend on B"
             endif
             write(*, "(A,E13.6E2)") " kpara0 = ", kpara0
-            write(*, "(A,E13.6E2)") " kpara / kperp = ", kret
+            write(*, "(A,E13.6E2)") " kperp / kpara = ", kret
             write(*, "(A,E13.6E2)") " Minimum time step = ", dt_min
             write(*, "(A,I0,A,I0)") " Dimensions of spatial distributions = ", &
                 nx, " ", ny
@@ -803,18 +815,34 @@ module particle_module
         dxm = mhd_config%dx
         dym = mhd_config%dy
 
-        tmp30 = skperp + skpara_perp * abs(bx/b)
+        if (b == 0.0d0) then
+            tmp30 = 0.0
+        else
+            tmp30 = skperp + skpara_perp * abs(bx/b)
+        endif
         tmp40 = abs(vx + dkxx_dx + dkxy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            if (tmp30 > 0) then
+                dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            else
+                dt1 = dxm/(80.0*tmp40)
+            endif
             ! dt1 = min(dxm/(tmp40), (dxm/tmp30) * (dxm/tmp30)) * 0.5
         else
             dt1 = dt_min
         endif
-        tmp30 = skperp + skpara_perp * abs(by/b)
+        if (b == 0.0d0) then
+            tmp30 = 0.0
+        else
+            tmp30 = skperp + skpara_perp * abs(by/b)
+        endif
         tmp40 = abs(vy + dkxy_dx + dkyy_dy)
         if (tmp40 .ne. 0.0d0) then
-            dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            if (tmp30 > 0) then
+                dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+            else
+                dt2 = dym/(80.0*tmp40)
+            endif
             ! dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30)) * 0.5
         else
             dt2 = dt_min
@@ -850,8 +878,8 @@ module particle_module
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp) :: xtmp, ytmp
         real(dp) :: sdt, dvx_dx, dvy_dy
-        real(dp) :: bx, by, b, vx, vy, px, py, rx, ry, rt1
-        real(dp) :: bx1, by1, b1
+        real(dp) :: bx, by, b, vx, vy, px, py, rx, ry, rt1, ib
+        real(dp) :: bx1, by1, b1, ib1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
         reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
         real(dp) :: ran1, ran2, ran3, sqrt3
@@ -886,15 +914,23 @@ module particle_module
         deltap = 0.0
 
         sdt = dsqrt(ptl%dt)
-        xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
-        ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by/b)*sdt
+        if (b == 0) then
+            ib = 0.0
+        else
+            ib = 1.0 / b
+        endif
+        xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
+        ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
 
         !< Make sure the point is still in the box
         do while (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1)
+            if (ptl%dt < dt_min) then
+                exit
+            endif
             ptl%dt = ptl%dt * 0.5
             sdt = dsqrt(ptl%dt)
-            xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx/b)*sdt
-            ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by/b)*sdt
+            xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
+            ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
         enddo
 
         px = (xtmp - xmin) / dxm
@@ -931,12 +967,18 @@ module particle_module
         ! rands = two_normals()
         ! ran3 = rands(1)
 
-        deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx/b + &
+        if (b1 == 0) then
+            ib1 = 0.0
+        else
+            ib1 = 1.0 / b1
+        endif
+
+        deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
                  (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
-                 (skpara_perp1*bx1/b1-skpara_perp*bx/b)*(ran3*ran3-1.0)*sdt/2.0
-        deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by/b + &
+                 (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
+        deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
                  (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
-                 (skpara_perp1*by1/b1-skpara_perp*by/b)*(ran3*ran3-1.0)*sdt/2.0
+                 (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
         deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
         ptl%x = ptl%x + deltax 
         ptl%y = ptl%y + deltay 
