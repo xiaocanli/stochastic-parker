@@ -104,7 +104,7 @@ program stochastic
         if (split_flag == 1) then
             call split_particle
         endif
-        if (tf == t_start + 1) then
+        if (tf == t_start) then
             call quick_check(tf, .true., diagnostics_directory)
         else
             call quick_check(tf, .false., diagnostics_directory)
@@ -160,7 +160,7 @@ program stochastic
         call calc_fields_gradients(var_flag=0)
         call calc_fields_gradients(var_flag=1)
         !< Time loop
-        do tf = t_start + 1, t_end
+        do tf = t_start, t_end
             call particle_mover(1, nptl_selected, nsteps_interval)
             if (split_flag == 1) then
                 call split_particle
@@ -223,7 +223,10 @@ program stochastic
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
             examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max '//&
-                        '-np nptl -dt dt -ts t_start -te t_end -df dist_flag'])
+                        '-np nptl -dt dt -ts t_start -te t_end -df dist_flag '//&
+                        '-wm whole_mhd_data -tf track_particle_flag '//&
+                        '-ns nptl_selected -ni nsteps_interval '//&
+                        '-dd diagnostics_directory -is inject_at_shock'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
