@@ -56,7 +56,10 @@ module particle_module
     real(dp) :: kpara, kperp, dkxx_dx, dkyy_dy, dkxy_dx, dkxy_dy
     real(dp) :: skperp, skpara_perp
 
-    real(dp) :: dt_min  !< Minimum time step
+    real(dp) :: dt_min      !< Minimum time step
+    real(dp) :: dt_max      !< Maximum time step
+    real(dp) :: dt_min_rel  !< Minimum time step w.r.t. one field time interval
+    real(dp) :: dt_max_rel  !< Maximum time step w.r.t. one field time interval
 
     !< Parameters for particle distributions
     real(dp) :: pmin  !< Minimum particle momentum
@@ -733,6 +736,12 @@ module particle_module
             kpara0 = get_variable(fh, 'kpara0', '=')
             kret = get_variable(fh, 'kret', '=')
             dt_min = get_variable(fh, 'dt_min', '=')
+            dt_min_rel = get_variable(fh, 'dt_min_rel', '=')
+            dt_max_rel = get_variable(fh, 'dt_max_rel', '=')
+
+            dt_min = max(dt_min, dt_min_rel * mhd_config%dt_out)
+            dt_max = dt_max_rel * mhd_config%dt_out
+
             temp = get_variable(fh, 'nreduce', '=')
             nreduce = int(temp)
             nx = fconfig%nx / nreduce
@@ -761,6 +770,7 @@ module particle_module
             write(*, "(A,E13.6E2)") " kpara0 = ", kpara0
             write(*, "(A,E13.6E2)") " kperp / kpara = ", kret
             write(*, "(A,E13.6E2)") " Minimum time step = ", dt_min
+            write(*, "(A,E13.6E2)") " maximum time step = ", dt_max
             write(*, "(A,I0,A,I0)") " Dimensions of spatial distributions = ", &
                 nx, " ", ny
             write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
@@ -778,6 +788,7 @@ module particle_module
         call MPI_BCAST(kpara0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kret, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(dt_min, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(dt_max, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nreduce, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
@@ -859,6 +870,11 @@ module particle_module
         if (ptl%dt .lt. dt_min) then
             ptl%dt = dt_min
         endif
+
+        !< Make sure the time step is not too large
+        if (ptl%dt .gt. dt_max) then
+            ptl%dt = dt_max
+        endif
     end subroutine set_time_step
 
     !---------------------------------------------------------------------------
@@ -924,9 +940,6 @@ module particle_module
 
         !< Make sure the point is still in the box
         do while (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1)
-            if (ptl%dt < dt_min) then
-                exit
-            endif
             ptl%dt = ptl%dt * 0.5
             sdt = dsqrt(ptl%dt)
             xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
