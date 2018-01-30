@@ -16,3 +16,4 @@ outfile
 backup
 slurm*
 diffusion[0-9]*.sh
+*.pyc
