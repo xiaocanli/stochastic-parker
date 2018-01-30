@@ -1,6 +1,7 @@
 """
 Analysis procedures for stochastic integration
 """
+import argparse
 import collections
 import itertools
 import math
@@ -9,6 +10,7 @@ import os.path
 import struct
 import sys
 
+import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,6 +23,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 sys.path.insert(0, '/net/scratch3/xiaocanli/mhd/python/')
 from mhd_analysis_2d import read_fields_data
+from momentum_energy_distributions import particle_momentum_energy_distributions
 from shell_functions import *
 
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
@@ -40,7 +43,6 @@ def sum_particle_distribution(run_name, ct, mpi_size, nbins, p, elog):
     fp = np.zeros(nbins)
     fe = np.zeros(nbins)
     for i in range(0, mpi_size):
-        # print i
         fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_' + \
                 str(i).zfill(4) + '.dat'
         data = np.fromfile(fname, dtype=np.float64)
@@ -50,147 +52,6 @@ def sum_particle_distribution(run_name, ct, mpi_size, nbins, p, elog):
     fp.tofile(fname)
     fname = '../data/' + run_name + '/fe-' + str(ct).zfill(4) + '_sum.dat'
     fe.tofile(fname)
-
-
-def plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=True,
-        is_power=True, **kwargs):
-    """
-    """
-    fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_0000.dat'
-    # fname = '../data/fp-' + str(ct).zfill(4) + '_0000.dat'
-    data = np.fromfile(fname, dtype=np.float64)
-    sz, = data.shape
-    nbins = sz / 2
-    print nbins
-    p0 = 0.1
-    p = data[0:nbins] / p0
-    elog = p**2
-    # fp = data[nbins:] / np.gradient(p)
-    # fe = data[nbins:] / np.gradient(elog)
-    # for i in range(1, 128):
-    #     print i
-    #     fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_' + \
-    #             str(i).zfill(4) + '.dat'
-    #     # fname = '../data/fp-' + str(ct).zfill(4) + '_' + \
-    #     #         str(i).zfill(4) + '.dat'
-    #     data = np.fromfile(fname, dtype=np.float64)
-    #     fp += data[nbins:] / np.gradient(p)
-    #     fe += data[nbins:] / np.gradient(elog)
-    fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_sum.dat'
-    fp = np.fromfile(fname, dtype=np.float64)
-    fname = '../data/' + run_name + '/fe-' + str(ct).zfill(4) + '_sum.dat'
-    fe = np.fromfile(fname, dtype=np.float64)
-
-    if 'color' in kwargs:
-        color = kwargs['color']
-    else:
-        color = 'b'
-    ax1.loglog(p, fp, linewidth=2, color=color)
-    ax1.set_xlim([1E-1, 1E2])
-    ax1.set_ylim([1E-3, 1E8])
-    # ax1.set_xlim([3E-1, 2E1])
-    # ax1.set_ylim([1E-1, 1E8])
-    # ax1.set_xlim([3E-1, 1E1])
-    # ax1.set_ylim([1E-1, 1E8])
-
-    if is_power:
-        pindex = -3.9
-        sindex, eindex = 45, 127
-        pratio = 2E7
-        # pindex = -5.4
-        # sindex, eindex = 50, 75
-        # pratio = 2E7
-        fpower = p[sindex:eindex]**pindex * pratio
-        ax1.loglog(p[sindex:eindex], fpower, linewidth=2, color='k')
-        power_index = "{%0.1f}" % pindex
-        tname = r'$\sim p^{' + power_index + '}$'
-        ax1.text(0.72, 0.7, tname, color='black', fontsize=24,
-                horizontalalignment='left', verticalalignment='center',
-                transform = ax1.transAxes)
-
-    ax1.set_xlabel(r'$p/p_0$', fontdict=font, fontsize=24)
-    ax1.set_ylabel(r'$f(p)$', fontdict=font, fontsize=24)
-    ax1.tick_params(labelsize=20)
-    
-    fe /= np.sqrt(elog)
-    ax2.loglog(elog, fe, linewidth=2, color=color)
-    # ax2.set_xlim([1E-1, 1E3])
-    # ax2.set_ylim([1E-5, 1E8])
-    # ax2.set_xlim([1E-1, 2E2])
-    # ax2.set_ylim([1E-1, 1E8])
-    # ax2.set_xlim([1E-1, 1E3])
-    # ax2.set_ylim([1E-2, 1E6])
-    # ax2.set_xlim([1E-1, 2E2])
-    # ax2.set_ylim([1E-2, 2E6])
-    ax2.set_xlim([1E-1, 2E1])
-    ax2.set_ylim([1E-2, 5E6])
-
-    if is_power:
-        # pindex = -2.95
-        # pratio = 1E7
-        # pindex = -4.0
-        # pratio = 1E7
-        pindex = -5.8
-        pratio = 5E6
-        power_index = "{%0.1f}" % pindex
-        # pindex = -1.5
-        # pratio = 1E4
-        # power_index = "{%0.1f}" % pindex
-        fpower = elog[sindex:eindex]**pindex * pratio
-        ax2.loglog(elog[sindex:eindex], fpower, linewidth=2, color='k')
-        tname = r'$\sim \varepsilon^{' + power_index + '}$'
-        ax2.text(0.7, 0.7, tname, color='black', fontsize=24,
-                horizontalalignment='left', verticalalignment='center',
-                transform = ax2.transAxes)
-        # print 'Fraction of power-law particles:', \
-        #         np.sum(data[sindex:eindex, 1]) / np.sum(data[:, 1])
-        # print 'Extend in energy of the power-law part:', \
-        #         elog[eindex] / elog[sindex]
-
-
-    ax2.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=font, fontsize=24)
-    ax2.set_ylabel(r'$f(\varepsilon)$', fontdict=font, fontsize=24)
-    ax2.tick_params(labelsize=20)
-    
-    if show_plot:
-        plt.show()
-    else:
-        pass
-
-
-def particle_distributions(ct, run_name, is_multi=False):
-    """
-    """
-    xs, ys = 0.15, 0.15
-    w1, h1 = 0.8, 0.8
-    fig1 = plt.figure(figsize=[7, 5])
-    ax1 = fig1.add_axes([xs, ys, w1, h1])
-    fig2 = plt.figure(figsize=[7, 5])
-    ax2 = fig2.add_axes([xs, ys, w1, h1])
-
-    fdir = '../img/spectrum/' + run_name + '/'
-    mkdir_p(fdir)
-
-    ntp = 201
-    if is_multi:
-        for ct in range(0, ntp):
-            color = plt.cm.jet(ct/float(ntp), 1)
-            kwargs = {"color": color}
-            is_power = False if ct < ntp - 1 else True
-            is_power = False
-            plot_particle_distributions(ct, ax1, ax2, run_name, show_plot=False,
-                                        is_power=is_power, **kwargs)
-        fp_name = 'fp_time_1.eps'
-        fe_name = 'fe_time_1.eps'
-    else:
-        plot_particle_distributions(ct, ax1, ax2, run_name)
-        fp_name = 'fp_' + str(ct) + '.eps'
-        fe_name = 'fe_' + str(ct) + '.eps'
-
-    fig1.savefig(fdir + fp_name)
-    fig2.savefig(fdir + fe_name)
-
-    plt.show()
 
 
 def plot_spatial_distributions(ct, nx, ny, run_name):
@@ -211,8 +72,8 @@ def plot_spatial_distributions(ct, nx, ny, run_name):
         n = j * 2 + i
         f0 = data[:, n]
         f0 = np.reshape(f0, (nx, ny))
-        print "min, max and mean of the data:", np.min(f0), np.max(f0), \
-                np.mean(f0), np.std(f0)
+        print("min, max and mean of the data: %f %f %f %f" %
+              (np.min(f0), np.max(f0), np.mean(f0), np.std(f0)))
         axs[n] = fig.add_axes([xs, ys, w1, h1])
         vmin, vmax = 0.01, 1.0
         ims[n] = axs[n].imshow(f0, cmap=plt.cm.Blues, aspect='auto',
@@ -252,48 +113,57 @@ def plot_spatial_distributions(ct, nx, ny, run_name):
     # plt.show()
 
 
-def plot_spatial_distributions_high_energy(ct, nx, ny, run_name):
+def plot_spatial_distributions_high_energy(ct, nx, ny, run_name, ene_bin=0):
+    """Plot particle spatial distribution
+
+    Args:
+        ct: time frame
+        nx, ny: the dimension of the distributions
+        run_name: name of the simulation
+        ene_bin: energy bin to plot
     """
-    """
-    fig = plt.figure(figsize=[12, 3])
-    xs, ys = 0.07, 0.19
-    w1, h1 = 0.8, 0.76
-    hgap, vgap = 0.02, 0.02
-    ax = fig.add_axes([xs, ys, w1, h1])
-    # fname = '../data/' + run_name + '/fxy-' + str(ct).zfill(4) + '.dat'
-    # data = np.genfromtxt(fname)
     fdata = np.zeros(nx * ny * 4)
-    mpi_size = 16
-    for mpi_rank in range(mpi_size):
-        fname = '../data/' + run_name + '/fxy-' + str(ct).zfill(4) + '_0001.dat'
-        data = np.fromfile(fname)
-        fdata += data
+    fname = '../data/' + run_name + '/fxy-' + str(ct).zfill(4) + '_sum.dat'
+    fdata = np.fromfile(fname)
         
     sz, = fdata.shape
-    dists = fdata.reshape([4, sz/4])
+    dists = fdata.reshape([5, sz/5])
+    print(np.sum(dists))
 
-    n = 0
-    f0 = dists[n, :]
-    f0 = np.reshape(f0, (nx, ny))
-    print "min, max and mean of the data:", np.min(f0), np.max(f0), \
-            np.mean(f0), np.std(f0)
+    f0 = dists[ene_bin, :]
+    print(f0.size, nx, ny)
+    f0 = np.reshape(f0, (ny, nx))
+    print("nx, ny: %d %d" % (nx, ny))
+    print("min, max, mean, and std: %f %f %f %f" %
+          (np.min(f0), np.max(f0), np.mean(f0), np.std(f0)))
+
+    fig = plt.figure(figsize=[12, 12])
+    xs, ys = 0.07, 0.1
+    w1, h1 = 0.86, 0.86
+    hgap, vgap = 0.02, 0.02
     ax = fig.add_axes([xs, ys, w1, h1])
-    vmin, vmax = 1, 1E3
-    x1, x2 = 0, nx/2
+    vmin, vmax = 1, 2E1
     ylim1 = 0.0
-    ylim2 = 1.0
+    ylim2 = 2.0
     xmin, xmax = 0, 2
-    f0 = f0.T
-    im = ax.imshow(f0[x1:x2], cmap=plt.cm.jet, aspect='auto',
+    # ax.plot(np.sum(f0, axis=0), color='k')
+    im = ax.imshow(f0, cmap=plt.cm.viridis, aspect='auto',
             origin='lower', extent=[xmin, xmax, ylim1, ylim2],
             # vmin=vmin, vmax=vmax,
             norm=LogNorm(vmin=vmin, vmax=vmax),
             interpolation='bicubic')
     ax.tick_params(labelsize=16)
-    el = "{%0.1f}" % (0.5 + n)**2
-    eh = "{%0.1f}" % (1.5 + n)**2
-    title = r'$' + el + r'\leq \varepsilon/\varepsilon_0 <' + eh + '$'
-    ax.text(0.02, 0.8, title, color='k', fontsize=20, 
+    if ene_bin == 0:
+        eh = "{%0.1f}" % (2**ene_bin * 0.75)**2
+        title = r'$\varepsilon/\varepsilon_0 <' + eh + '$'
+    elif ene_bin == 4:
+        el = "{%0.1f}" % (2**(ene_bin - 2) * 1.5)**2
+        title = r'$\varepsilon/\varepsilon_0 >' + el + '$'
+    else:
+        el = "{%0.1f}" % (2**(ene_bin - 1) * 0.75)**2
+        eh = "{%0.1f}" % (2**(ene_bin - 1) * 1.5)**2
+        title = r'$' + el + r'\leq \varepsilon/\varepsilon_0 <' + eh + '$'
+    ax.text(0.02, 0.9, title, color='k', fontsize=20, 
             bbox=dict(facecolor='none', alpha=1.0, edgecolor='none', pad=10.0),
             horizontalalignment='left', verticalalignment='bottom',
             transform = ax.transAxes)
@@ -307,11 +177,11 @@ def plot_spatial_distributions_high_energy(ct, nx, ny, run_name):
 
     fdir = '../img/nrho/' + run_name + '/'
     mkdir_p(fdir)
-    fname = fdir + 'nrho_' + str(ct) + '.jpg'
+    fname = fdir + 'nrho_' + str(ct) + '_' + str(ene_bin) + '.jpg'
     fig.savefig(fname, dpi=200)
 
     # plt.close()
-    plt.show()
+    # plt.show()
 
 
 def spatial_distributions(ct, nx, ny, run_name):
@@ -336,8 +206,8 @@ def spatial_distributions(ct, nx, ny, run_name):
         f0 = np.reshape(f0, (nx, ny))
         f0[-1, :] = f0[0, :]
         f0 = np.roll(f0, nx/2, axis=0)
-        print "min, max and mean of the data:", np.min(f0), np.max(f0), \
-                np.mean(f0), np.std(f0)
+        print("min, max and mean of the data: %f %f %f %f" %
+              (np.min(f0), np.max(f0), np.mean(f0), np.std(f0)))
         axs[n] = fig.add_axes([xs, ys0, w1, h1])
         vmin, vmax = 0.01, 1.0
         ims[n] = axs[n].imshow(f0, cmap=plt.cm.Blues, aspect='auto',
@@ -374,7 +244,7 @@ def spatial_distributions(ct, nx, ny, run_name):
 def plot_ptl_traj(run_dir):
     """
     """
-    fname = '../data/tracked_particle_points_0000.dat'
+    fname = '../data/tracked_particle_points_0007.dat'
     fh = open(fname, 'r')
     offset = 0
     tmp = np.memmap(fh, dtype='int32', mode='r', offset=offset,
@@ -463,45 +333,77 @@ def plot_ptl_traj(run_dir):
     plt.show()
 
 
+def load_mhd_config(run_dir):
+    """Load MHD simulation configuration
+    """
+    fname = run_dir + 'bin_data/mhd_config.dat'
+    mtype = np.dtype([('dx', float), ('dy', float), ('dz', float),
+                      ('xmin', float), ('ymin', float), ('zmin', float),
+                      ('xmax', float), ('ymax', float), ('zmax', float),
+                      ('lx', float), ('ly', float), ('lz', float),
+                      ('dt_out', float),
+                      ('nx', np.int32), ('ny', np.int32), ('nz', np.int32),
+                      ('nxs', np.int32), ('nys', np.int32), ('nzs', np.int32),
+                      ('topox', np.int32), ('topoy', np.int32), ('topoz', np.int32),
+                      ('nvar', np.int32),
+                      ('bcx', np.int32), ('bcy', np.int32), ('bcz', np.int32)])
+    mhd_config = np.fromfile(fname, dtype=mtype)
+    return mhd_config
+
+
+def get_cmd_args():
+    """Get command line arguments
+    """
+    default_run_name = 'shock_interaction/p000_b000_001'
+    default_run_dir = '/net/scratch3/xiaocanli/mhd/shock/' 
+    parser = argparse.ArgumentParser(description='Stochastic integration of Parker equation')
+    parser.add_argument('--run_dir', action="store", default=default_run_dir,
+                        help='run directory')
+    parser.add_argument('--run_name', action="store", default=default_run_name,
+                        help='run name')
+    parser.add_argument('--multi_frames', action="store_true", default=False,
+                        help='whether analyzing multiple frames')
+    parser.add_argument('--ene_bin', action="store", default='1', type=int,
+                        help='Energy bin')
+    parser.add_argument('--edist', action="store_true", default=False,
+                        help='whether to plot energy distribution')
+    parser.add_argument('--sdist', action="store_true", default=False,
+                        help='whether to plot spatial distribution')
+    parser.add_argument('--multi', action="store_true", default=False,
+                        help='whether to plot multiple frames')
+    parser.add_argument('--power_test', action="store_true", default=False,
+                        help='whether this is a test for power-law fitting')
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    cmdargs = sys.argv
-    if (len(cmdargs) > 1):
-        ct = int(cmdargs[1])
-    else:
-        ct = 10
-    # run_name = 'S16E5_beta001_bg0/p133_b000'
-    # run_name = 'S1E4_beta001_bg05/p133_b100'
-    # run_name = 'S9E4_beta001_bg00/p133_b000'
-    # run_name = 'athena_S1E5_beta01/p000_b000'
-    # run_name = 'athena_S1E5_beta01/p133_b000'
-    run_name = 'athena_S1E5_beta01/p133_b100'
-    # run_name = 'athena_S1E5_beta01_bg10/p000_b000'
-    # run_name = 'athena_S1E5_beta01_bg10/p133_b000'
-    # run_name = 'athena_S1E5_beta01_bg10/p133_b100'
-    # run_name = ''
-    # run_path = '/net/scratch3/xiaocanli/mhd/athena4.2/bin/S1E5_vl_hlld_beta01/' 
-    run_path = '/net/scratch3/xiaocanli/mhd/athena4.2/bin/S1E5_vl_hlld_beta01_bg02/' 
-    # nx = ny = 1536 / 4
-    # nx = ny = 2048 / 4
-    # cts = range(201)
-    # mpi_size = 128
-    # fname = '../data/' + run_name + '/fp-' + str(ct).zfill(4) + '_0000.dat'
-    # data = np.fromfile(fname, dtype=np.float64)
-    # sz, = data.shape
-    # nbins = sz / 2
-    # print nbins
-    # p0 = 0.1
-    # p = data[0:nbins] / p0
-    # elog = p**2
+    args = get_cmd_args()
+    run_name = args.run_name
+    run_dir = args.run_dir
+    with open('config/spectrum_config.json', 'r') as f:
+        config = json.load(f)
+    plot_config = config[run_name]
+    tmax = plot_config["tmax"]
+    tmin = plot_config["tmin"]
+    mhd_config = load_mhd_config(run_dir)
+    nreduce = plot_config["nreduce"]
+    nx = mhd_config["nx"] / nreduce
+    ny = mhd_config["ny"] / nreduce
+    ebin = args.ene_bin
+    cts = range(tmin, tmax)
     def processInput(job_id):
-        print job_id
+        print(job_id)
         ct = job_id
-        # plot_spatial_distributions(job_id, nx, ny, run_name)
-        # plot_spatial_distributions_high_energy(job_id, nx, ny, run_name)
-        sum_particle_distribution(run_name, ct, mpi_size, nbins, p, elog)
+        if args.sdist:
+            plot_spatial_distributions_high_energy(ct, nx, ny, run_name, ene_bin=ebin)
+            plt.close()
     ncores = multiprocessing.cpu_count()
-    # Parallel(n_jobs=ncores)(delayed(processInput)(ct) for ct in cts)
+    if args.multi:
+        Parallel(n_jobs=ncores)(delayed(processInput)(ct) for ct in cts)
     # spatial_distributions(ct, nx, ny, run_name)
-    # particle_distributions(ct, run_name, is_multi=True)
-    # plot_spatial_distributions_high_energy(ct, nx, ny, run_name)
-    plot_ptl_traj(run_path)
+    if args.edist:
+        particle_momentum_energy_distributions(plot_config, args.power_test)
+    if args.sdist and (not args.multi):
+        plot_spatial_distributions_high_energy(tmax, nx, ny, run_name, ene_bin=ebin)
+        plt.show()
+    # plot_ptl_traj(run_dir)
