@@ -36,16 +36,19 @@ module simulation_setup_module
 
     !---------------------------------------------------------------------------
     !< Read simulation MPI topology
+    !< Args:
+    !<  conf_file: configuration file name
     !---------------------------------------------------------------------------
-    subroutine read_simuation_mpi_topology
+    subroutine read_simuation_mpi_topology(conf_file)
         use read_config, only: get_variable
         implicit none
+        character(*), intent(in) :: conf_file
         real(fp) :: temp
         integer, dimension(3) :: mpi_topology
         integer :: nx, ny, nz, fh
         if (mpi_rank == master) then
             fh = 10
-            open(unit=fh, file='config/conf.dat', status='old')
+            open(unit=fh, file='config/'//trim(conf_file), status='old')
             temp = get_variable(fh, 'mpi_sizex', '=')
             mpi_topology(1) = int(temp)
             temp = get_variable(fh, 'mpi_sizey', '=')
@@ -92,16 +95,19 @@ module simulation_setup_module
 
     !---------------------------------------------------------------------------
     !< Read particle boundary conditions
+    !< Args:
+    !<  conf_file: configuration file name
     !---------------------------------------------------------------------------
-    subroutine read_particle_boundary_conditions
+    subroutine read_particle_boundary_conditions(conf_file)
         use read_config, only: get_variable
         implicit none
+        character(*), intent(in) :: conf_file
         real(fp) :: temp
         integer, dimension(3) :: pbcs
         integer :: fh
         if (mpi_rank == master) then
             fh = 10
-            open(unit=fh, file='config/conf.dat', status='old')
+            open(unit=fh, file='config/'//trim(conf_file), status='old')
             temp = get_variable(fh, 'pbcx', '=')
             pbcs(1) = int(temp)
             temp = get_variable(fh, 'pbcy', '=')

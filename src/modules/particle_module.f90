@@ -708,20 +708,23 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Read particle parameters including the diffusion coefficients
+    !< Args:
+    !<  conf_file: configuration file name
     !---------------------------------------------------------------------------
-    subroutine read_particle_params
+    subroutine read_particle_params(conf_file)
         use read_config, only: get_variable
         use simulation_setup_module, only: fconfig
         use simulation_setup_module, only: mpi_sizex, mpi_sizey
         use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
+        character(*), intent(in) :: conf_file
         real(fp) :: temp
         integer :: fh
         
         if (mpi_rank == master) then
             fh = 10
-            open(unit=fh, file='config/conf.dat', status='old')
+            open(unit=fh, file='config/'//trim(conf_file), status='old')
             b0 = get_variable(fh, 'b0', '=')
             p0 = get_variable(fh, 'p0', '=')
             pmin = get_variable(fh, 'pmin', '=')

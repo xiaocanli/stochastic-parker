@@ -30,6 +30,7 @@ program stochastic
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
     character(len=128) :: diagnostics_directory
+    character(len=32) :: conf_file
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
@@ -52,8 +53,8 @@ program stochastic
     if (mpi_rank == master) then
         call echo_mhd_config
     endif
-    call read_simuation_mpi_topology
-    call read_particle_boundary_conditions
+    call read_simuation_mpi_topology(conf_file)
+    call read_particle_boundary_conditions(conf_file)
     call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=2)
     call set_neighbors(whole_data_flag=whole_mhd_data)
 
@@ -64,7 +65,7 @@ program stochastic
     nz = fconfig%nz
     call init_field_data(interp_flag, nx, ny, nz, ndim=2)
     call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
-    call read_particle_params
+    call read_particle_params(conf_file)
 
     call init_particles(nptl_max)
     call init_particle_distributions
@@ -283,6 +284,10 @@ program stochastic
             help='whether to inject particles at shock', required=.false., &
             act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--conf_file', switch_ab='-cf', &
+            help='Configuration file name', required=.false., &
+            act='store', def='conf.dat', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -310,6 +315,8 @@ program stochastic
         call cli%get(switch='-dd', val=diagnostics_directory, error=error)
         if (error/=0) stop
         call cli%get(switch='-is', val=inject_at_shock, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-cf', val=conf_file, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
@@ -340,6 +347,7 @@ program stochastic
             if (inject_at_shock) then
                 print '(A)', 'Inject particles at shock location'
             endif
+            print '(A,A)', 'Configuration file name: ', trim(conf_file)
         endif
     end subroutine get_cmd_args
 end program stochastic
