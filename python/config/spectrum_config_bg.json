@@ -1,7 +1,7 @@
 {
     "S1E5_beta01_bg00/p000_b000_00001_100": {
         "run_name"          : "S1E5_beta01_bg00/p000_b000_00001_100",
-        "tmax"              : 222,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
@@ -55,7 +55,7 @@
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-2, 1E7],
+        "ylim_e"            : [1E-4, 1E7],
         "power_low"         : [55],
         "power_high"        : [82]
     },
@@ -97,7 +97,7 @@
     },
     "S1E5_beta01_bg00/p133_b000_00001_005": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_00001_005",
-        "tmax"              : 174,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
@@ -109,7 +109,7 @@
     },
     "S1E5_beta01_bg02/p133_b000_00001_005": {
         "run_name"          : "S1E5_beta01_bg02/p133_b000_00001_005",
-        "tmax"              : 228,
+        "tmax"              : 245,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
@@ -145,7 +145,7 @@
     },
     "S1E5_beta01_bg00/p133_b000_00001_001": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_00001_001",
-        "tmax"              : 212,
+        "tmax"              : 232,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
@@ -187,9 +187,9 @@
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 1E2],
-        "ylim_e"            : [1E-1, 1E7],
-        "power_low"         : [45],
-        "power_high"        : [65]
+        "ylim_e"            : [1E-2, 1E7],
+        "power_low"         : [52],
+        "power_high"        : [80]
     },
     "S1E5_beta01_bg00/p000_b000_0001_100": {
         "run_name"          : "S1E5_beta01_bg00/p000_b000_0001_100",
@@ -199,7 +199,7 @@
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-2, 1E7],
+        "ylim_e"            : [1E-4, 1E7],
         "power_low"         : [55, 85],
         "power_high"        : [85, 127]
     },
@@ -211,7 +211,7 @@
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-3, 1E7],
+        "ylim_e"            : [1E-4, 1E7],
         "power_low"         : [55, 88],
         "power_high"        : [88, 127]
     },
@@ -223,7 +223,7 @@
         "xlim_p"            : [1, 2E1],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 2E2],
-        "ylim_e"            : [1E-3, 1E7],
+        "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [50],
         "power_high"        : [88]
     },
@@ -246,7 +246,7 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E3],
+        "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [48],
         "power_high"        : [63]
@@ -258,7 +258,7 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E3],
+        "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [48],
         "power_high"        : [63]
@@ -270,7 +270,7 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E3],
+        "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [45],
         "power_high"        : [55]
@@ -282,33 +282,33 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E3],
+        "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [45],
         "power_high"        : [55]
     },
     "S1E5_beta01_bg00/p133_b000_0001_005": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_0001_005",
-        "tmax"              : 176,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
-        "xlim_e"            : [1, 1E4],
+        "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [45],
+        "power_low"         : [52],
         "power_high"        : [70]
     },
     "S1E5_beta01_bg02/p133_b000_0001_005": {
         "run_name"          : "S1E5_beta01_bg02/p133_b000_0001_005",
-        "tmax"              : 212,
+        "tmax"              : 245,
         "tmin"              : 50,
         "nreduce"           : 16,
-        "xlim_p"            : [1, 3E1],
+        "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 1E3],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [50],
+        "power_low"         : [58],
         "power_high"        : [75]
     },
     "S1E5_beta01_bg05/p133_b000_0001_005": {
@@ -330,21 +330,21 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E1, 1E7],
-        "xlim_e"            : [1, 1E2],
+        "xlim_e"            : [1, 2E1],
         "ylim_e"            : [1E0, 1E7],
         "power_low"         : [45],
         "power_high"        : [55]
     },
     "S1E5_beta01_bg00/p133_b000_0001_001": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_0001_001",
-        "tmax"              : 231,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [60],
+        "xlim_e"            : [1, 2E3],
+        "ylim_e"            : [1E-3, 1E7],
+        "power_low"         : [55],
         "power_high"        : [90]
     },
     "S1E5_beta01_bg02/p133_b000_0001_001": {
@@ -354,8 +354,8 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
+        "xlim_e"            : [1, 2E3],
+        "ylim_e"            : [1E-3, 1E7],
         "power_low"         : [60],
         "power_high"        : [80]
     },
@@ -366,8 +366,8 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
+        "xlim_e"            : [1, 2E3],
+        "ylim_e"            : [1E-3, 1E7],
         "power_low"         : [55],
         "power_high"        : [76]
     },
@@ -438,10 +438,10 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E2],
+        "xlim_e"            : [1, 3E1],
         "ylim_e"            : [1E-1, 1E7],
         "power_low"         : [48],
-        "power_high"        : [63]
+        "power_high"        : [55]
     },
     "S1E5_beta01_bg02/p133_b000_001_100": {
         "run_name"          : "S1E5_beta01_bg02/p133_b000_001_100",
@@ -450,14 +450,14 @@
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E2],
+        "xlim_e"            : [1, 3E1],
         "ylim_e"            : [1E-1, 1E7],
         "power_low"         : [48],
-        "power_high"        : [63]
+        "power_high"        : [55]
     },
     "S1E5_beta01_bg05/p133_b000_001_100": {
         "run_name"          : "S1E5_beta01_bg05/p133_b000_001_100",
-        "tmax"              : 246,
+        "tmax"              : 147,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
@@ -481,7 +481,7 @@
     },
     "S1E5_beta01_bg00/p133_b000_001_005": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_001_005",
-        "tmax"              : 162,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
@@ -493,7 +493,7 @@
     },
     "S1E5_beta01_bg02/p133_b000_001_005": {
         "run_name"          : "S1E5_beta01_bg02/p133_b000_001_005",
-        "tmax"              : 175,
+        "tmax"              : 245,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
@@ -529,39 +529,39 @@
     },
     "S1E5_beta01_bg00/p133_b000_001_001": {
         "run_name"          : "S1E5_beta01_bg00/p133_b000_001_001",
-        "tmax"              : 212,
+        "tmax"              : 237,
         "tmin"              : 50,
         "nreduce"           : 16,
-        "xlim_p"            : [1, 1E2],
+        "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [60],
-        "power_high"        : [90]
+        "xlim_e"            : [1, 1E2],
+        "ylim_e"            : [1E-2, 1E7],
+        "power_low"         : [48],
+        "power_high"        : [60]
     },
     "S1E5_beta01_bg02/p133_b000_001_001": {
         "run_name"          : "S1E5_beta01_bg02/p133_b000_001_001",
-        "tmax"              : 245,
+        "tmax"              : 109,
         "tmin"              : 50,
         "nreduce"           : 16,
-        "xlim_p"            : [1, 1E2],
+        "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [60],
-        "power_high"        : [80]
+        "xlim_e"            : [1, 1E2],
+        "ylim_e"            : [1E-2, 1E7],
+        "power_low"         : [48],
+        "power_high"        : [60]
     },
     "S1E5_beta01_bg05/p133_b000_001_001": {
         "run_name"          : "S1E5_beta01_bg05/p133_b000_001_001",
         "tmax"              : 246,
         "tmin"              : 50,
         "nreduce"           : 16,
-        "xlim_p"            : [1, 1E2],
+        "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
-        "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [55],
-        "power_high"        : [76]
+        "xlim_e"            : [1, 1E2],
+        "ylim_e"            : [1E-2, 1E7],
+        "power_low"         : [48],
+        "power_high"        : [60]
     },
     "S1E5_beta01_bg10/p133_b000_001_001": {
         "run_name"          : "S1E5_beta01_bg10/p133_b000_001_001",
@@ -571,109 +571,109 @@
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 1E2],
-        "ylim_e"            : [1E-1, 1E7],
-        "power_low"         : [45],
-        "power_high"        : [65]
+        "ylim_e"            : [1E-2, 1E7],
+        "power_low"         : [48],
+        "power_high"        : [60]
     },
     "S1E5_beta001_dfloor/p000_b000_00001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p000_b000_00001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 1E4],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [48, 60, 70, 100],
-        "power_high"        : [60, 70, 100, 127]
+        "power_low"         : [60, 75],
+        "power_high"        : [75, 127]
     },
     "S1E5_beta001_dfloor/p133_b000_00001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_00001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E-1, 1E7],
         "xlim_e"            : [1, 1E4],
         "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [48, 60],
-        "power_high"        : [60, 75]
+        "power_low"         : [55],
+        "power_high"        : [90]
     },
     "S1E5_beta001_dfloor/p133_b000_00001_005": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_00001_005",
-        "tmax"              : 177,
+        "tmax"              : 188,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
-        "ylim_p"            : [1E0, 1E7],
+        "ylim_p"            : [1E-1, 1E7],
         "xlim_e"            : [1, 1E4],
-        "ylim_e"            : [1E-3, 1E7],
-        "power_low"         : [48],
-        "power_high"        : [90]
+        "ylim_e"            : [1E-4, 1E7],
+        "power_low"         : [50],
+        "power_high"        : [80]
     },
     "S1E5_beta001_dfloor/p000_b000_0001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p000_b000_0001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 1E4],
         "ylim_e"            : [1E-4, 1E7],
-        "power_low"         : [45, 54, 70, 95],
-        "power_high"        : [54, 70, 95, 127]
+        "power_low"         : [56, 70, 90],
+        "power_high"        : [70, 90, 127]
     },
     "S1E5_beta001_dfloor/p133_b000_0001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_0001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 2E1],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [54],
+        "power_low"         : [50],
         "power_high"        : [75]
     },
     "S1E5_beta001_dfloor/p133_b000_0001_005": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_0001_005",
-        "tmax"              : 177,
+        "tmax"              : 191,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 2E1],
         "ylim_p"            : [1E0, 1E7],
         "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [48],
+        "power_low"         : [50],
         "power_high"        : [68]
     },
     "S1E5_beta001_dfloor/p000_b000_001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p000_b000_001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 2E1],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 5E2],
         "ylim_e"            : [1E-2, 1E7],
-        "power_low"         : [45, 50, 55],
-        "power_high"        : [50, 55, 85]
+        "power_low"         : [48, 55],
+        "power_high"        : [55, 85]
     },
     "S1E5_beta001_dfloor/p133_b000_001_100": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_001_100",
-        "tmax"              : 177,
+        "tmax"              : 204,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
         "ylim_p"            : [1E1, 1E7],
         "xlim_e"            : [1, 2E1],
         "ylim_e"            : [1E-1, 1E7],
-        "power_low"         : [45],
-        "power_high"        : [60]
+        "power_low"         : [48],
+        "power_high"        : [55]
     },
     "S1E5_beta001_dfloor/p133_b000_001_005": {
         "run_name"          : "S1E5_beta001_dfloor/p133_b000_001_005",
-        "tmax"              : 177,
+        "tmax"              : 176,
         "tmin"              : 50,
         "nreduce"           : 16,
         "xlim_p"            : [1, 1E1],
@@ -681,6 +681,6 @@
         "xlim_e"            : [1, 2E1],
         "ylim_e"            : [1E-1, 1E7],
         "power_low"         : [45],
-        "power_high"        : [60]
+        "power_high"        : [55]
     }
 }
