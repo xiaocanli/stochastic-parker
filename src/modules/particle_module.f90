@@ -378,38 +378,40 @@ module particle_module
                 ptl%p = ptl%p - deltap
                 ptl%t = ptl%t - ptl%dt
                 ptl%dt = t0 + dtf - ptl%t
-                ptl%nsteps_tracking = ptl%nsteps_tracking - 1
+                if (ptl%dt > 0) then
+                    ptl%nsteps_tracking = ptl%nsteps_tracking - 1
 
-                px = (ptl%x-xmin) / dxm
-                py = (ptl%y-ymin) / dym
-                ix = floor(px) + 1
-                iy = floor(py) + 1
+                    px = (ptl%x-xmin) / dxm
+                    py = (ptl%y-ymin) / dym
+                    ix = floor(px) + 1
+                    iy = floor(py) + 1
 
-                rx = px + 1 - ix
-                ry = py + 1 - iy
-                rt = (ptl%t - t0) / dtf
-                rt1 = 1.0_dp - rt
+                    rx = px + 1 - ix
+                    ry = py + 1 - iy
+                    rt = (ptl%t - t0) / dtf
+                    rt1 = 1.0_dp - rt
 
-                call interp_fields(ix, iy, rx, ry, rt)
-                call calc_spatial_diffusion_coefficients
-                call push_particle(rt, deltax, deltay, deltap)
-                ptl%nsteps_tracking = ptl%nsteps_tracking + 1
+                    call interp_fields(ix, iy, rx, ry, rt)
+                    call calc_spatial_diffusion_coefficients
+                    call push_particle(rt, deltax, deltay, deltap)
+                    ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
-                ! Track particles
-                if (track_particle_flag == 1) then
-                    if (ptl%tag < 0 .and. &
-                        mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
-                        tracking_step = ptl%nsteps_tracking / nsteps_interval
-                        offset = noffsets_tracked_ptls(-ptl%tag)
-                        ptl_traj_points(offset + tracking_step + 1) = ptl
+                    ! Track particles
+                    if (track_particle_flag == 1) then
+                        if (ptl%tag < 0 .and. &
+                            mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
+                            tracking_step = ptl%nsteps_tracking / nsteps_interval
+                            offset = noffsets_tracked_ptls(-ptl%tag)
+                            ptl_traj_points(offset + tracking_step + 1) = ptl
+                        endif
                     endif
                 endif
-
                 if (ptl%p < 0.0) then
                     ptl%count_flag = 0
                     leak = leak + ptl%weight
                 else
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
+                                                     xmax1, ymin1, ymax1)
                 endif
             endif
 
