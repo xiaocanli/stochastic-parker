@@ -1578,7 +1578,7 @@ module particle_module
         integer, intent(in) :: nptl_selected
         character(*), intent(in) :: file_path
         character(len=4) :: mrank
-        character(len=64) :: fname
+        character(len=128) :: fname
         integer :: fh, offset
         write (mrank,'(i4.4)') mpi_rank
         fh = 41
