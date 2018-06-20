@@ -33,7 +33,7 @@ module particle_module
     integer, dimension(4) :: nsenders, nrecvers
     !dir$ attributes align:64 :: ptls
     type(particle_type) :: ptl, ptl1
-    
+
     ! Particle tracking
     integer, allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
     integer, allocatable, dimension(:) :: tags_selected_ptls
@@ -50,7 +50,7 @@ module particle_module
     real(dp) :: kret                !< The ratio of kpara to kperp
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
-    real(dp) :: pindex              !< power index for the momentum dependency 
+    real(dp) :: pindex              !< power index for the momentum dependency
     real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
     real(dp) :: kpara, kperp, dkxx_dx, dkyy_dy, dkxy_dx, dkxy_dy
@@ -71,9 +71,11 @@ module particle_module
     real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3, f4
     real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum, f4_sum
     real(dp), allocatable, dimension(:) :: fp0, fp0_sum
+    real(dp), allocatable, dimension(:) :: fdpdt, fdpdt_sum
     real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
     real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
     real(dp), allocatable, dimension(:) :: parray
+    real(dp), allocatable, dimension(:) :: fnptl, fnptl_sum
 
     !< MPI/IO data sizes
     integer, dimension(2) :: sizes_fpx, subsizes_fpx, starts_fpx
@@ -158,7 +160,7 @@ module particle_module
         offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER
         blockcounts(1) = 4
-        ! Define structured type and commit it. 
+        ! Define structured type and commit it.
         call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
             particle_datatype_mpi, ierr)
         call MPI_TYPE_COMMIT(particle_datatype_mpi, ierr)
@@ -286,9 +288,10 @@ module particle_module
     !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
     !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
+    !<  num_fine_steps: number of fine time steps
     !---------------------------------------------------------------------------
     subroutine particle_mover_one_cycle(t0, track_particle_flag, nptl_selected, &
-            nsteps_interval)
+            nsteps_interval, num_fine_steps)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields
@@ -296,13 +299,16 @@ module particle_module
         implicit none
         real(dp), intent(in) :: t0
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
+        integer, intent(in) :: num_fine_steps
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
         real(dp) :: xmin1, xmax1, ymin1, ymax1
         real(dp) :: px, py, rx, ry, rt, rt1
         real(dp) :: deltax, deltay, deltap
-        integer :: i, ix, iy, j, tracking_step, offset
+        real(dp) :: dt_target, dt_fine
+        integer :: i, ix, iy, tracking_step, offset, tfine, step
 
         dtf = mhd_config%dt_out
+        dt_fine = dtf / num_fine_steps
         dxm = mhd_config%dx
         dym = mhd_config%dy
         xmin = fconfig%xmin
@@ -314,72 +320,46 @@ module particle_module
         ymin1 = ymin - dym * 0.5
         ymax1 = ymax + dym * 0.5
 
-        j = 0
-
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
             deltax = 0.0
             deltay = 0.0
             deltap = 0.0
-            call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
+            step = ceiling((ptl%t - t0) / dt_fine)
+            if (step <= 0) then
+                dt_target = dt_fine
+            else
+                dt_target = step * dt_fine
+            endif
+            if (dt_target > dtf) then
+                dt_target = dtf
+            endif
+            call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, &
+                                             ymin1, ymax1)
             if (ptl%count_flag == 0) then
                 continue
             endif
-            do while ((ptl%t - t0) < dtf .and. ptl%count_flag /= 0)
-                if (ptl%p < 0.0) then
-                    ptl%count_flag = 0
-                    leak = leak + ptl%weight
-                    exit
-                else
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
-                    if (ptl%count_flag == 0) then
-                        exit
-                    endif
-                endif
-                call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, ymin1, ymax1)
+            do tfine = 1, num_fine_steps
                 if (ptl%count_flag == 0) then
                     exit
                 endif
-
-                j = j + 1
-
-                px = (ptl%x-xmin) / dxm
-                py = (ptl%y-ymin) / dym
-                ix = floor(px) + 1
-                iy = floor(py) + 1
-
-                rx = px + 1 - ix
-                ry = py + 1 - iy
-                rt = (ptl%t - t0) / dtf
-                rt1 = 1.0_dp - rt
-
-                call interp_fields(ix, iy, rx, ry, rt)
-                call calc_spatial_diffusion_coefficients
-                call set_time_step(t0, dtf)
-                call push_particle(rt, deltax, deltay, deltap)
-                
-                ! Number of particle tracking steps
-                ptl%nsteps_tracking = ptl%nsteps_tracking + 1
-
-                ! Track particles
-                if (track_particle_flag == 1) then
-                    if (ptl%tag < 0 .and. &
-                        mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
-                        tracking_step = ptl%nsteps_tracking / nsteps_interval
-                        offset = noffsets_tracked_ptls(-ptl%tag)
-                        ptl_traj_points(offset + tracking_step + 1) = ptl
+                do while ((ptl%t - t0) < dt_target .and. ptl%count_flag /= 0)
+                    if (ptl%p < 0.0) then
+                        ptl%count_flag = 0
+                        leak = leak + ptl%weight
+                        exit
+                    else
+                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
+                                                         xmax1, ymin1, ymax1)
+                        if (ptl%count_flag == 0) then
+                            exit
+                        endif
                     endif
-                endif
-            enddo
-
-            if ((ptl%t - t0) > dtf .and. ptl%count_flag /= 0) then
-                ptl%x = ptl%x - deltax
-                ptl%y = ptl%y - deltay
-                ptl%p = ptl%p - deltap
-                ptl%t = ptl%t - ptl%dt
-                ptl%dt = t0 + dtf - ptl%t
-                if (ptl%dt > 0) then
-                    ptl%nsteps_tracking = ptl%nsteps_tracking - 1
+                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
+                                                     xmax1, ymin1, ymax1)
+                    if (ptl%count_flag == 0) then
+                        exit
+                    endif
 
                     px = (ptl%x-xmin) / dxm
                     py = (ptl%y-ymin) / dym
@@ -393,7 +373,10 @@ module particle_module
 
                     call interp_fields(ix, iy, rx, ry, rt)
                     call calc_spatial_diffusion_coefficients
+                    call set_time_step(t0, dt_target)
                     call push_particle(rt, deltax, deltay, deltap)
+
+                    ! Number of particle tracking steps
                     ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
                     ! Track particles
@@ -405,18 +388,59 @@ module particle_module
                             ptl_traj_points(offset + tracking_step + 1) = ptl
                         endif
                     endif
-                endif
-                if (ptl%p < 0.0) then
-                    ptl%count_flag = 0
-                    leak = leak + ptl%weight
-                else
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
-                                                     xmax1, ymin1, ymax1)
-                endif
-            endif
+                enddo
 
+                if ((ptl%t - t0) > dt_target .and. ptl%count_flag /= 0) then
+                    ptl%x = ptl%x - deltax
+                    ptl%y = ptl%y - deltay
+                    ptl%p = ptl%p - deltap
+                    ptl%t = ptl%t - ptl%dt
+                    ptl%dt = t0 + dt_target - ptl%t
+                    if (ptl%dt > 0) then
+                        ptl%nsteps_tracking = ptl%nsteps_tracking - 1
+
+                        px = (ptl%x-xmin) / dxm
+                        py = (ptl%y-ymin) / dym
+                        ix = floor(px) + 1
+                        iy = floor(py) + 1
+
+                        rx = px + 1 - ix
+                        ry = py + 1 - iy
+                        rt = (ptl%t - t0) / dtf
+                        rt1 = 1.0_dp - rt
+
+                        call interp_fields(ix, iy, rx, ry, rt)
+                        call calc_spatial_diffusion_coefficients
+                        call push_particle(rt, deltax, deltay, deltap)
+                        ptl%nsteps_tracking = ptl%nsteps_tracking + 1
+
+                        ! Track particles
+                        if (track_particle_flag == 1) then
+                            if (ptl%tag < 0 .and. &
+                                mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
+                                tracking_step = ptl%nsteps_tracking / nsteps_interval
+                                offset = noffsets_tracked_ptls(-ptl%tag)
+                                ptl_traj_points(offset + tracking_step + 1) = ptl
+                            endif
+                        endif
+                    endif
+                    if (ptl%p < 0.0) then
+                        ptl%count_flag = 0
+                        leak = leak + ptl%weight
+                    else
+                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
+                                                         xmax1, ymin1, ymax1)
+                    endif
+                endif
+                if (ptl%count_flag /= 0) then
+                    call energization_dist(t0)
+                endif
+                dt_target = dt_target + dt_fine
+                if (dt_target > dtf) then
+                    exit
+                endif
+            enddo ! Fine time step loop
             ptls(i) = ptl
-
         enddo
     end subroutine particle_mover_one_cycle
 
@@ -426,12 +450,15 @@ module particle_module
     !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
     !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
+    !<  num_fine_steps: number of fine time steps
     !---------------------------------------------------------------------------
-    subroutine particle_mover(track_particle_flag, nptl_selected, nsteps_interval)
+    subroutine particle_mover(track_particle_flag, nptl_selected, &
+            nsteps_interval, num_fine_steps)
         use simulation_setup_module, only: fconfig
         use mpi_module
         implicit none
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
+        integer, intent(in) :: num_fine_steps
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
         real(dp) :: t0, xmin, xmax, ymin, ymax
@@ -444,14 +471,14 @@ module particle_module
         ncycle = 0
         local_flag = 0
         global_flag = 0
-        
+
         do while (.not. all_particles_in_box)
             ncycle = ncycle + 1
             nsenders = 0
             nrecvers = 0
             if (nptl_old < nptl_current) then
                 call particle_mover_one_cycle(t0, track_particle_flag, &
-                    nptl_selected, nsteps_interval)
+                    nptl_selected, nsteps_interval, num_fine_steps)
             endif
             ! if (mpi_rank == master) then
             !     write(*, "(A)") "Finishing moving particle for one cycle"
@@ -604,11 +631,11 @@ module particle_module
         integer :: nsend, nrecv
         nrecv = 0
         nsend = nsenders(send_id)
-        if (neighbors(send_id) /= mpi_rank) then
+        if (neighbors(send_id) /= mpi_rank .and. neighbors(send_id) >= 0) then
             call MPI_SEND(nsend, 1, MPI_INTEGER, neighbors(send_id), &
                 mpi_rank, MPI_COMM_WORLD, ierr)
         endif
-        if (neighbors(recv_id) /= mpi_rank) then
+        if (neighbors(recv_id) /= mpi_rank .and. neighbors(recv_id) >= 0) then
             call MPI_RECV(nrecv, 1, MPI_INTEGER, &
                 neighbors(recv_id), neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
         endif
@@ -679,7 +706,7 @@ module particle_module
         ib2 = ib1 * ib1
         ib3 = ib1 * ib2
         ib4 = ib2 * ib2
-        
+
         pnorm = 1.0_dp
         if (mag_dependency == 1) then
             pnorm = pnorm * b0
@@ -723,7 +750,7 @@ module particle_module
         character(*), intent(in) :: conf_file
         real(fp) :: temp
         integer :: fh
-        
+
         if (mpi_rank == master) then
             fh = 10
             open(unit=fh, file='config/'//trim(conf_file), status='old')
@@ -800,7 +827,7 @@ module particle_module
         call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
 
         if (nx * nreduce /= fconfig%nx .or. ny * nreduce /= fconfig%ny) then
-            if (mpi_rank == master) then 
+            if (mpi_rank == master) then
                 write(*, "(A)") "Wrong factor 'nreduce' for particle distribution"
             endif
             call MPI_FINALIZE(ierr)
@@ -812,7 +839,7 @@ module particle_module
     !< Determine the time step.
     !< Args;
     !<  t0: the initial time for current particle
-    !<  dtf: the time interval of the MHD fields
+    !<  dtf: the time interval between fine diagnostics
     !---------------------------------------------------------------------------
     subroutine set_time_step(t0, dtf)
         use mhd_config_module, only: mhd_config
@@ -998,8 +1025,8 @@ module particle_module
                  (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
                  (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
         deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
-        ptl%x = ptl%x + deltax 
-        ptl%y = ptl%y + deltay 
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
         ptl%p = ptl%p + deltap
         ptl%t = ptl%t + ptl%dt
     end subroutine push_particle
@@ -1041,7 +1068,7 @@ module particle_module
     end subroutine add_neighbor_particles
 
     !---------------------------------------------------------------------------
-    !< When a particle get to a certain energy, split it to two particles 
+    !< When a particle get to a certain energy, split it to two particles
     !< to increase statistics at high energy
     !---------------------------------------------------------------------------
     subroutine split_particle
@@ -1114,7 +1141,7 @@ module particle_module
                 iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, &
                 leak, pdt_min, pdt_max, pdt_avg
             close(17)
-        endif 
+        endif
     end subroutine quick_check
 
     !---------------------------------------------------------------------------
@@ -1133,6 +1160,8 @@ module particle_module
         allocate(fp0(npp))
         allocate(fp1(npp, nx))
         allocate(fp2(npp, ny))
+        allocate(fdpdt(npp))
+        allocate(fnptl(npp))
         allocate(f0_sum(nx, ny))
         allocate(f1_sum(nx, ny))
         allocate(f2_sum(nx, ny))
@@ -1141,6 +1170,8 @@ module particle_module
         allocate(fp0_sum(npp))
         allocate(fp1_sum(npp, nx))
         allocate(fp2_sum(npp, ny))
+        allocate(fdpdt_sum(npp))
+        allocate(fnptl_sum(npp))
         call clean_particle_distributions
 
         !< Intervals for distributions
@@ -1177,6 +1208,8 @@ module particle_module
         fp0 = 0.0_dp
         fp1 = 0.0_dp
         fp2 = 0.0_dp
+        fdpdt = 0.0_dp
+        fnptl = 0.0_dp
         f0_sum = 0.0_dp
         f1_sum = 0.0_dp
         f2_sum = 0.0_dp
@@ -1185,6 +1218,8 @@ module particle_module
         fp0_sum = 0.0_dp
         fp1_sum = 0.0_dp
         fp2_sum = 0.0_dp
+        fdpdt_sum = 0.0_dp
+        fnptl_sum = 0.0_dp
     end subroutine clean_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -1196,10 +1231,51 @@ module particle_module
         deallocate(f0, f1, f2, f3, f4, fp0, fp1, fp2)
         deallocate(f0_sum, f1_sum, f2_sum, f3_sum, f4_sum)
         deallocate(fp0_sum, fp1_sum, fp2_sum)
+        deallocate(fdpdt, fdpdt_sum)
+        deallocate(fnptl, fnptl_sum)
         ! if (mpi_rank == master) then
             deallocate(parray)
         ! endif
     end subroutine free_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Accumulate particle energization distributions
+    !---------------------------------------------------------------------------
+    subroutine energization_dist(t0)
+        use mpi_module
+        use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: gradf, interp_fields
+        implicit none
+        real(dp), intent(in) :: t0
+        integer :: ix, iy, ip
+        real(dp) :: weight, px, py, rx, ry, rt
+        real(dp) :: dvx_dx, dvy_dy
+
+        if (ptl%p > pmin .and. ptl%p <= pmax) then
+            ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
+            px = (ptl%x-fconfig%xmin) / mhd_config%dx
+            py = (ptl%y-fconfig%ymin) / mhd_config%dy
+            rt = (ptl%t - t0) / mhd_config%dt_out
+
+            ix = ceiling((ptl%x - fconfig%xmin)/dx_diag)
+            iy = ceiling((ptl%y - fconfig%ymin)/dy_diag)
+            if (ix < 1) ix = 1
+            if (ix > nx) ix = nx
+            if (iy < 1) iy = 1
+            if (iy > ny) iy = ny
+            ix = floor(px) + 1
+            iy = floor(py) + 1
+            rx = px + 1 - ix
+            ry = py + 1 - iy
+            call interp_fields(ix, iy, rx, ry, rt)
+            dvx_dx = gradf(1)
+            dvy_dy = gradf(2)
+
+            fnptl(ip) = fnptl(ip) + ptl%weight
+            fdpdt(ip) = fdpdt(ip) - ptl%p * (dvx_dx + dvy_dy) / 3.0d0 * ptl%weight
+        endif
+    end subroutine energization_dist
 
     !---------------------------------------------------------------------------
     !< Accumulate particle distributions
@@ -1214,13 +1290,15 @@ module particle_module
         integer, intent(in) :: whole_mhd_data
         integer :: i, ix, iy, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax
+        real(dp) :: px, py, rx, ry, rt
+        real(dp) :: dxm, dym, dvx_dx, dvy_dy
 
         xmin = fconfig%xmin
         xmax = fconfig%xmax
         ymin = fconfig%ymin
         ymax = fconfig%ymax
-        
-        call clean_particle_distributions
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
 
         do i = 1, nptl_current
             ptl = ptls(i)
@@ -1253,8 +1331,12 @@ module particle_module
                 fp2(ip, iy) = fp2(ip, iy) + weight
             endif
         enddo
-        
+
         call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fnptl, fnptl_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fdpdt, fdpdt_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
             MPI_COMM_WORLD, ierr)
         if (whole_mhd_data == 1) then
             call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
@@ -1323,6 +1405,16 @@ module particle_module
             write(fh, pos=1) parray
             pos1 = npp * sizeof(1.0_dp) + 1
             write(fh, pos=pos1) fp0_sum
+            close(fh)
+
+            fname = trim(file_path)//'fdpdt-'//ctime//'_sum.dat'
+            open(fh, file=trim(fname), access='stream', status='unknown', &
+                 form='unformatted', action='write')
+            write(fh, pos=1) parray
+            pos1 = npp * sizeof(1.0_dp) + 1
+            write(fh, pos=pos1) fnptl_sum
+            pos1 = pos1 + npp * sizeof(1.0_dp)
+            write(fh, pos=pos1) fdpdt_sum
             close(fh)
         endif
 
@@ -1411,6 +1503,9 @@ module particle_module
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f4)
             call MPI_FILE_CLOSE(fh, ierror)
         endif
+
+        call clean_particle_distributions
+
     end subroutine distributions_diagnostics
 
     !---------------------------------------------------------------------------
@@ -1482,7 +1577,7 @@ module particle_module
         integer, intent(in) :: nptl, nptl_selected, nsteps_interval
         integer :: iptl, i
         call quicksort_particle(ptls, 1, nptl_current)
-        
+
         !< Select high-energy particles
         iptl = nptl_current-nptl_selected+1
         tags_selected_ptls = ptls(iptl:nptl_current)%tag
@@ -1516,7 +1611,6 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Make the flags of tracked particles negative, so they can be easily
     !< identified.
-    !< that can be easily tracked.
     !< Args:
     !<  nptl_selected: number of selected particles
     !---------------------------------------------------------------------------
@@ -1584,7 +1678,7 @@ module particle_module
         fh = 41
         fname = trim(file_path)//'tracked_particle_points_'//mrank//'.dat'
         open(unit=fh, file=fname, access='stream', status='unknown', &
-            form='unformatted', action='write')     
+            form='unformatted', action='write')
         write(fh, pos=1) nptl_selected
         write(fh, pos=5) nsteps_tracked_ptls
         offset = (nptl_selected + 1) * sizeof(fp)
