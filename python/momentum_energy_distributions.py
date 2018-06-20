@@ -14,7 +14,7 @@ import numpy as np
 import palettable
 from scipy.optimize import curve_fit
 
-from util import mkdir_p
+from sde_util import mkdir_p
 
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 mpl.rc('text', usetex=True)
@@ -273,9 +273,11 @@ def energy_distributions_bg(config, sde_run):
     ax.add_artist(leg1)
     ax.legend(handles=power_plots, loc=3, prop={'size': 20}, ncol=1,
               shadow=False, fancybox=False, frameon=False)
-    ax.set_xlim([1E-1, 1E2])
+    ax.set_xlim([1E-1, 2E2])
+    ax.set_ylim([1E-2, 1E7])
+    ax.set_yticks(np.logspace(-1, 7, num=5))
     ax.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=FONT, fontsize=24)
-    ax.set_ylabel(r'$f(p)p$', fontdict=FONT, fontsize=24)
+    ax.set_ylabel(r'$f(\varepsilon)$', fontdict=FONT, fontsize=24)
     ax.tick_params(labelsize=20)
     fe_name = "fe_" + sde_run + ".eps"
     fig1.savefig(fdir + fe_name)
@@ -306,7 +308,7 @@ def main():
     sde_run = args.sde_run
     run_name = mhd_run + "/" + sde_run
     power_test = args.power_test
-    with open('config/spectrum_config_bg.json', 'r') as file_handler:
+    with open('config/spectrum_config_10ta.json', 'r') as file_handler:
         config = json.load(file_handler)
     plot_config = config[run_name]
     if args.multi_bg:

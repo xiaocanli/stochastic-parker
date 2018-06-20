@@ -35,5 +35,12 @@ def load_mhd_config(run_dir):
     return mhd_config
 
 
+def find_nearest(array, value):
+    """Find nearest value in an array
+    """
+    idx = (np.abs(array-value)).argmin()
+    return (idx, array[idx])
+
+
 if __name__ == "__main__":
     pass

@@ -30,37 +30,37 @@ plot_sdist_multi () {
     done
 }
 
-# mhd_run_name=S1E5_beta01_bg05
+# mhd_run_name=S1E5_beta01_bg00
 # mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run_name/
-# run_name=$mhd_run_name/p133_b000_0001_001
+# run_name=$mhd_run_name/p133_b000_0003_001
 # ene_bin=4
 # dist_flag=--edist
 # run_stochastic $run_name $mhd_run_dir $ene_bin $dist_flag $1
 
-# mhd_run_name=S1E5_beta01_bg10
-# sde_run=p133_b000_001_001
-# plot_edist $mhd_run_name $sde_run $1
+mhd_run_name=S1E5_beta001_bg00_dfloor
+sde_run=p133_b000_0003_005
+plot_edist $mhd_run_name $sde_run $1
 
-mhd_run=S1E5_beta01_bg00
-mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
-tstart=50
-tend=237
-plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
+# mhd_run=S1E5_beta01_bg00
+# mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
+# tstart=50
+# tend=237
+# plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
 
-mhd_run=S1E5_beta01_bg02
-mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
-tstart=50
-tend=245
-plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
+# mhd_run=S1E5_beta01_bg02
+# mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
+# tstart=50
+# tend=245
+# plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
 
-mhd_run=S1E5_beta01_bg05
-mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
-tstart=50
-tend=246
-plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
+# mhd_run=S1E5_beta01_bg05
+# mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
+# tstart=50
+# tend=246
+# plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
 
-mhd_run=S1E5_beta01_bg10
-mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
-tstart=50
-tend=265
-plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend
+# mhd_run=S1E5_beta01_bg10
+# mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/$mhd_run/
+# tstart=50
+# tend=265
+# plot_sdist_multi $mhd_run $mhd_run_dir $tstart $tend

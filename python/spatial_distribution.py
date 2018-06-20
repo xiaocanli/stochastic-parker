@@ -15,7 +15,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from matplotlib.colors import LogNorm
 
-from util import load_mhd_config, mkdir_p
+from sde_util import load_mhd_config, mkdir_p
 
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 mpl.rc('text', usetex=True)
@@ -153,7 +153,7 @@ def spatial_distribution_band(plot_config, mhd_config, show_plot=True):
     fig = plt.figure(figsize=[12, 12])
     rect = [0.07, 0.1, 0.86, 0.86]
     ax = fig.add_axes(rect)
-    vmin, vmax = 1, 2E1
+    vmin, vmax = 1E-1, 1E1
     sizes = [mhd_config["xmin"][0], mhd_config["xmax"][0],
              mhd_config["ymin"][0], mhd_config["ymax"][0]]
     img = ax.imshow(fband, cmap=plt.cm.viridis, aspect='auto',
@@ -248,7 +248,7 @@ def analysis_multi_frames(plot_config, mhd_config, args):
 def main():
     """business logic for when running this module as the primary one!"""
     args = get_cmd_args()
-    with open('config/spectrum_config.json', 'r') as file_handler:
+    with open('config/spectrum_config_bg.json', 'r') as file_handler:
         config = json.load(file_handler)
     mhd_config = load_mhd_config(args.mhd_run_dir)
     plot_config = {}
