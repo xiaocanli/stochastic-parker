@@ -17,4 +17,5 @@ backup
 slurm*
 diffusion[0-9]*.sh
 conf[0-9]*.dat
+start-gr[0-9]
 *.pyc
