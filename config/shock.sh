@@ -1,10 +1,10 @@
 #!/bin/bash
 
 conf=conf.dat
-mpi_size=32
-nptl=10
+mpi_size=8
+nptl=20
 ts=10
-te=11
+te=187
 dist_flag=1      # 0 for Maxwellian. 1 for delta function.
 split_flag=1     # 0 for without particle split, 1 for with split
 whole_mhd_data=1 # whether to read the whole MHD data
@@ -24,36 +24,44 @@ run_stochastic () {
     change_variable pindex $2
     change_variable mag_dependency $3
     change_variable kpara0 $5
+    change_variable kret $6
     # cat $conf
     cd ..
-    diagnostics_directory=$6
+    diagnostics_directory=$7
     mkdir -p $diagnostics_directory
-    # mpirun -np $mpi_size ./stochastic-2dmhd.exec -dm $4 -np $nptl -ts $ts -te $te -df $dist_flag
     srun -n $mpi_size ./stochastic-2dmhd.exec -dm $4 -np $nptl -ts $ts -te $te -df $dist_flag \
-        -wm $whole_mhd_data -sf 0 -tf $track_particle_flag -ns $nptl_selected -ni $nsteps_interval \
+        -wm $whole_mhd_data -sf $split_flag -tf $track_particle_flag -ns $nptl_selected -ni $nsteps_interval \
         -dd $diagnostics_directory -is $inject_at_shock
-    # mkdir -p data/$5/$6
-    # mv data/*dat data/$5/$6
     cd config
+    # Change the parameters back 
     change_variable momentum_dependency 1
     change_variable pindex 1.3333333
     change_variable mag_dependency 1
     change_variable kpara0 0.01
+    change_variable kret 0.03
 }
 
 stochastic () {
     # run_stochastic 1 1.0 0 $1 $2 p100_b000
     # run_stochastic 1 1.0 1 $1 $2 p100_b100
-    diagnostics_directory=data/$2/p000_b000_001/
-    run_stochastic 1 0.0 0 $1 0.01  $diagnostics_directory
+    # diagnostics_directory=data/$2/p000_b000_385_01/
+    # run_stochastic 1 0.0 0 $1 38.5 0.1 $diagnostics_directory
+    # diagnostics_directory=data/$2/p000_b000_385_003/
+    # run_stochastic 1 0.0 0 $1 38.5 0.03 $diagnostics_directory
+    diagnostics_directory=data/$2/p000_b000_1283_003/
+    run_stochastic 1 0.0 0 $1 128.3 0.03 $diagnostics_directory
+    # diagnostics_directory=data/$2/p000_b000_100/
+    # run_stochastic 1 0.0 0 $1 1.00 $diagnostics_directory
+    # diagnostics_directory=data/$2/p000_b000_1000/
+    # run_stochastic 1 0.0 0 $1 10.00 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b000_001/
-    # run_stochastic 1 1.3333333 0 $1 0.01  $diagnostics_directory
+    # run_stochastic 1 1.3333333 0 $1 0.01 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b100_001/
-    # run_stochastic 1 1.3333333 1 $1 0.01  $diagnostics_directory
+    # run_stochastic 1 1.3333333 1 $1 0.01 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b000_01/
-    # run_stochastic 1 1.3333333 0 $1 0.1   $diagnostics_directory
+    # run_stochastic 1 1.3333333 0 $1 0.1 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b100_01/
-    # run_stochastic 1 1.3333333 1 $1 0.1   $diagnostics_directory
+    # run_stochastic 1 1.3333333 1 $1 0.1 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b000_0001/
     # run_stochastic 1 1.3333333 0 $1 0.001 $diagnostics_directory
     # diagnostics_directory=data/$2/p133_b100_0001/

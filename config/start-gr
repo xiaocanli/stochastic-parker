@@ -1,9 +1,9 @@
 #!/bin/tcsh
-#SBATCH --qos=standby
-#SBATCH --time=16:00:00
-#SBATCH --nodes=16
-#SBATCH --ntasks-per-node=36
-#SBATCH --jobname Rogers
+#SBATCH --qos=interactive
+#SBATCH --time=4:00:00
+#SBATCH --nodes=9
+##SBATCH --ntasks-per-node=36
+#SBATCH --job-name Rogers
 #SBATCH --output slurm%j.out
 #SBATCH --error slurm%j.err
 #SBATCH --mail-type=FAIL,BEGIN,END
@@ -15,8 +15,22 @@
 #  Shell commands
 date
 echo '*** Staring Parallel Job ***'
-source module_lanl_grizzly.sh
-./diffusion1.sh
+module load intel openmpi hdf5-parallel
+
+./diffusion21.sh &
+./diffusion22.sh &
+./diffusion23.sh &
+./diffusion24.sh &
+./diffusion25.sh &
+./diffusion26.sh &
+./diffusion27.sh &
+./diffusion28.sh &
+./diffusion29.sh &
+# ./diffusion11.sh &
+# ./diffusion12.sh &
+# ./diffusion13.sh &
+# ./diffusion14.sh &
+wait
 
 # restart restart0/restart
 date

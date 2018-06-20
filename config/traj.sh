@@ -1,10 +1,10 @@
 #!/bin/bash
 
 conf=conf.dat
-mpi_size=1
-nptl=1000
-ts=0
-te=200
+mpi_size=16
+nptl=20000
+ts=50
+te=236
 dist_flag=1      # 0 for Maxwellian. 1 for delta function.
 split_flag=0     # 0 for without particle split, 1 for with split
 whole_mhd_data=1 # whether to read the whole MHD data
@@ -21,40 +21,54 @@ run_stochastic () {
     change_variable momentum_dependency $1
     change_variable pindex $2
     change_variable mag_dependency $3
+    change_variable kpara0 $5
+    change_variable kret $6
     # cat $conf
     cd ..
-    # mpirun -np $mpi_size ./stochastic-2dmhd.exec -dm $4 -np $nptl -ts $ts -te $te -df $dist_flag
-    srun -n $mpi_size ./stochastic-2dmhd.exec -dm $4 -np $nptl -ts $ts -te $te -df $dist_flag -wm $whole_mhd_data -sf 0 -tf $track_particle_flag -ns $nptl_selected -ni $nsteps_interval
-    # mkdir -p data/$5/$6
-    # mv data/*dat data/$5/$6
+    diagnostics_directory=$7
+    mkdir -p $diagnostics_directory
+    rm $diagnostics_directory/*
+    srun -n $mpi_size --ntasks-per-node=8 ./stochastic-2dmhd.exec -dm $4 -np $nptl -ts $ts \
+         -te $te -df $dist_flag -wm $whole_mhd_data -sf $split_flag \
+         -tf $track_particle_flag -ns $nptl_selected -ni $nsteps_interval \
+         -dd $diagnostics_directory -cf $conf
     cd config
     change_variable momentum_dependency 1
     change_variable pindex 1.3333333
     change_variable mag_dependency 1
+    change_variable kpara0 0.01
+    change_variable kret 0.03
 }
 
 stochastic () {
-    # run_stochastic 0 0.0 0 $1 $2 p000_b000
-    # run_stochastic 1 1.0 0 $1 $2 p100_b000
-    # run_stochastic 1 1.3333333 0 $1 $2 p133_b000
-    # run_stochastic 1 1.0 1 $1 $2 p100_b100
-    run_stochastic 1 1.3333333 1 $1 $2 p133_b100
+    # diagnostics_directory=data/traj_data/$2/p000_b000_00001_100/
+    # run_stochastic 0 1.3333333 0 $1 0.0001 1.0 $diagnostics_directory
+    ## diagnostics_directory=data/traj_data/$2/p133_b000_00001_100/
+    ## run_stochastic 1 1.3333333 0 $1 0.0001 1.0 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p133_b000_00001_005/
+    # run_stochastic 1 1.3333333 0 $1 0.0001 0.05 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p133_b000_00001_001/
+    # run_stochastic 1 1.3333333 0 $1 0.0001 0.01 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p000_b000_0001_100/
+    # run_stochastic 0 1.3333333 0 $1 0.001 1.0 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p133_b000_0001_100/
+    # run_stochastic 1 1.3333333 0 $1 0.001 1.0 $diagnostics_directory
+    ## diagnostics_directory=data/traj_data/$2/p133_b000_0001_005/
+    ## run_stochastic 1 1.3333333 0 $1 0.001 0.05 $diagnostics_directory
+    ## diagnostics_directory=data/traj_data/$2/p133_b000_0001_001/
+    ## run_stochastic 1 1.3333333 0 $1 0.001 0.01 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p000_b000_001_100/
+    # run_stochastic 0 1.3333333 0 $1 0.01 1.0 $diagnostics_directory
+    # diagnostics_directory=data/traj_data/$2/p133_b000_001_100/
+    # run_stochastic 1 1.3333333 0 $1 0.01 1.0 $diagnostics_directory
+    ## diagnostics_directory=data/traj_data/$2/p133_b000_001_005/
+    ## run_stochastic 1 1.3333333 0 $1 0.01 0.05 $diagnostics_directory
+    ## diagnostics_directory=data/traj_data/$2/p133_b000_001_001/
+    ## run_stochastic 1 1.3333333 0 $1 0.01 0.01 $diagnostics_directory
+    diagnostics_directory=data/traj_data/$2/p000_b000_0003_100/
+    run_stochastic 0 1.3333333 0 $1 0.003 1.0 $diagnostics_directory
 }
 
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/S1E5/beta001/
-# run_name=S16E5_beta001_bg0_new
-# stochastic $mhd_run_dir $run_name
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/S1E5/beta01/
-# run_name=S16E5_beta01_bg0
-# stochastic $mhd_run_dir $run_name
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/S16E5/beta001_bg10/bin_data/
-# run_name=S1E4_beta001_bg05
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/athena4.2/bin/S1E5_vl_hlld_beta01/bin_data/
-# run_name=athena_S1E5_beta01
-mhd_run_dir=/net/scratch3/xiaocanli/mhd/athena4.2/bin/S1E5_vl_hlld_beta01_bg02/bin_data/
-run_name=athena_S1E5_beta01_bg02
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/athena4.2/bin/S1E5_vl_hlld_beta01_bg10/bin_data/
-# run_name=athena_S1E5_beta01_bg10
-# mhd_run_dir=/net/scratch3/xiaocanli/mhd/S9E4/beta001_bg00/bin_data/
-# run_name=S9E4_beta001_bg00
+mhd_run_dir=/net/scratch3/xiaocanli/mhd/guide_field_scaling/S1E5_beta01_bg00/bin_data/
+run_name=S1E5_beta01_bg00
 stochastic $mhd_run_dir $run_name

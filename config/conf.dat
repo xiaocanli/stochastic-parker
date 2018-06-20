@@ -15,25 +15,31 @@ pmin = 1.0E-2
 pmax = 1.0E1
 
 !< Wether kappa depends on particle momentum
-momentum_dependency = 1
+momentum_dependency = 0
 
 !< power index for the momentum dependency 
 pindex = 1.3333333
 
 !< Wether kappa ~ 1/B
-mag_dependency = 1
+mag_dependency = 0
 
 !< The normalization for kappa parallel
-kpara0 = 0.01
+kpara0 = 0.001
 
 !< The ratio of kpara and kperp
-kret = 0.1
+kret = 1.0
 
 !< Minimum time step allowed
 dt_min = 1E-6
 
+!< Minimum relative time step w.r.t. one field time interval
+dt_min_rel = 1E-4
+
+!< Maximum relative time step w.r.t. one field time interval
+dt_max_rel = 1E-2
+
 !< Sizes of distributions
-nreduce = 4
+nreduce = 16
 npp = 128
 
 !< Particle boundary conditions
@@ -43,6 +49,6 @@ pbcy = 0
 pbcz = 0
 
 !< Simulation MPI topology
-mpi_sizex = 4
-mpi_sizey = 8
+mpi_sizex = 1
+mpi_sizey = 32
 mpi_sizez = 1
