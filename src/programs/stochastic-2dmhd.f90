@@ -37,6 +37,7 @@ program stochastic
     integer :: interp_flag, nx, ny, nz
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: inject_at_shock  ! Inject particles at shock location
+    integer :: num_fine_steps   ! Number of the fine steps for diagnostics
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -98,7 +99,7 @@ program stochastic
         if (mpi_rank == master) then
             write(*, "(A,I0)") " Starting step ", tf
         endif
-        call particle_mover(0, nptl_selected, nsteps_interval)
+        call particle_mover(0, nptl_selected, nsteps_interval, num_fine_steps)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing moving particles "
         endif
@@ -162,7 +163,7 @@ program stochastic
         call calc_fields_gradients(var_flag=1)
         !< Time loop
         do tf = t_start, t_end
-            call particle_mover(1, nptl_selected, nsteps_interval)
+            call particle_mover(1, nptl_selected, nsteps_interval, 1)
             if (split_flag == 1) then
                 call split_particle
             endif
@@ -227,7 +228,8 @@ program stochastic
                         '-np nptl -dt dt -ts t_start -te t_end -df dist_flag '//&
                         '-wm whole_mhd_data -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
-                        '-dd diagnostics_directory -is inject_at_shock'])
+                        '-dd diagnostics_directory -is inject_at_shock '//&
+                        '-cf conf_file -nf num_fine_steps'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -288,6 +290,10 @@ program stochastic
             help='Configuration file name', required=.false., &
             act='store', def='conf.dat', error=error)
         if (error/=0) stop
+        call cli%add(switch='--num_fine_steps', switch_ab='-nf', &
+            help='number of fine steps', required=.false., &
+            act='store', def='1', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -318,6 +324,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-cf', val=conf_file, error=error)
         if (error/=0) stop
+        call cli%get(switch='-nf', val=num_fine_steps, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -344,6 +352,7 @@ program stochastic
                 print '(A,I0)', 'Steps interval to track particles', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
+            print '(A,I0)', 'Number of fine steps', num_fine_steps
             if (inject_at_shock) then
                 print '(A)', 'Inject particles at shock location'
             endif
