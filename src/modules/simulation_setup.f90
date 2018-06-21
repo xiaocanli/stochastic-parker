@@ -293,20 +293,37 @@ module simulation_setup_module
     !<  mrank: rank along this direction
     !<  msize: size along this direction
     !<  neighs: neighbors along this direction
+    !<  pbc: particle boundary condition, 0 for periodic; 1 for open
     !---------------------------------------------------------------------------
-    subroutine set_neighbor_one_direction(mrank, msize, neighs)
+    subroutine set_neighbor_one_direction(mrank, msize, neighs, pbc)
         implicit none
-        integer, intent(in) :: mrank, msize
+        integer, intent(in) :: mrank, msize, pbc
         integer, dimension(2), intent(out) :: neighs
-        if (mrank == 0) then
-            neighs(1) = msize - 1
-            neighs(2) = mrank + 1
-        else if (mrank == msize - 1) then
-            neighs(1) = mrank - 1
-            neighs(2) = 0
+        if (msize == 1) then
+            if (pbc == 0) then
+                neighs = mrank
+            else if (pbc == 1) then
+                neighs = -1
+            endif
         else
-            neighs(1) = mrank - 1
-            neighs(2) = mrank + 1
+            if (mrank == 0) then
+                if (pbc == 0) then
+                    neighs(1) = msize - 1
+                else if (pbc == 1) then
+                    neighs(1) = -1
+                endif
+                neighs(2) = 1
+            else if (mrank == msize - 1) then
+                neighs(1) = mrank - 1
+                if (pbc == 0) then
+                    neighs(2) = 0
+                else if (pbc == 1) then
+                    neighs(2) = -1
+                endif
+            else
+                neighs(1) = mrank - 1
+                neighs(2) = mrank + 1
+            endif
         endif
     end subroutine set_neighbor_one_direction
 
@@ -327,38 +344,40 @@ module simulation_setup_module
         ix = mod(mpi_rank, mpi_sizex)
         size_xy = mpi_sizex * mpi_sizey
         if (whole_data_flag == 0) then
-            if (pbcx == 0) then  ! Periodic boundary condition
-                if (mpi_sizex == 1) then
-                    neighbors(1:2) = iy + iz * mpi_sizey
-                else
-                    call set_neighbor_one_direction(ix, mpi_sizex, ne)
-                    neighbors(1) = ne(1) + iy * mpi_sizex + iz * size_xy
-                    neighbors(2) = ne(2) + iy * mpi_sizex + iz * size_xy
-                endif
+            call set_neighbor_one_direction(ix, mpi_sizex, ne, pbcx)
+            if (ne(1) < 0) then
+                neighbors(1) = -1
             else
-                neighbors(1:2) = -1
+                neighbors(1) = ne(1) + iy * mpi_sizex + iz * size_xy
             endif
-            if (pbcy == 0) then
-                if (mpi_sizey == 1) then
-                    neighbors(3:4) = ix + iz * mpi_sizex
-                else
-                    call set_neighbor_one_direction(iy, mpi_sizey, ne)
-                    neighbors(3) = ix + ne(1) * mpi_sizex + iz * size_xy
-                    neighbors(4) = ix + ne(2) * mpi_sizex + iz * size_xy
-                endif
+            if (ne(2) < 0) then
+                neighbors(2) = -1
             else
-                neighbors(3:4) = -1
+                neighbors(2) = ne(2) + iy * mpi_sizex + iz * size_xy
             endif
-            if (pbcz == 0) then
-                if (mpi_sizez == 1) then
-                    neighbors(5:6) = ix + iy * mpi_sizex
-                else
-                    call set_neighbor_one_direction(iz, mpi_sizez, ne)
-                    neighbors(5) = ix + iy * mpi_sizex + ne(1) * size_xy
-                    neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
-                endif
+
+            call set_neighbor_one_direction(iy, mpi_sizey, ne, pbcy)
+            if (ne(1) < 0) then
+                neighbors(3) = -1
             else
-                neighbors(5:6) = -1
+                neighbors(3) = ix + ne(1) * mpi_sizex + iz * size_xy
+            endif
+            if (ne(2) < 0) then
+                neighbors(4) = -1
+            else
+                neighbors(4) = ix + ne(2) * mpi_sizex + iz * size_xy
+            endif
+
+            call set_neighbor_one_direction(iz, mpi_sizez, ne, pbcz)
+            if (ne(1) < 0) then
+                neighbors(5) = -1
+            else
+                neighbors(5) = ix + iy * mpi_sizex + ne(1) * size_xy
+            endif
+            if (ne(2) < 0) then
+                neighbors(6) = -1
+            else
+                neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
             endif
         else
             neighbors = mpi_rank
