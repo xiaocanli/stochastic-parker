@@ -251,6 +251,42 @@
         "power_low"         : [45],
         "power_high"        : [60]
     },
+    "S1E5_beta01_bg00/p000_b000_00047_100": {
+        "run_name"          : "S1E5_beta01_bg00/p000_b000_00047_100",
+        "tmax"              : 240,
+        "tmin"              : 40,
+        "nreduce"           : 16,
+        "xlim_p"            : [1, 5E1],
+        "ylim_p"            : [1E0, 1E7],
+        "xlim_e"            : [1, 1E3],
+        "ylim_e"            : [1E-3, 1E7],
+        "power_low"         : [55],
+        "power_high"        : [90]
+    },
+    "S1E5_beta01_bg00/p000_b000_00047_100_l": {
+        "run_name"          : "S1E5_beta01_bg00/p000_b000_00047_100_l",
+        "tmax"              : 170,
+        "tmin"              : 40,
+        "nreduce"           : 16,
+        "xlim_p"            : [1, 5E1],
+        "ylim_p"            : [1E0, 1E7],
+        "xlim_e"            : [1, 1E3],
+        "ylim_e"            : [1E-3, 1E7],
+        "power_low"         : [55],
+        "power_high"        : [90]
+    },
+    "S1E5_beta01_bg00/p000_b000_00047_100_l2": {
+        "run_name"          : "S1E5_beta01_bg00/p000_b000_00047_100_l2",
+        "tmax"              : 165,
+        "tmin"              : 40,
+        "nreduce"           : 16,
+        "xlim_p"            : [1, 5E1],
+        "ylim_p"            : [1E0, 1E7],
+        "xlim_e"            : [1, 1E3],
+        "ylim_e"            : [1E-3, 1E7],
+        "power_low"         : [55],
+        "power_high"        : [90]
+    },
     "S1E5_beta01_bg00/p000_b000_0008_100": {
         "run_name"          : "S1E5_beta01_bg00/p000_b000_0008_100",
         "tmax"              : 240,
@@ -453,6 +489,66 @@
         "xlim_e"            : [1, 1E2],
         "ylim_e"            : [1E-2, 1E7],
         "power_low"         : [48],
+        "power_high"        : [60]
+    },
+    "S1E5_beta01_bg00/p000_b000_0003_100_yopen": {
+        "run_name"          : "S1E5_beta01_bg00/p000_b000_0003_100_yopen",
+        "tmax"              : 240,
+        "tmin"              : 40,
+        "nreduce"           : 16,
+        "xlim_p"            : [1, 1E2],
+        "ylim_p"            : [1E1, 1E7],
+        "xlim_e"            : [1, 1E4],
+        "ylim_e"            : [1E-4, 1E7],
+        "power_low"         : [60],
+        "power_high"        : [100]
+    },
+    "fluxrope_S4E4/p000_b000_00043_100": {
+        "run_name"          : "fluxrope_S4E4/p000_b000_00043_100",
+        "tmin"              : 0,
+        "tmax"              : 32,
+        "nreduce"           : 8,
+        "xlim_p"            : [1, 1E2],
+        "ylim_p"            : [1E1, 1E7],
+        "xlim_e"            : [1, 1E4],
+        "ylim_e"            : [1E-4, 1E7],
+        "power_low"         : [60],
+        "power_high"        : [100]
+    },
+    "fluxrope_S4E4_long/p000_b000_00043_100": {
+        "run_name"          : "fluxrope_S4E4_long/p000_b000_00043_100",
+        "tmin"              : 10,
+        "tmax"              : 44,
+        "nreduce"           : 8,
+        "xlim_p"            : [1, 1E2],
+        "ylim_p"            : [1E1, 1E7],
+        "xlim_e"            : [1E-1, 5E2],
+        "ylim_e"            : [1E-4, 1E7],
+        "power_low"         : [50],
+        "power_high"        : [80]
+    },
+    "fluxrope_S4E4_long/p000_b000_00043_002": {
+        "run_name"          : "fluxrope_S4E4_long/p000_b000_00043_002",
+        "tmin"              : 0,
+        "tmax"              : 44,
+        "nreduce"           : 8,
+        "xlim_p"            : [1, 1E2],
+        "ylim_p"            : [1E1, 1E7],
+        "xlim_e"            : [1E-1, 2E3],
+        "ylim_e"            : [1E-4, 1E10],
+        "power_low"         : [45],
+        "power_high"        : [75]
+    },
+    "fluxrope_S4E4_long/p133_b000_00043_100": {
+        "run_name"          : "fluxrope_S4E4_long/p133_b000_00043_100",
+        "tmin"              : 10,
+        "tmax"              : 44,
+        "nreduce"           : 8,
+        "xlim_p"            : [1, 1E2],
+        "ylim_p"            : [1E1, 1E7],
+        "xlim_e"            : [1E-1, 5E2],
+        "ylim_e"            : [1E-4, 1E7],
+        "power_low"         : [50],
         "power_high"        : [60]
     }
 }
