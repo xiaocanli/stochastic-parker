@@ -15,7 +15,8 @@ module particle_module
         free_particle_tracking, init_tracked_particle_points, &
         free_tracked_particle_points, negative_particle_tags, &
         save_tracked_particle_points, inject_particles_at_shock, &
-        set_mpi_io_data_sizes
+        set_mpi_io_data_sizes, init_local_particle_distributions, &
+        free_local_particle_distributions
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -76,11 +77,14 @@ module particle_module
     real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
     real(dp), allocatable, dimension(:) :: parray
     real(dp), allocatable, dimension(:) :: fnptl, fnptl_sum
+    ! Particle distribution in each cell
+    real(dp), allocatable, dimension(:, :, :) :: fp_local, fp_local_sum
 
     !< MPI/IO data sizes
     integer, dimension(2) :: sizes_fpx, subsizes_fpx, starts_fpx
     integer, dimension(2) :: sizes_fpy, subsizes_fpy, starts_fpy
     integer, dimension(2) :: sizes_fxy, subsizes_fxy, starts_fxy
+    integer, dimension(3) :: sizes_fp_local, subsizes_fp_local, starts_fp_local
 
     contains
 
@@ -107,8 +111,8 @@ module particle_module
         nptl_current = 0     ! No particle initially
 
         !< Particles crossing domain boundaries
-        allocate(senders(nptl_max / 100, 4))
-        allocate(recvers(nptl_max / 100, 4))
+        allocate(senders(nptl_max / 10, 4))
+        allocate(recvers(nptl_max / 10, 4))
         senders%x = 0.0
         senders%y = 0.0
         senders%p = 0.0
@@ -334,10 +338,10 @@ module particle_module
             if (dt_target > dtf) then
                 dt_target = dtf
             endif
-            call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, &
-                                             ymin1, ymax1)
-            if (ptl%count_flag == 0) then
-                continue
+            if (ptl%p >= 0.0) then
+                ! Make sure that particles with p < 0 are not sent to neighbors
+                call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, &
+                                                 ymin1, ymax1)
             endif
             do tfine = 1, num_fine_steps
                 if (ptl%count_flag == 0) then
@@ -355,10 +359,13 @@ module particle_module
                             exit
                         endif
                     endif
-                    call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
-                                                     xmax1, ymin1, ymax1)
-                    if (ptl%count_flag == 0) then
-                        exit
+                    if (ptl%p >= 0.0) then
+                        ! To make sure that some particles might jump diagonally
+                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
+                                                         xmax1, ymin1, ymax1)
+                        if (ptl%count_flag == 0) then
+                            exit
+                        endif
                     endif
 
                     px = (ptl%x-xmin) / dxm
@@ -488,7 +495,7 @@ module particle_module
             ! if (mpi_rank == master) then
             !     write(*, "(A)") "Finishing sending and receiving particles"
             ! endif
-            call add_neighbor_particles
+            call add_neighbor_particles  ! Also update nptl_old, nptl_current
             if (sum(nrecvers) > 0) then
                 local_flag = sum(nrecvers)
             else
@@ -522,7 +529,12 @@ module particle_module
         nrecvers = 0
         do i = 1, nptl_current
             ptl = ptls(i)
-            call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+            if (ptl%p < 0.0) then
+                ptl%count_flag = 0
+                leak = leak + ptl%weight
+            else
+                call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+            endif
             ptls(i) = ptl
         enddo
         call remove_particles
@@ -640,7 +652,8 @@ module particle_module
                 neighbors(recv_id), neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
         endif
         nrecvers(recv_id) = nrecv
-        !< This assumes MPI size along this direction is even
+        !< This assumes MPI size along this direction is even and is larger
+        !< than or equal to 4
         if (mpi_direc / 2 == 0) then
             if (nsend > 0) then
                 call MPI_SEND(senders(1:nsend, send_id), nsend, &
@@ -1196,6 +1209,19 @@ module particle_module
     end subroutine init_particle_distributions
 
     !---------------------------------------------------------------------------
+    !< Initialize local particle distributions
+    !---------------------------------------------------------------------------
+    subroutine init_local_particle_distributions
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        allocate(fp_local(npp, nx, ny))
+        if (mpi_rank == master) then
+            allocate(fp_local_sum(npp, nx, ny))
+        endif
+        call clean_local_particle_distribution
+    end subroutine init_local_particle_distributions
+
+    !---------------------------------------------------------------------------
     !< Set particle distributions to be zero
     !---------------------------------------------------------------------------
     subroutine clean_particle_distributions
@@ -1223,6 +1249,18 @@ module particle_module
     end subroutine clean_particle_distributions
 
     !---------------------------------------------------------------------------
+    !< Set local particle distributions to be zero
+    !---------------------------------------------------------------------------
+    subroutine clean_local_particle_distribution
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        fp_local = 0.0_dp
+        if (mpi_rank == master) then
+            fp_local_sum = 0.0_dp
+        endif
+    end subroutine clean_local_particle_distribution
+
+    !---------------------------------------------------------------------------
     !< Free particle distributions
     !---------------------------------------------------------------------------
     subroutine free_particle_distributions
@@ -1237,6 +1275,18 @@ module particle_module
             deallocate(parray)
         ! endif
     end subroutine free_particle_distributions
+
+    !---------------------------------------------------------------------------
+    !< Free local particle distributions
+    !---------------------------------------------------------------------------
+    subroutine free_local_particle_distributions
+        use mpi_module, only: mpi_rank, master
+        implicit none
+        deallocate(fp_local)
+        if (mpi_rank == master) then
+            deallocate(fp_local_sum)
+        endif
+    end subroutine free_local_particle_distributions
 
     !---------------------------------------------------------------------------
     !< Accumulate particle energization distributions
@@ -1281,13 +1331,14 @@ module particle_module
     !< Accumulate particle distributions
     !< Args:
     !<  whole_mhd_data: whether each MPI process holds the whole MHD data
+    !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine calc_particle_distributions(whole_mhd_data)
+    subroutine calc_particle_distributions(whole_mhd_data, local_dist)
         use mpi_module
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         implicit none
-        integer, intent(in) :: whole_mhd_data
+        integer, intent(in) :: whole_mhd_data, local_dist
         integer :: i, ix, iy, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax
         real(dp) :: px, py, rx, ry, rt
@@ -1329,6 +1380,9 @@ module particle_module
                 fp0(ip) = fp0(ip) + weight
                 fp1(ip, ix) = fp1(ip, ix) + weight
                 fp2(ip, iy) = fp2(ip, iy) + weight
+                if (local_dist) then
+                    fp_local(ip, ix, iy) = fp_local(ip, ix, iy) + weight
+                endif
             endif
         enddo
 
@@ -1353,6 +1407,10 @@ module particle_module
                 MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
                 MPI_COMM_WORLD, ierr)
+            if (local_dist) then
+                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny, MPI_DOUBLE_PRECISION, &
+                    MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            endif
         else
             if (nx == mhd_config%nx / nreduce) then
                 call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, &
@@ -1371,15 +1429,16 @@ module particle_module
     !<  iframe: time frame index
     !<  file_path: save data files to this path
     !<  whole_mhd_data: whether each MPI process holds the whole MHD data
+    !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe, file_path, whole_mhd_data)
+    subroutine distributions_diagnostics(iframe, file_path, whole_mhd_data, local_dist)
         use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, fileinfo, &
             open_data_mpi_io, write_data_mpi_io
         use mhd_config_module, only: mhd_config
         use constants, only: fp, dp
         use mpi_module
         implicit none
-        integer, intent(in) :: iframe, whole_mhd_data
+        integer, intent(in) :: iframe, whole_mhd_data, local_dist
         character(*), intent(in) :: file_path
         integer :: ix, iy, ip, fh, pos1
         character(len=4) :: ctime, mrank
@@ -1393,7 +1452,7 @@ module particle_module
             call system('mkdir -p ./data')
         endif
 
-        call calc_particle_distributions(whole_mhd_data)
+        call calc_particle_distributions(whole_mhd_data, local_dist)
 
         write (ctime,'(i4.4)') iframe
         write (mrank,'(i4.4)') mpi_rank
@@ -1448,6 +1507,15 @@ module particle_module
                 pos1 = pos1 + nx * ny * sizeof(1.0_dp)
                 write(fh, pos=pos1) f4_sum
                 close(fh)
+
+                if (local_dist) then
+                    fh = 19
+                    fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
+                    open(fh, file=trim(fname), access='stream', status='unknown', &
+                         form='unformatted', action='write')
+                    write(fh, pos=1) fp_local_sum
+                    close(fh)
+                endif
             endif
         else
             call set_mpi_info
@@ -1502,10 +1570,23 @@ module particle_module
             disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f4)
             call MPI_FILE_CLOSE(fh, ierror)
+
+            if (local_dist) then
+                fh = 19
+                fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
+                disp = 0
+                offset = 0
+                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
+                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local)
+                call MPI_FILE_CLOSE(fh, ierror)
+            endif
         endif
 
         call clean_particle_distributions
-
+        if (local_dist) then
+            call clean_local_particle_distribution
+        endif
     end subroutine distributions_diagnostics
 
     !---------------------------------------------------------------------------
@@ -1704,5 +1785,9 @@ module particle_module
         sizes_fxy = (/ nx_mhd_reduced, ny_mhd_reduced /)
         subsizes_fxy = (/ nx, ny /)
         starts_fxy = (/ nx * mpi_ix, ny * mpi_iy /)
+
+        sizes_fp_local = (/ npp, nx_mhd_reduced, ny_mhd_reduced /)
+        subsizes_fp_local = (/ npp, nx, ny /)
+        starts_fp_local = (/ 0, nx * mpi_ix, ny * mpi_iy /)
     end subroutine set_mpi_io_data_sizes
 end module particle_module

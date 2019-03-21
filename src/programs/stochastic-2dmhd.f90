@@ -15,7 +15,8 @@ program stochastic
         init_particle_tracking, free_particle_tracking, &
         init_tracked_particle_points, free_tracked_particle_points, &
         negative_particle_tags, save_tracked_particle_points, &
-        inject_particles_at_shock, set_mpi_io_data_sizes
+        inject_particles_at_shock, set_mpi_io_data_sizes, &
+        init_local_particle_distributions, free_local_particle_distributions
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -34,7 +35,7 @@ program stochastic
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
-    integer :: interp_flag, nx, ny, nz
+    integer :: interp_flag, nx, ny, nz, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: inject_at_shock  ! Inject particles at shock location
     integer :: num_fine_steps   ! Number of the fine steps for diagnostics
@@ -70,6 +71,9 @@ program stochastic
 
     call init_particles(nptl_max)
     call init_particle_distributions
+    if (local_dist) then
+        call init_local_particle_distributions
+    endif
     call set_particle_datatype_mpi
 
     write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
@@ -92,7 +96,7 @@ program stochastic
     call cpu_time(step1)
 
     call set_mpi_io_data_sizes
-    call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data)
+    call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
 
     !< Time loop
     do tf = t_start, t_end
@@ -111,7 +115,7 @@ program stochastic
         else
             call quick_check(tf, .false., diagnostics_directory)
         endif
-        call distributions_diagnostics(tf + 1, diagnostics_directory, whole_mhd_data)
+        call distributions_diagnostics(tf + 1, diagnostics_directory, whole_mhd_data, local_dist)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "
         endif
@@ -195,6 +199,9 @@ program stochastic
 
     call free_particle_datatype_mpi
     call free_particle_distributions
+    if (local_dist) then
+        call free_local_particle_distributions
+    endif
     call free_particles
     call free_fields_gradients(interp_flag)
     call free_field_data(interp_flag)
@@ -294,6 +301,10 @@ program stochastic
             help='number of fine steps', required=.false., &
             act='store', def='1', error=error)
         if (error/=0) stop
+        call cli%add(switch='--local_dist', switch_ab='-ld', &
+            help='whether to diagnose local distribution', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -326,6 +337,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-nf', val=num_fine_steps, error=error)
         if (error/=0) stop
+        call cli%get(switch='-ld', val=local_dist, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -337,8 +350,8 @@ program stochastic
                 print '(A)', 'All particles with the same momentum initially'
             endif
             print '(A,E13.6E2)', 'Time interval to push particles', dt
-            print '(A,I0)', 'Starting time frame', t_start
-            print '(A,I0)', 'The last time frame', t_end
+            print '(A,I0)', 'Starting time frame: ', t_start
+            print '(A,I0)', 'The last time frame: ', t_end
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
             endif
@@ -348,15 +361,18 @@ program stochastic
                 print '(A)', 'Each process reads only part of the MHD simulation data'
             endif
             if (track_particle_flag) then
-                print '(A,I0)', 'Number of particles to track', nptl_selected
-                print '(A,I0)', 'Steps interval to track particles', nsteps_interval
+                print '(A,I0)', 'Number of particles to track: ', nptl_selected
+                print '(A,I0)', 'Steps interval to track particles: ', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
-            print '(A,I0)', 'Number of fine steps', num_fine_steps
+            print '(A,I0)', 'Number of fine steps: ', num_fine_steps
             if (inject_at_shock) then
                 print '(A)', 'Inject particles at shock location'
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
+            if (local_dist) then
+                print '(A)', 'Simulation will diagnose local particle distribution'
+            endif
         endif
     end subroutine get_cmd_args
 end program stochastic

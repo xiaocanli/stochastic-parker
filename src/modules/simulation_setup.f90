@@ -380,7 +380,21 @@ module simulation_setup_module
                 neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
             endif
         else
-            neighbors = mpi_rank
+            if (pbcx == 1) then
+                neighbors(1:2) = -1
+            else
+                neighbors(1:2) = mpi_rank
+            endif
+            if (pbcy == 1) then
+                neighbors(3:4) = -1
+            else
+                neighbors(3:4) = mpi_rank
+            endif
+            if (pbcz == 1) then
+                neighbors(5:6) = -1
+            else
+                neighbors(5:6) = mpi_rank
+            endif
         endif
     end subroutine set_neighbors
 end module simulation_setup_module
