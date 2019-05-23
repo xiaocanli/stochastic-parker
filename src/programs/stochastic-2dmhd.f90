@@ -103,7 +103,7 @@ program stochastic
         if (mpi_rank == master) then
             write(*, "(A,I0)") " Starting step ", tf
         endif
-        call particle_mover(0, nptl_selected, nsteps_interval, num_fine_steps)
+        call particle_mover(0, nptl_selected, nsteps_interval, tf, num_fine_steps)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing moving particles "
         endif
@@ -167,7 +167,7 @@ program stochastic
         call calc_fields_gradients(var_flag=1)
         !< Time loop
         do tf = t_start, t_end
-            call particle_mover(1, nptl_selected, nsteps_interval, 1)
+            call particle_mover(1, nptl_selected, nsteps_interval, tf, 1)
             if (split_flag == 1) then
                 call split_particle
             endif

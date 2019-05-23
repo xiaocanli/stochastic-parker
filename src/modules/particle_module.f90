@@ -329,6 +329,8 @@ module particle_module
             deltax = 0.0
             deltay = 0.0
             deltap = 0.0
+
+            ! The targeted time depends on the time stamp of the particle.
             step = ceiling((ptl%t - t0) / dt_fine)
             if (step <= 0) then
                 dt_target = dt_fine
@@ -338,41 +340,42 @@ module particle_module
             if (dt_target > dtf) then
                 dt_target = dtf
             endif
-            if (ptl%p >= 0.0) then
-                ! Make sure that particles with p < 0 are not sent to neighbors
-                call particle_boundary_condition(ptl%x, ptl%y, xmin1, xmax1, &
-                                                 ymin1, ymax1)
+
+            ! Safe check
+            if (ptl%p < 0.0 .and. ptl%count_flag /= 0) then
+                ptl%count_flag = 0
+                leak = leak + ptl%weight
+            else
+                call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
             endif
-            do tfine = 1, num_fine_steps
+            if (ptl%count_flag == 0) then
+                ptls(i) = ptl
+                cycle
+            endif
+
+            ! Loop over fine time steps between each MHD time interval
+            ! The loop might be terminated early when dt_target is reached.
+            do while (dt_target < (dtf + dt_fine*0.1)) ! 0.1 is for safe comparison
                 if (ptl%count_flag == 0) then
                     exit
                 endif
                 do while ((ptl%t - t0) < dt_target .and. ptl%count_flag /= 0)
+                    ! Check if particles are leaked or out of the local domain
                     if (ptl%p < 0.0) then
                         ptl%count_flag = 0
                         leak = leak + ptl%weight
-                        exit
                     else
-                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
-                                                         xmax1, ymin1, ymax1)
-                        if (ptl%count_flag == 0) then
-                            exit
-                        endif
+                        call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
                     endif
-                    if (ptl%p >= 0.0) then
-                        ! To make sure that some particles might jump diagonally
-                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
-                                                         xmax1, ymin1, ymax1)
-                        if (ptl%count_flag == 0) then
-                            exit
-                        endif
+                    if (ptl%count_flag == 0) then
+                        exit
                     endif
 
+                    ! Field interpolation parameters
                     px = (ptl%x-xmin) / dxm
                     py = (ptl%y-ymin) / dym
                     ix = floor(px) + 1
                     iy = floor(py) + 1
-
                     rx = px + 1 - ix
                     ry = py + 1 - iy
                     rt = (ptl%t - t0) / dtf
@@ -395,8 +398,9 @@ module particle_module
                             ptl_traj_points(offset + tracking_step + 1) = ptl
                         endif
                     endif
-                enddo
+                enddo ! while loop inside a fine time step
 
+                ! Make sure ptl%t reach the targeted time exactly
                 if ((ptl%t - t0) > dt_target .and. ptl%count_flag /= 0) then
                     ptl%x = ptl%x - deltax
                     ptl%y = ptl%y - deltay
@@ -435,20 +439,18 @@ module particle_module
                         ptl%count_flag = 0
                         leak = leak + ptl%weight
                     else
-                        call particle_boundary_condition(ptl%x, ptl%y, xmin1, &
-                                                         xmax1, ymin1, ymax1)
+                        call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
                     endif
                 endif
+
                 if (ptl%count_flag /= 0) then
                     call energization_dist(t0)
                 endif
                 dt_target = dt_target + dt_fine
-                if (dt_target > dtf) then
-                    exit
-                endif
+
             enddo ! Fine time step loop
             ptls(i) = ptl
-        enddo
+        enddo ! Loop over particles
     end subroutine particle_mover_one_cycle
 
     !---------------------------------------------------------------------------
@@ -457,15 +459,17 @@ module particle_module
     !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
     !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
+    !<  mhd_tframe: MHD time frame
     !<  num_fine_steps: number of fine time steps
     !---------------------------------------------------------------------------
     subroutine particle_mover(track_particle_flag, nptl_selected, &
-            nsteps_interval, num_fine_steps)
+            nsteps_interval, mhd_tframe, num_fine_steps)
         use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
-        integer, intent(in) :: num_fine_steps
+        integer, intent(in) :: mhd_tframe, num_fine_steps
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
         real(dp) :: t0, xmin, xmax, ymin, ymax
@@ -473,7 +477,7 @@ module particle_module
         nptl_old = 0
         nptl_new = 0
 
-        t0 = ptls(1)%t
+        t0 = mhd_config%dt_out * mhd_tframe
 
         ncycle = 0
         local_flag = 0
@@ -487,14 +491,8 @@ module particle_module
                 call particle_mover_one_cycle(t0, track_particle_flag, &
                     nptl_selected, nsteps_interval, num_fine_steps)
             endif
-            ! if (mpi_rank == master) then
-            !     write(*, "(A)") "Finishing moving particle for one cycle"
-            ! endif
             call remove_particles
             call send_recv_particles
-            ! if (mpi_rank == master) then
-            !     write(*, "(A)") "Finishing sending and receiving particles"
-            ! endif
             call add_neighbor_particles  ! Also update nptl_old, nptl_current
             if (sum(nrecvers) > 0) then
                 local_flag = sum(nrecvers)
@@ -509,9 +507,6 @@ module particle_module
             else
                 all_particles_in_box = .true.
             endif
-            ! if (mpi_rank == master) then
-            !     write(*, "(A, I0)") "Finishing cycle ", ncycle
-            ! endif
         enddo
         if (mpi_rank == master) then
             write(*, "(A, I0)") "Number of cycles: ", ncycle
@@ -533,7 +528,7 @@ module particle_module
                 ptl%count_flag = 0
                 leak = leak + ptl%weight
             else
-                call particle_boundary_condition(ptl%x, ptl%y, xmin, xmax, ymin, ymax)
+                call particle_boundary_condition(ptl, xmin, xmax, ymin, ymax)
             endif
             ptls(i) = ptl
         enddo
@@ -545,27 +540,27 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Particle boundary conditions
     !< Args:
-    !<  x, y: particle positions
+    !<  plt: particle structure
     !<  xmin, xmax: min and max along the x-direction
     !<  ymin, ymax: min and max along the y-direction
     !---------------------------------------------------------------------------
-    subroutine particle_boundary_condition(x, y, xmin, xmax, ymin, ymax)
+    subroutine particle_boundary_condition(ptl, xmin, xmax, ymin, ymax)
         use simulation_setup_module, only: neighbors, mpi_ix, mpi_iy, &
             mpi_sizex, mpi_sizey
         use mhd_config_module, only: mhd_config
         use mpi_module
         implicit none
         real(dp), intent(in) :: xmin, xmax, ymin, ymax
-        real(dp), intent(inout) :: x, y
+        type(particle_type), intent(inout) :: ptl
 
-        if (x < xmin .and. ptl%count_flag /= 0) then
+        if (ptl%x < xmin .and. ptl%count_flag /= 0) then
             if (neighbors(1) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
             else if (neighbors(1) == mpi_rank) then
-                x = x - xmin + xmax
+                ptl%x = ptl%x - xmin + xmax
             else if (neighbors(1) == mpi_rank + mpi_sizex - 1) then
-                x = x - mhd_config%xmin + mhd_config%xmax
+                ptl%x = ptl%x - mhd_config%xmin + mhd_config%xmax
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
                 ptl%count_flag = 0
@@ -574,14 +569,14 @@ module particle_module
                 senders(nsenders(1), 1) = ptl
                 ptl%count_flag = 0
             endif
-        else if (x > xmax .and. ptl%count_flag /= 0) then
+        else if (ptl%x > xmax .and. ptl%count_flag /= 0) then
             if (neighbors(2) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0 !< remove particle
             else if (neighbors(2) == mpi_rank) then
-                x = x - xmax + xmin
+                ptl%x = ptl%x - xmax + xmin
             else if (neighbors(2) == mpi_iy * mpi_sizex) then !< simulation boundary
-                x = x - mhd_config%xmax + mhd_config%xmin
+                ptl%x = ptl%x - mhd_config%xmax + mhd_config%xmin
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
                 ptl%count_flag = 0
@@ -594,14 +589,14 @@ module particle_module
 
         !< We need to make sure the count_flag is not set to 0.
         !< Otherwise, we met send the particles to two different neighbors.
-        if (y < ymin .and. ptl%count_flag /= 0) then
+        if (ptl%y < ymin .and. ptl%count_flag /= 0) then
             if (neighbors(3) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
             else if (neighbors(3) == mpi_rank) then
-                y = y - ymin + ymax
+                ptl%y = ptl%y - ymin + ymax
             else if (neighbors(3) == mpi_rank + (mpi_sizey - 1) * mpi_sizex) then
-                y = y - mhd_config%ymin + mhd_config%ymax
+                ptl%y = ptl%y - mhd_config%ymin + mhd_config%ymax
                 nsenders(3) = nsenders(3) + 1
                 senders(nsenders(3), 3) = ptl
                 ptl%count_flag = 0
@@ -610,14 +605,14 @@ module particle_module
                 senders(nsenders(3), 3) = ptl
                 ptl%count_flag = 0
             endif
-        else if (y > ymax .and. ptl%count_flag /= 0) then
+        else if (ptl%y > ymax .and. ptl%count_flag /= 0) then
             if (neighbors(4) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = 0
             else if (neighbors(4) == mpi_rank) then
-                y = y - ymax + ymin
+                ptl%y = ptl%y - ymax + ymin
             else if (neighbors(4) == mpi_ix) then
-                y = y - mhd_config%ymax + mhd_config%ymin
+                ptl%y = ptl%y - mhd_config%ymax + mhd_config%ymin
                 nsenders(4) = nsenders(4) + 1
                 senders(nsenders(4), 4) = ptl
                 ptl%count_flag = 0
@@ -880,10 +875,11 @@ module particle_module
         if (tmp40 .ne. 0.0d0) then
             if (tmp30 > 0) then
                 dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                ! dt1 = min(dxm/tmp40, (dxm/tmp30)**2) * 0.2
+                ! dt1 = min(dt1, (tmp30/tmp40)**2) * 0.05
             else
                 dt1 = dxm/(80.0*tmp40)
             endif
-            ! dt1 = min(dxm/(tmp40), (dxm/tmp30) * (dxm/tmp30)) * 0.5
         else
             dt1 = dt_min
         endif
@@ -896,10 +892,11 @@ module particle_module
         if (tmp40 .ne. 0.0d0) then
             if (tmp30 > 0) then
                 dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                ! dt2 = min(dym/tmp40, (dym/tmp30)**2) * 0.2
+                ! dt2 = min(dt2, (tmp30/tmp40)**2) * 0.05
             else
                 dt2 = dym/(80.0*tmp40)
             endif
-            ! dt2 = min(dym/tmp40, (dym/tmp30) * (dym/tmp30)) * 0.5
         else
             dt2 = dt_min
         endif
@@ -982,38 +979,9 @@ module particle_module
         endif
         xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
         ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
-
-        !< Make sure the point is still in the box
-        do while (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1)
-            ptl%dt = ptl%dt * 0.5
-            sdt = dsqrt(ptl%dt)
-            xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
-            ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
-        enddo
-
-        px = (xtmp - xmin) / dxm
-        py = (ytmp - ymin) / dym
-        ix = floor(px) + 1
-        iy = floor(py) + 1
-        rx = px + 1 - ix
-        ry = py + 1 - iy
-        rt1 = 1.0_dp - rt
-        call interp_fields(ix, iy, rx, ry, rt)
-
-        ! Before dkxx_dx, dkxy_dy, dkxy_dx, dkyy_dy are updated
         deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
         deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
-
-        call calc_spatial_diffusion_coefficients
-
-        !< Magnetic field at the predicted position
-        bx1 = fields(5)
-        by1 = fields(6)
-        b1 = fields(8)
-
-        skperp1 = dsqrt(2.0*kperp)
-        skpara_perp1 = dsqrt(2.0*(kpara-kperp))
-
+        deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
         ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
@@ -1025,19 +993,48 @@ module particle_module
         ! rands = two_normals()
         ! ran3 = rands(1)
 
-        if (b1 == 0) then
-            ib1 = 0.0
+        !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
+        !< but ecreasing the time step does not necessarily make the moving distance smaller.
+        !< Therefore, we switch between first-order and second-order method.
+        if (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1) then
+            !< First-order method
+            deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib
+            deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib
         else
-            ib1 = 1.0 / b1
+            !< Second-order method. It requires xtmp and ytmp are in the local domain.
+            px = (xtmp - xmin) / dxm
+            py = (ytmp - ymin) / dym
+            ix = floor(px) + 1
+            iy = floor(py) + 1
+            rx = px + 1 - ix
+            ry = py + 1 - iy
+            rt1 = 1.0_dp - rt
+            call interp_fields(ix, iy, rx, ry, rt)
+
+            call calc_spatial_diffusion_coefficients
+
+            !< Magnetic field at the predicted position
+            bx1 = fields(5)
+            by1 = fields(6)
+            b1 = fields(8)
+
+            skperp1 = dsqrt(2.0*kperp)
+            skpara_perp1 = dsqrt(2.0*(kpara-kperp))
+
+            if (b1 == 0) then
+                ib1 = 0.0
+            else
+                ib1 = 1.0 / b1
+            endif
+
+            deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
+                     (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
+                     (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
+            deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
+                     (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
+                     (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
         endif
 
-        deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
-                 (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
-                 (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
-        deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
-                 (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
-                 (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
-        deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
         ptl%p = ptl%p + deltap
@@ -1355,33 +1352,37 @@ module particle_module
             ptl = ptls(i)
             ix = ceiling((ptl%x - xmin)/dx_diag)
             iy = ceiling((ptl%y - ymin)/dy_diag)
-            if (ix < 1) ix = 1
-            if (ix > nx) ix = nx
-            if (iy < 1) iy = 1
-            if (iy > ny) iy = ny
             p = ptl%p
             weight = ptl%weight
 
             !< Different momentum band
-            if (p <= 0.75*p0) then
-                f0(ix,iy) = f0(ix,iy) + weight
-            else if (p > 0.75*p0 .and. p <= 1.5*p0) then
-                f1(ix,iy) = f1(ix,iy) + weight
-            else if (p > 1.5*p0 .and. p <= 3.0*p0) then
-                f2(ix,iy) = f2(ix,iy) + weight
-            else if (p > 3.0*p0 .and. p <= 6.0*p0) then
-                f3(ix,iy) = f3(ix,iy) + weight
-            else
-                f4(ix,iy) = f4(ix,iy) + weight
+            if (ix >= 1 .and. ix <= nx .and. iy >= 1 .and. iy <= ny) then
+                if (p <= 0.75*p0) then
+                    f0(ix,iy) = f0(ix,iy) + weight
+                else if (p > 0.75*p0 .and. p <= 1.5*p0) then
+                    f1(ix,iy) = f1(ix,iy) + weight
+                else if (p > 1.5*p0 .and. p <= 3.0*p0) then
+                    f2(ix,iy) = f2(ix,iy) + weight
+                else if (p > 3.0*p0 .and. p <= 6.0*p0) then
+                    f3(ix,iy) = f3(ix,iy) + weight
+                else
+                    f4(ix,iy) = f4(ix,iy) + weight
+                endif
             endif
 
             if (p > pmin .and. p <= pmax) then
                 ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
                 fp0(ip) = fp0(ip) + weight
-                fp1(ip, ix) = fp1(ip, ix) + weight
-                fp2(ip, iy) = fp2(ip, iy) + weight
+                if (ix >= 1 .and. ix <= nx) then
+                    fp1(ip, ix) = fp1(ip, ix) + weight
+                endif
+                if (iy >= 1 .and. iy <= ny) then
+                    fp2(ip, iy) = fp2(ip, iy) + weight
+                endif
                 if (local_dist) then
-                    fp_local(ip, ix, iy) = fp_local(ip, ix, iy) + weight
+                    if (ix >= 1 .and. ix <= nx .and. iy >= 1 .and. iy <= ny) then
+                        fp_local(ip, ix, iy) = fp_local(ip, ix, iy) + weight
+                    endif
                 endif
             endif
         enddo
@@ -1440,7 +1441,7 @@ module particle_module
         implicit none
         integer, intent(in) :: iframe, whole_mhd_data, local_dist
         character(*), intent(in) :: file_path
-        integer :: ix, iy, ip, fh, pos1
+        integer :: fh, pos1
         character(len=4) :: ctime, mrank
         character(len=128) :: fname
         integer(kind=MPI_OFFSET_KIND) :: disp, offset
