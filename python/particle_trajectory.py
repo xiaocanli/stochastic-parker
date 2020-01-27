@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Analysis procedures for stochastic integration
+Analysis procedures for plotting particle trajectory
 """
 from __future__ import print_function
 

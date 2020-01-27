@@ -46,6 +46,7 @@ def plot_momentum_distribution(pmom, fmom, ax, plot_config, **kwargs):
         color = kwargs['color']
     else:
         color = 'b'
+    fmom[fmom==0.0] = np.nan
     ax.loglog(pmom, fmom, linewidth=2, color=color)
     ax.set_xlim(plot_config["xlim_p"])
     ax.set_ylim(plot_config["ylim_p"])
@@ -103,6 +104,7 @@ def plot_energy_distribution(elog, fene, ax, plot_config, **kwargs):
         color = kwargs['color']
     else:
         color = 'b'
+    fene[fene==0.0] = np.nan
     ax.loglog(elog, fene, linewidth=2, color=color)
     ax.set_xlim(plot_config["xlim_e"])
     ax.set_ylim(plot_config["ylim_e"])
@@ -143,7 +145,8 @@ def plot_energy_distribution(elog, fene, ax, plot_config, **kwargs):
                     transform=ax.transAxes)
 
     ax.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=FONT, fontsize=24)
-    ax.set_ylabel(r'$f(p)p$', fontdict=FONT, fontsize=24)
+    # ax.set_ylabel(r'$f(p)p$', fontdict=FONT, fontsize=24)
+    ax.set_ylabel(r'$f(\varepsilon)$', fontdict=FONT, fontsize=24)
     ax.tick_params(labelsize=20)
 
     if kwargs["show_plot"]:
@@ -169,6 +172,7 @@ def plot_particle_distributions(tframe, ax1, ax2, plot_config, **kwargs):
     pinit = 0.1
     pmom = data[0:nbins] / pinit
     elog = pmom**2
+    print("Total number of particles: %d" % np.sum(data[nbins:]))
     fmom = data[nbins:] * pmom / np.gradient(pmom)
     fene = fmom / pmom**2
 
@@ -183,7 +187,7 @@ def momentum_energy_distributions(plot_config, power_test=True):
         plot_config: plotting configuration
         power_test: test for power-law fitting
     """
-    rect = [0.15, 0.15, 0.8, 0.8]
+    rect = [0.16, 0.15, 0.8, 0.8]
     fig1 = plt.figure(figsize=[7, 5])
     ax1 = fig1.add_axes(rect)
     fig2 = plt.figure(figsize=[7, 5])
@@ -201,8 +205,8 @@ def momentum_energy_distributions(plot_config, power_test=True):
         kwargs["color"] = color
         kwargs["plot_power"] = False if tframe < tmax - 1 else True
         plot_particle_distributions(tframe, ax1, ax2, plot_config, **kwargs)
-    fp_name = 'fp_time_1.eps'
-    fe_name = 'fe_time_1.eps'
+    fp_name = 'fp_time_1.pdf'
+    fe_name = 'fe_time_1.pdf'
 
     fig1.savefig(fdir + fp_name)
     fig2.savefig(fdir + fe_name)
@@ -308,7 +312,7 @@ def main():
     sde_run = args.sde_run
     run_name = mhd_run + "/" + sde_run
     power_test = args.power_test
-    with open('config/spectrum_config_10ta.json', 'r') as file_handler:
+    with open('config/spectrum_config_bg.json', 'r') as file_handler:
         config = json.load(file_handler)
     plot_config = config[run_name]
     if args.multi_bg:

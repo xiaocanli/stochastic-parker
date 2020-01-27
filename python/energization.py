@@ -185,11 +185,11 @@ def energization_multi(run_config):
     ax1.set_ylim([1E-4, 1E3])
     ax1.tick_params(labelsize=16)
     ax1.set_xlabel(r'$p/p_0$', fontdict=FONT, fontsize=20)
-    ax1.set_ylabel(r'$\left<dp/dt\right>$', fontdict=FONT, fontsize=20)
-    leg1 = ax1.legend(handles=p1s, loc=4, prop={'size': 20}, ncol=2,
+    ax1.set_ylabel(r'$\left<dp/d\tilde{t}\right>$', fontdict=FONT, fontsize=20)
+    leg1 = ax1.legend(handles=p1s, loc=4, prop={'size': 16}, ncol=2,
                       shadow=False, fancybox=False, frameon=False)
     ax1.add_artist(leg1)
-    leg2 = ax1.legend(handles=p2s, loc=2, prop={'size': 20}, ncol=2,
+    leg2 = ax1.legend(handles=p2s, loc=2, prop={'size': 16}, ncol=2,
                       shadow=False, fancybox=False, frameon=False)
 
     fdir = '../img/dpdt/'
@@ -211,7 +211,7 @@ def energization_multi(run_config):
     pindex = 1.36
     fpower = power_norms[-1] * norms_new**pindex
     power_index = "{%0.2f}" % pindex
-    tname = r'$\sim v_A^{' + power_index + '}$'
+    tname = r'$\sim (v_A/v_{A0})^{' + power_index + '}$'
     ax1.semilogx(norms_new, fpower, linewidth=2, color='k', label=tname)
     ax1.tick_params(labelsize=16)
     ax1.set_xlim([0.5, 50])
@@ -319,9 +319,9 @@ def energization_time_multi(run_config):
     ax2.tick_params(labelsize=16)
     ax2.set_xlabel(r'$t/\tau_A$', fontdict=FONT, fontsize=20)
     ax2.set_ylabel('Acceleration rate normalization', fontdict=FONT, fontsize=20)
-    leg1 = ax1.legend(handles=p1s, loc=4, prop={'size': 20}, ncol=2,
+    leg1 = ax1.legend(handles=p1s, loc=4, prop={'size': 16}, ncol=2,
                       shadow=False, fancybox=False, frameon=False)
-    leg2 = ax2.legend(handles=p2s, loc=1, prop={'size': 20}, ncol=2,
+    leg2 = ax2.legend(handles=p2s, loc=1, prop={'size': 16}, ncol=2,
                       shadow=False, fancybox=False, frameon=False)
 
     fdir = '../img/dpdt/'
@@ -371,10 +371,14 @@ def main():
                     "p000_b000_0003_100",
                     "p000_b000_001_100"]
         norms = [100.0/3, 10.0, 10.0/3, 1]
-        run_labels = [r"$\kappa=0.0003\kappa_0$",
-                      r"$\kappa=0.001\kappa_0$",
-                      r"$\kappa=0.003\kappa_0$",
-                      r"$\kappa=0.01\kappa_0$"]
+        # run_labels = [r"$\kappa=0.0003\kappa_0$",
+        #               r"$\kappa=0.001\kappa_0$",
+        #               r"$\kappa=0.003\kappa_0$",
+        #               r"$\kappa=0.01\kappa_0$"]
+        run_labels = [r"$v_A=10^4$ km/s",
+                      r"$v_A=3000$ km/s",
+                      r"$v_A=10^3$ km/s",
+                      r"$v_A=300$ km/s"]
         run_config = {"tmin": 40,
                       "tmax": args.tframe,
                       "mhd_run": mhd_run,
@@ -382,8 +386,8 @@ def main():
                       "sde_runs": sde_runs,
                       "norms": norms,
                       "run_labels": run_labels}
-        # energization_multi(run_config)
-        energization_time_multi(run_config)
+        energization_multi(run_config)
+        # energization_time_multi(run_config)
     else:
         energization(run_name, args.tframe)
 
