@@ -16,7 +16,8 @@ program stochastic
         init_tracked_particle_points, free_tracked_particle_points, &
         negative_particle_tags, save_tracked_particle_points, &
         inject_particles_at_shock, set_mpi_io_data_sizes, &
-        init_local_particle_distributions, free_local_particle_distributions
+        init_local_particle_distributions, free_local_particle_distributions, &
+        inject_particles_at_large_jz
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -33,12 +34,17 @@ program stochastic
     character(len=128) :: diagnostics_directory
     character(len=32) :: conf_file
     integer :: nptl_max, nptl
-    real(dp) :: start, finish, step1, step2, dt
+    real(dp) :: start, finish, step1, step2, dt, jz_min
+    real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax
+    real(dp), dimension(4) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
-    integer :: inject_at_shock  ! Inject particles at shock location
-    integer :: num_fine_steps   ! Number of the fine steps for diagnostics
+    integer :: inject_at_shock ! Inject particles at shock location
+    integer :: num_fine_steps  ! Number of the fine steps for diagnostics
+    integer :: inject_new_ptl  ! Whether to inject new particles every MHD step
+    integer :: inject_large_jz ! Whether to inject where jz is large
+    integer :: inject_part_box ! Whether to inject in part of the box
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -90,7 +96,23 @@ program stochastic
         call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
         call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
     else
-        call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
+        if (inject_large_jz) then
+            if (inject_part_box) then
+                part_box(1) = ptl_xmin
+                part_box(2) = ptl_ymin
+                part_box(3) = ptl_xmax
+                part_box(4) = ptl_ymax
+            else
+                part_box(1) = fconfig%xmin
+                part_box(2) = fconfig%ymin
+                part_box(3) = fconfig%xmax
+                part_box(4) = fconfig%ymax
+            endif
+            call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+                jz_min, part_box)
+        else
+            call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+        endif
     endif
 
     call cpu_time(step1)
@@ -131,6 +153,26 @@ program stochastic
         if (inject_at_shock == 1) then
             call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
             call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+        else
+            if (inject_new_ptl) then
+                if (inject_large_jz) then
+                    if (inject_part_box) then
+                        part_box(1) = ptl_xmin
+                        part_box(2) = ptl_ymin
+                        part_box(3) = ptl_xmax
+                        part_box(4) = ptl_ymax
+                    else
+                        part_box(1) = fconfig%xmin
+                        part_box(2) = fconfig%ymin
+                        part_box(3) = fconfig%xmax
+                        part_box(4) = fconfig%ymax
+                    endif
+                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+                        jz_min, part_box)
+                else
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+                endif
+            endif
         endif
         call cpu_time(step2)
         if (mpi_rank == master) then
@@ -180,6 +222,24 @@ program stochastic
             if (inject_at_shock == 1) then
                 call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
                 call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+            else
+                if (inject_large_jz) then
+                    if (inject_part_box) then
+                        part_box(1) = ptl_xmin
+                        part_box(2) = ptl_ymin
+                        part_box(3) = ptl_xmax
+                        part_box(4) = ptl_ymax
+                    else
+                        part_box(1) = fconfig%xmin
+                        part_box(2) = fconfig%ymin
+                        part_box(3) = fconfig%xmax
+                        part_box(4) = fconfig%ymax
+                    endif
+                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+                        jz_min, part_box)
+                else
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+                endif
             endif
             call cpu_time(step2)
             if (mpi_rank == master) then
@@ -236,7 +296,8 @@ program stochastic
                         '-wm whole_mhd_data -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
-                        '-cf conf_file -nf num_fine_steps'])
+                        '-in inject_new_ptl -ij inject_at_shock -cf conf_file '//&
+                        '-nf num_fine_steps'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -293,6 +354,38 @@ program stochastic
             help='whether to inject particles at shock', required=.false., &
             act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--inject_new_ptl', switch_ab='-in', &
+            help='whether to inject new particles every MHD step', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--inject_large_jz', switch_ab='-ij', &
+            help='whether to inject where jz is large', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--inject_part_box', switch_ab='-ip', &
+            help='whether to inject in a part of the box', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--jz_min', switch_ab='-jz', &
+            help='Minimum jz in regions to inject new particles', &
+            required=.false., def='100.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ptl_xmin', switch_ab='-xs', &
+            help='Minimum x of the region to inject new particles', &
+            required=.false., def='0.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ptl_xmax', switch_ab='-xe', &
+            help='Maximum x of the region to inject new particles', &
+            required=.false., def='1.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ptl_ymin', switch_ab='-ys', &
+            help='Minimum y of the region to inject new particles', &
+            required=.false., def='0.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ptl_ymax', switch_ab='-ye', &
+            help='Maximum y of the region to inject new particles', &
+            required=.false., def='1.0', act='store', error=error)
+        if (error/=0) stop
         call cli%add(switch='--conf_file', switch_ab='-cf', &
             help='Configuration file name', required=.false., &
             act='store', def='conf.dat', error=error)
@@ -333,6 +426,22 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-is', val=inject_at_shock, error=error)
         if (error/=0) stop
+        call cli%get(switch='-in', val=inject_new_ptl, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ij', val=inject_large_jz, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ip', val=inject_part_box, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-jz', val=jz_min, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-xs', val=ptl_xmin, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-xe', val=ptl_xmax, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ys', val=ptl_ymin, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ye', val=ptl_ymax, error=error)
+        if (error/=0) stop
         call cli%get(switch='-cf', val=conf_file, error=error)
         if (error/=0) stop
         call cli%get(switch='-nf', val=num_fine_steps, error=error)
@@ -368,6 +477,20 @@ program stochastic
             print '(A,I0)', 'Number of fine steps: ', num_fine_steps
             if (inject_at_shock) then
                 print '(A)', 'Inject particles at shock location'
+            endif
+            if (inject_new_ptl) then
+                print '(A)', 'Inject new particles at every MHD time step'
+            endif
+            if (inject_large_jz) then
+                print '(A)', 'Inject new particles where jz is large'
+                print '(A,E)', 'Minumum jz in regions to inject new particles', jz_min
+                if (inject_part_box) then
+                    print '(A)', 'Inject new particles in part of the simulation box'
+                    print '(A,E)', 'Minimum and maximum x of the region to inject new particles', &
+                        ptl_xmin, ptl_xmax
+                    print '(A,E)', 'Minimum and maximum y of the region to inject new particles', &
+                        ptl_ymin, ptl_ymax
+                endif
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
             if (local_dist) then

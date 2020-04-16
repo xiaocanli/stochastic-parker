@@ -16,7 +16,7 @@ module particle_module
         free_tracked_particle_points, negative_particle_tags, &
         save_tracked_particle_points, inject_particles_at_shock, &
         set_mpi_io_data_sizes, init_local_particle_distributions, &
-        free_local_particle_distributions
+        free_local_particle_distributions, inject_particles_at_large_jz
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -45,7 +45,8 @@ module particle_module
     integer :: nptl_old             !< Number of particles without receivers
     integer :: nptl_max             !< Maximum number of particles allowed
     integer :: nptl_new             !< Number of particles from splitting
-    real(dp) :: leak                !< Leaking particles considering weight
+    real(dp) :: leak                !< Leaking particles from boundary considering weight
+    real(dp) :: leak_negp           !< Leaking particles with negative momentum
 
     real(dp) :: kpara0              !< Normalization for kappa parallel
     real(dp) :: kret                !< The ratio of kpara to kperp
@@ -69,8 +70,8 @@ module particle_module
     integer :: nx, ny, npp, nreduce
     integer :: nx_mhd_reduced, ny_mhd_reduced
 
-    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3, f4
-    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum, f4_sum
+    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3, f4, f5
+    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum, f4_sum, f5_sum
     real(dp), allocatable, dimension(:) :: fp0, fp0_sum
     real(dp), allocatable, dimension(:) :: fdpdt, fdpdt_sum
     real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
@@ -137,6 +138,10 @@ module particle_module
 
         nsenders = 0
         nrecvers = 0
+
+        !< Leaked particles
+        leak = 0.0_dp
+        leak_negp = 0.0_dp
     end subroutine init_particles
 
     !---------------------------------------------------------------------------
@@ -204,7 +209,6 @@ module particle_module
         ymin = fconfig%ymin
         ymax = fconfig%ymax
 
-        nptl_current = 0
         do i = 1, nptl
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
@@ -224,7 +228,6 @@ module particle_module
             ptls(nptl_current)%count_flag = 1
             ptls(nptl_current)%tag = nptl_current
         enddo
-        leak = 0.0_dp
 
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles"
@@ -286,6 +289,86 @@ module particle_module
     end subroutine inject_particles_at_shock
 
     !---------------------------------------------------------------------------
+    !< Inject particles where current density jz is large
+    !< Note that this might not work if each MPI rank only handle part of the
+    !< MHD simulation, because jz is always close to 0 in some part of the MHD
+    !< simulations. Therefore, be smart on how to participate the simulation.
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  ct_mhd: MHD simulation time frame
+    !<  jz_min: the minimum jz
+    !<  part_box: box to inject particles
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, jz_min, part_box)
+        use simulation_setup_module, only: fconfig
+        use mpi_module, only: mpi_rank, master
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: gradf, interp_fields
+        use random_number_generator, only: unif_01, two_normals
+        implicit none
+        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        real(dp), intent(in) :: dt, jz_min
+        real(dp), intent(in), dimension(4) :: part_box
+        integer :: i, imod2, iy, ix
+        real(dp) :: xmin, ymin, xmax, ymax, dpy, shock_xpos
+        real(dp) :: xmin_box, ymin_box
+        real(dp) :: xtmp, ytmp, px, py, rx, ry, rt, jz
+        real(dp) :: dxm, dym, dby_dx, dbx_dy
+        real(dp), dimension(2) :: rands
+
+        xmin = part_box(1)
+        xmax = part_box(3)
+        ymin = part_box(2)
+        ymax = part_box(4)
+        xmin_box = fconfig%xmin
+        ymin_box = fconfig%ymin
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+
+        do i = 1, nptl
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            jz = 0.0_dp
+            do while (jz < jz_min)
+                xtmp = unif_01()*(xmax-xmin) + xmin
+                ytmp = unif_01()*(ymax-ymin) + ymin
+                ! Field interpolation parameters
+                px = (xtmp-xmin_box) / dxm
+                py = (ytmp-ymin_box) / dym
+                ix = floor(px) + 1
+                iy = floor(py) + 1
+                rx = px + 1 - ix
+                ry = py + 1 - iy
+                rt = 0.0_dp
+                call interp_fields(ix, iy, rx, ry, rt)
+                dbx_dy = gradf(5)
+                dby_dx = gradf(7)
+                jz = abs(dby_dx - dbx_dy)
+            enddo
+            ptls(nptl_current)%x = xtmp
+            ptls(nptl_current)%y = ytmp
+            if (dist_flag == 0) then
+                imod2 = mod(i, 2)
+                if (imod2 == 1) rands = two_normals()
+                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
+            else
+                ptls(nptl_current)%p = p0
+            endif
+            ptls(nptl_current)%weight = 1.0
+            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
+            ptls(nptl_current)%dt = dt
+            ptls(nptl_current)%split_times = 0
+            ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%tag = nptl_current
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles where jz is large"
+        endif
+    end subroutine inject_particles_at_large_jz
+
+    !---------------------------------------------------------------------------
     !< Particle mover in one cycle
     !< Args:
     !<  t0: the starting time
@@ -344,7 +427,7 @@ module particle_module
             ! Safe check
             if (ptl%p < 0.0 .and. ptl%count_flag /= 0) then
                 ptl%count_flag = 0
-                leak = leak + ptl%weight
+                leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
             endif
@@ -363,7 +446,7 @@ module particle_module
                     ! Check if particles are leaked or out of the local domain
                     if (ptl%p < 0.0) then
                         ptl%count_flag = 0
-                        leak = leak + ptl%weight
+                        leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
                     endif
@@ -437,7 +520,7 @@ module particle_module
                     endif
                     if (ptl%p < 0.0) then
                         ptl%count_flag = 0
-                        leak = leak + ptl%weight
+                        leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, ymin1, ymax1)
                     endif
@@ -526,7 +609,7 @@ module particle_module
             ptl = ptls(i)
             if (ptl%p < 0.0) then
                 ptl%count_flag = 0
-                leak = leak + ptl%weight
+                leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin, xmax, ymin, ymax)
             endif
@@ -717,7 +800,7 @@ module particle_module
 
         pnorm = 1.0_dp
         if (mag_dependency == 1) then
-            pnorm = pnorm * b0
+            pnorm = pnorm * ib1
         endif
         if (momentum_dependency == 1) then
             pnorm = pnorm * (ptl%p / p0)**pindex
@@ -727,14 +810,14 @@ module particle_module
         kperp = kpara * kret
 
         if (mag_dependency == 1) then
-            dkxx_dx = -kperp*db_dx*ib2 + (kperp-kpara)*db_dx*bx*bx*ib4 + &
-                2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib4
-            dkyy_dy = -kperp*db_dy*ib2 + (kperp-kpara)*db_dy*by*by*ib4 + &
-                2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib4
-            dkxy_dx = (kperp-kpara)*db_dx*bx*by*ib4 + (kpara-kperp) * &
-                ((dbx_dx*by+bx*dby_dx)*ib3 - 2.0*bx*by*db_dx*ib4)
-            dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib4 + (kpara-kperp) * &
-                ((dbx_dy*by+bx*dby_dy)*ib3 - 2.0*bx*by*db_dy*ib4)
+            dkxx_dx = -kperp*db_dx*ib1 + (kperp-kpara)*db_dx*bx*bx*ib3 + &
+                2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
+            dkyy_dy = -kperp*db_dy*ib1 + (kperp-kpara)*db_dy*by*by*ib3 + &
+                2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
+            dkxy_dx = (kperp-kpara)*db_dx*bx*by*ib3 + (kpara-kperp) * &
+                ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
+            dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib3 + (kpara-kperp) * &
+                ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
         else
             dkxx_dx = 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
             dkyy_dy = 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
@@ -1114,42 +1197,59 @@ module particle_module
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine quick_check(iframe, if_create_file, file_path)
-        use mpi_module, only: mpi_rank, master
+        use mpi_module
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
         character(*), intent(in) :: file_path
         real(dp) :: pdt_min, pdt_max, pdt_avg, ntot
-        integer :: i
+        real(dp) :: ntot_g, leak_g, leak_negp_g
+        integer :: i, nptl_current_g
         logical :: dir_e
 
         inquire(file='./data/.', exist=dir_e)
         if (.not. dir_e) then
             call system('mkdir -p ./data')
         endif
-        if (mpi_rank == master) then
-            ntot = 0.0_dp
-            pdt_min = 1.0_dp
-            pdt_max = 0.0_dp
-            pdt_avg = 0.0_dp
-            do i = 1, nptl_current
-                ntot = ntot + ptls(i)%weight
-                if (ptls(i)%dt < pdt_min) pdt_min = ptls(i)%dt
-                if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
-                pdt_avg = pdt_avg + ptls(i)%dt
-            enddo
+        ntot = 0.0_dp
+        pdt_min = 1.0_dp
+        pdt_max = 0.0_dp
+        pdt_avg = 0.0_dp
+        ntot_g = 0.0_dp
+        leak_g = 0.0_dp
+        leak_negp_g = 0.0_dp
+        nptl_current_g = 0
+        do i = 1, nptl_current
+            ntot = ntot + ptls(i)%weight
+            if (ptls(i)%dt < pdt_min) pdt_min = ptls(i)%dt
+            if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
+            pdt_avg = pdt_avg + ptls(i)%dt
+        enddo
+        if (nptl_current > 0) then
             pdt_avg = pdt_avg / nptl_current
+        else
+            pdt_avg = 0.0
+        endif
+        call MPI_REDUCE(ntot, ntot_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
+            master, MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(leak, leak_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
+            master, MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(leak_negp, leak_negp_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
+            master, MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(nptl_current, nptl_current_g, 1, MPI_INTEGER, MPI_SUM, &
+            master, MPI_COMM_WORLD, ierr)
+        if (mpi_rank == master) then
             if (if_create_file) then
                 open (17, file=trim(file_path)//'quick.dat', status='unknown')
                 write(17, "(A,A)") "iframe, nptl_current, nptl_new, ntot, ", &
-                    "leak, pdt_min, pdt_max, pdt_avg"
+                    "leak, leak_negp, pdt_min, pdt_max, pdt_avg"
             else
                 open (17, file=trim(file_path)//'quick.dat', status="old", &
                     position="append", action="write")
             endif
-            write(17, "(I4.4,A,I6.6,A,I6.6,A,5E13.6E2)") &
-                iframe, ' ', nptl_current, ' ', nptl_new, ' ', ntot, &
-                leak, pdt_min, pdt_max, pdt_avg
+            write(17, "(I4.4,A,I9.9,A,I6.6,A,6E13.6E2)") &
+                iframe, ' ', nptl_current_g, ' ', nptl_new, ' ', ntot_g, &
+                leak_g, leak_negp_g, pdt_min, pdt_max, pdt_avg
             close(17)
         endif
     end subroutine quick_check
@@ -1167,6 +1267,7 @@ module particle_module
         allocate(f2(nx, ny))
         allocate(f3(nx, ny))
         allocate(f4(nx, ny))
+        allocate(f5(nx, ny))
         allocate(fp0(npp))
         allocate(fp1(npp, nx))
         allocate(fp2(npp, ny))
@@ -1177,6 +1278,7 @@ module particle_module
         allocate(f2_sum(nx, ny))
         allocate(f3_sum(nx, ny))
         allocate(f4_sum(nx, ny))
+        allocate(f5_sum(nx, ny))
         allocate(fp0_sum(npp))
         allocate(fp1_sum(npp, nx))
         allocate(fp2_sum(npp, ny))
@@ -1228,6 +1330,7 @@ module particle_module
         f2 = 0.0_dp
         f3 = 0.0_dp
         f4 = 0.0_dp
+        f5 = 0.0_dp
         fp0 = 0.0_dp
         fp1 = 0.0_dp
         fp2 = 0.0_dp
@@ -1238,6 +1341,7 @@ module particle_module
         f2_sum = 0.0_dp
         f3_sum = 0.0_dp
         f4_sum = 0.0_dp
+        f5_sum = 0.0_dp
         fp0_sum = 0.0_dp
         fp1_sum = 0.0_dp
         fp2_sum = 0.0_dp
@@ -1263,8 +1367,8 @@ module particle_module
     subroutine free_particle_distributions
         use mpi_module, only: mpi_rank, master
         implicit none
-        deallocate(f0, f1, f2, f3, f4, fp0, fp1, fp2)
-        deallocate(f0_sum, f1_sum, f2_sum, f3_sum, f4_sum)
+        deallocate(f0, f1, f2, f3, f4, f5, fp0, fp1, fp2)
+        deallocate(f0_sum, f1_sum, f2_sum, f3_sum, f4_sum, f5_sum)
         deallocate(fp0_sum, fp1_sum, fp2_sum)
         deallocate(fdpdt, fdpdt_sum)
         deallocate(fnptl, fnptl_sum)
@@ -1365,8 +1469,10 @@ module particle_module
                     f2(ix,iy) = f2(ix,iy) + weight
                 else if (p > 3.0*p0 .and. p <= 6.0*p0) then
                     f3(ix,iy) = f3(ix,iy) + weight
-                else
+                else if (p > 6.0*p0 .and. p <= 12.0*p0) then
                     f4(ix,iy) = f4(ix,iy) + weight
+                else
+                    f5(ix,iy) = f5(ix,iy) + weight
                 endif
             endif
 
@@ -1403,6 +1509,8 @@ module particle_module
             call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
                 MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(f4, f4_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
+                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(f5, f5_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
                 MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
                 MPI_COMM_WORLD, ierr)
@@ -1507,6 +1615,8 @@ module particle_module
                 write(fh, pos=pos1) f3_sum
                 pos1 = pos1 + nx * ny * sizeof(1.0_dp)
                 write(fh, pos=pos1) f4_sum
+                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
+                write(fh, pos=pos1) f5_sum
                 close(fh)
 
                 if (local_dist) then
@@ -1570,6 +1680,8 @@ module particle_module
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f3)
             disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f4)
+            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f5)
             call MPI_FILE_CLOSE(fh, ierror)
 
             if (local_dist) then
