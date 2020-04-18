@@ -16,7 +16,8 @@ module particle_module
         free_tracked_particle_points, negative_particle_tags, &
         save_tracked_particle_points, inject_particles_at_shock, &
         set_mpi_io_data_sizes, init_local_particle_distributions, &
-        free_local_particle_distributions, inject_particles_at_large_jz
+        free_local_particle_distributions, inject_particles_at_large_jz, &
+        set_dpp_params
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -87,6 +88,10 @@ module particle_module
     integer, dimension(2) :: sizes_fxy, subsizes_fxy, starts_fxy
     integer, dimension(3) :: sizes_fp_local, subsizes_fp_local, starts_fp_local
 
+    !< Momentum diffusion
+    logical :: dpp_wave_flag, dpp_shear_flag
+    real(dp) :: dpp0
+
     contains
 
     !---------------------------------------------------------------------------
@@ -151,6 +156,24 @@ module particle_module
         implicit none
         deallocate(ptls, senders, recvers)
     end subroutine free_particles
+
+    !---------------------------------------------------------------------------
+    !< Set parameters for momentum diffusion
+    !< Args:
+    !<  dpp_wave(integer): flag for momentum diffusion due to wave scattering
+    !<  dpp_shear(integer): flag for momentum diffusion due to flow shear
+    !<  dpp0: normalization for Dpp due to wave scattering (v_A^2/kappa_0)
+    !---------------------------------------------------------------------------
+    subroutine set_dpp_params(dpp_wave, dpp_shear, dpp0_wave)
+        implicit none
+        integer, intent(in) :: dpp_wave, dpp_shear
+        real(dp), intent(in) :: dpp0_wave
+        dpp_wave_flag = .false.
+        dpp_shear_flag = .false.
+        if (dpp_wave) dpp_wave_flag = .true.
+        if (dpp_shear) dpp_shear_flag = .true.
+        dpp0 = dpp0_wave
+    end subroutine set_dpp_params
 
     !---------------------------------------------------------------------------
     !< Set MPI datatype for particle type
@@ -343,8 +366,8 @@ module particle_module
                 ry = py + 1 - iy
                 rt = 0.0_dp
                 call interp_fields(ix, iy, rx, ry, rt)
-                dbx_dy = gradf(5)
-                dby_dx = gradf(7)
+                dbx_dy = gradf(11)
+                dby_dx = gradf(13)
                 jz = abs(dby_dx - dbx_dy)
             enddo
             ptls(nptl_current)%x = xtmp
@@ -783,12 +806,12 @@ module particle_module
         bx = fields(5)
         by = fields(6)
         b = fields(8)
-        dbx_dx = gradf(4)
-        dbx_dy = gradf(5)
-        dby_dx = gradf(7)
-        dby_dy = gradf(8)
-        db_dx = gradf(13)
-        db_dy = gradf(14)
+        dbx_dx = gradf(10)
+        dbx_dy = gradf(11)
+        dby_dx = gradf(13)
+        dby_dy = gradf(14)
+        db_dx = gradf(19)
+        db_dy = gradf(20)
         if (b == 0) then
             ib1 = 0.0
         else
@@ -1024,6 +1047,7 @@ module particle_module
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
         reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
         real(dp) :: ran1, ran2, ran3, sqrt3
+        real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
         integer :: ix, iy
 
@@ -1033,7 +1057,7 @@ module particle_module
         by = fields(6)
         b = fields(8)
         dvx_dx = gradf(1)
-        dvy_dy = gradf(2)
+        dvy_dy = gradf(5)
         xmin = fconfig%xmin
         ymin = fconfig%ymin
         xmax = fconfig%xmax
@@ -1064,7 +1088,6 @@ module particle_module
         ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
         deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
         deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
-        deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
         ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
@@ -1120,8 +1143,22 @@ module particle_module
 
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
-        ptl%p = ptl%p + deltap
         ptl%t = ptl%t + ptl%dt
+
+        ! Momentum
+        deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
+        if (dpp_wave_flag) then
+            rho = fields(4)
+            va = b / dsqrt(rho)
+            if (momentum_dependency) then
+                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0 * va**2 * ptl%dt
+            else
+                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0 * va**2 * ptl%dt
+            endif
+            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0/(9*kpara)) * sdt
+        endif
+        ptl%p = ptl%p + deltap
     end subroutine push_particle
 
     !---------------------------------------------------------------------------
@@ -1421,7 +1458,7 @@ module particle_module
             ry = py + 1 - iy
             call interp_fields(ix, iy, rx, ry, rt)
             dvx_dx = gradf(1)
-            dvy_dy = gradf(2)
+            dvy_dy = gradf(5)
 
             fnptl(ip) = fnptl(ip) + ptl%weight
             fdpdt(ip) = fdpdt(ip) - ptl%p * (dvx_dx + dvy_dy) / 3.0d0 * ptl%weight

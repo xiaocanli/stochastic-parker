@@ -17,7 +17,7 @@ program stochastic
         negative_particle_tags, save_tracked_particle_points, &
         inject_particles_at_shock, set_mpi_io_data_sizes, &
         init_local_particle_distributions, free_local_particle_distributions, &
-        inject_particles_at_large_jz
+        inject_particles_at_large_jz, set_dpp_params
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -36,6 +36,7 @@ program stochastic
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax
+    real(dp) :: dpp0_wave     ! Normalization for Dpp by wave scattering
     real(dp), dimension(4) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz, local_dist
@@ -45,6 +46,8 @@ program stochastic
     integer :: inject_new_ptl  ! Whether to inject new particles every MHD step
     integer :: inject_large_jz ! Whether to inject where jz is large
     integer :: inject_part_box ! Whether to inject in part of the box
+    integer :: dpp_wave        ! Whether to include momentum diffusion due to wave scattering
+    integer :: dpp_shear       ! Whether to include momentum diffusion due to flow shear
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -74,6 +77,7 @@ program stochastic
     call init_field_data(interp_flag, nx, ny, nz, ndim=2)
     call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
     call read_particle_params(conf_file)
+    call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave)
 
     call init_particles(nptl_max)
     call init_particle_distributions
@@ -398,6 +402,18 @@ program stochastic
             help='whether to diagnose local distribution', required=.false., &
             act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--dpp_wave', switch_ab='-dw', &
+            help='whether to include momentum diffusion due to waves', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--dpp_shear', switch_ab='-ds', &
+            help='whether to include momentum diffusion due to flow shear', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--dpp0_wave', switch_ab='-d0', &
+            help='Normalization for Dpp by wave scattering', &
+            required=.false., def='1E-2', act='store', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -448,6 +464,12 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ld', val=local_dist, error=error)
         if (error/=0) stop
+        call cli%get(switch='-dw', val=dpp_wave, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ds', val=dpp_shear, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-d0', val=dpp0_wave, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -486,11 +508,18 @@ program stochastic
                 print '(A,E)', 'Minumum jz in regions to inject new particles', jz_min
                 if (inject_part_box) then
                     print '(A)', 'Inject new particles in part of the simulation box'
-                    print '(A,E)', 'Minimum and maximum x of the region to inject new particles', &
+                    print '(A,E,E)', 'Minimum and maximum x of the region to inject new particles', &
                         ptl_xmin, ptl_xmax
-                    print '(A,E)', 'Minimum and maximum y of the region to inject new particles', &
+                    print '(A,E,E)', 'Minimum and maximum y of the region to inject new particles', &
                         ptl_ymin, ptl_ymax
                 endif
+            endif
+            if (dpp_wave) then
+                print '(A)', 'Include momentum diffusion due to wave scattering'
+                print '(A,E)', 'Normalization for Dpp by wave scattering', dpp0_wave
+            endif
+            if (dpp_shear) then
+                print '(A)', 'Include momentum diffusion due to flow shear'
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
             if (local_dist) then
