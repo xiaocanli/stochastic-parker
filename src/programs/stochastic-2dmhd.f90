@@ -17,12 +17,19 @@ program stochastic
         negative_particle_tags, save_tracked_particle_points, &
         inject_particles_at_shock, set_mpi_io_data_sizes, &
         init_local_particle_distributions, free_local_particle_distributions, &
-        inject_particles_at_large_jz, set_dpp_params
+        inject_particles_at_large_jz, set_dpp_params, set_flags_params
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
         calc_fields_gradients, copy_fields, init_shock_xpos, free_shock_xpos, &
-        locate_shock_xpos
+        locate_shock_xpos, init_magnetic_fluctuation, free_magnetic_fluctuation, &
+        read_magnetic_fluctuation, copy_magnetic_fluctuation, &
+        init_correlation_length, free_correlation_length, &
+        read_correlation_length, copy_correlation_length, &
+        init_gradient_magnetic_fluctuation, free_gradient_magnetic_fluctuation, &
+        calc_gradient_magnetic_fluctuation, init_gradient_correlation_length, &
+        free_gradient_correlation_length, calc_gradient_correlation_length
+
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors
@@ -37,17 +44,21 @@ program stochastic
     real(dp) :: start, finish, step1, step2, dt, jz_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax
     real(dp) :: dpp0_wave     ! Normalization for Dpp by wave scattering
+    real(dp) :: dpp0_shear    ! Normalization for Dpp by flow shear
+    real(dp) :: lc0           ! Normalization for turbulence correlation length
     real(dp), dimension(4) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, nx, ny, nz, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
-    integer :: inject_at_shock ! Inject particles at shock location
-    integer :: num_fine_steps  ! Number of the fine steps for diagnostics
-    integer :: inject_new_ptl  ! Whether to inject new particles every MHD step
-    integer :: inject_large_jz ! Whether to inject where jz is large
-    integer :: inject_part_box ! Whether to inject in part of the box
-    integer :: dpp_wave        ! Whether to include momentum diffusion due to wave scattering
-    integer :: dpp_shear       ! Whether to include momentum diffusion due to flow shear
+    integer :: inject_at_shock  ! Inject particles at shock location
+    integer :: num_fine_steps   ! Number of the fine steps for diagnostics
+    integer :: inject_new_ptl   ! Whether to inject new particles every MHD step
+    integer :: inject_large_jz  ! Whether to inject where jz is large
+    integer :: inject_part_box  ! Whether to inject in part of the box
+    integer :: dpp_wave         ! Whether to include momentum diffusion due to wave scattering
+    integer :: dpp_shear        ! Whether to include momentum diffusion due to flow shear
+    integer :: deltab_flag      ! Whether to include spatially dependent magnetic fluctuation
+    integer :: correlation_flag ! Whether to include turbulence correlation length
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -76,8 +87,17 @@ program stochastic
     nz = fconfig%nz
     call init_field_data(interp_flag, nx, ny, nz, ndim=2)
     call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
+    if (deltab_flag) then
+        call init_magnetic_fluctuation(interp_flag, nx, ny, nz, ndim=2)
+        call init_gradient_magnetic_fluctuation(interp_flag, nx, ny, nz, ndim=2)
+    endif
+    if (correlation_flag) then
+        call init_correlation_length(interp_flag, nx, ny, nz, ndim=2)
+        call init_gradient_correlation_length(interp_flag, nx, ny, nz, ndim=2)
+    endif
     call read_particle_params(conf_file)
-    call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave)
+    call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
+    call set_flags_params(deltab_flag, correlation_flag, lc0)
 
     call init_particles(nptl_max)
     call init_particle_distributions
@@ -90,9 +110,29 @@ program stochastic
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
     call read_field_data_parallel(fname1, var_flag=0)
     call read_field_data_parallel(fname2, var_flag=1)
+    if (deltab_flag) then
+        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
+        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
+        call read_magnetic_fluctuation(fname1, var_flag=0)
+        call read_magnetic_fluctuation(fname2, var_flag=1)
+    endif
+    if (correlation_flag) then
+        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
+        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
+        call read_correlation_length(fname1, var_flag=0)
+        call read_correlation_length(fname2, var_flag=1)
+    endif
 
     call calc_fields_gradients(var_flag=0)
     call calc_fields_gradients(var_flag=1)
+    if (deltab_flag) then
+        call calc_gradient_magnetic_fluctuation(var_flag=0)
+        call calc_gradient_magnetic_fluctuation(var_flag=1)
+    endif
+    if (correlation_flag) then
+        call calc_gradient_correlation_length(var_flag=0)
+        call calc_gradient_correlation_length(var_flag=1)
+    endif
 
     ! Whether it is a shock problem
     if (inject_at_shock == 1) then
@@ -112,10 +152,10 @@ program stochastic
                 part_box(3) = fconfig%xmax
                 part_box(4) = fconfig%ymax
             endif
-            call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+            call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
                 jz_min, part_box)
         else
-            call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
         endif
     endif
 
@@ -146,17 +186,37 @@ program stochastic
             write(*, "(A)") " Finishing distribution diagnostics "
         endif
         call copy_fields
+        if (deltab_flag) then
+            call copy_magnetic_fluctuation
+        endif
+        if (correlation_flag) then
+            call copy_correlation_length
+        endif
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing copying fields "
         endif
         if (tf < t_end) then
             write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
             call read_field_data_parallel(fname2, var_flag=1)
+            if (deltab_flag) then
+                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
+                call read_magnetic_fluctuation(fname2, var_flag=1)
+            endif
+            if (correlation_flag) then
+                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
+                call read_correlation_length(fname2, var_flag=1)
+            endif
             call calc_fields_gradients(var_flag=1)
+            if (deltab_flag) then
+                call calc_gradient_magnetic_fluctuation(var_flag=1)
+            endif
+            if (correlation_flag) then
+                call calc_gradient_correlation_length(var_flag=1)
+            endif
         endif
         if (inject_at_shock == 1) then
             call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
-            call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+            call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
         else
             if (inject_new_ptl) then
                 if (inject_large_jz) then
@@ -171,10 +231,10 @@ program stochastic
                         part_box(3) = fconfig%xmax
                         part_box(4) = fconfig%ymax
                     endif
-                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1)
                 endif
             endif
         endif
@@ -198,7 +258,23 @@ program stochastic
             call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
             call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
         else
-            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
+            if (inject_large_jz) then
+                if (inject_part_box) then
+                    part_box(1) = ptl_xmin
+                    part_box(2) = ptl_ymin
+                    part_box(3) = ptl_xmax
+                    part_box(4) = ptl_ymax
+                else
+                    part_box(1) = fconfig%xmin
+                    part_box(2) = fconfig%ymin
+                    part_box(3) = fconfig%xmax
+                    part_box(4) = fconfig%ymax
+                endif
+                call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
+                    jz_min, part_box)
+            else
+                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
+            endif
         endif
 
         call init_tracked_particle_points(nptl_selected)
@@ -208,9 +284,29 @@ program stochastic
         write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
         call read_field_data_parallel(fname1, var_flag=0)
         call read_field_data_parallel(fname2, var_flag=1)
+        if (deltab_flag) then
+            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
+            call read_magnetic_fluctuation(fname1, var_flag=0)
+            call read_magnetic_fluctuation(fname2, var_flag=1)
+        endif
+        if (correlation_flag) then
+            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
+            call read_correlation_length(fname1, var_flag=0)
+            call read_correlation_length(fname2, var_flag=1)
+        endif
 
         call calc_fields_gradients(var_flag=0)
         call calc_fields_gradients(var_flag=1)
+        if (deltab_flag) then
+            call calc_gradient_magnetic_fluctuation(var_flag=0)
+            call calc_gradient_magnetic_fluctuation(var_flag=1)
+        endif
+        if (correlation_flag) then
+            call calc_gradient_correlation_length(var_flag=0)
+            call calc_gradient_correlation_length(var_flag=1)
+        endif
         !< Time loop
         do tf = t_start, t_end
             call particle_mover(1, nptl_selected, nsteps_interval, tf, 1)
@@ -218,14 +314,34 @@ program stochastic
                 call split_particle
             endif
             call copy_fields
+            if (deltab_flag) then
+                call copy_magnetic_fluctuation
+            endif
+            if (correlation_flag) then
+                call copy_correlation_length
+            endif
             if (tf < t_end) then
                 write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
                 call read_field_data_parallel(fname2, var_flag=1)
                 call calc_fields_gradients(var_flag=1)
+                if (deltab_flag) then
+                    call calc_gradient_magnetic_fluctuation(var_flag=1)
+                endif
+                if (correlation_flag) then
+                    call calc_gradient_correlation_length(var_flag=1)
+                endif
+                if (deltab_flag) then
+                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
+                    call read_magnetic_fluctuation(fname2, var_flag=1)
+                endif
+                if (correlation_flag) then
+                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
+                    call read_correlation_length(fname2, var_flag=1)
+                endif
             endif
             if (inject_at_shock == 1) then
                 call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
-                call inject_particles_at_shock(nptl, dt, dist_flag, tf)
+                call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
             else
                 if (inject_large_jz) then
                     if (inject_part_box) then
@@ -239,10 +355,10 @@ program stochastic
                         part_box(3) = fconfig%xmax
                         part_box(4) = fconfig%ymax
                     endif
-                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf, &
+                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf)
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1)
                 endif
             endif
             call cpu_time(step2)
@@ -268,7 +384,19 @@ program stochastic
     endif
     call free_particles
     call free_fields_gradients(interp_flag)
+    if (deltab_flag) then
+        call free_gradient_magnetic_fluctuation(interp_flag)
+    endif
+    if (correlation_flag) then
+        call free_gradient_correlation_length(interp_flag)
+    endif
     call free_field_data(interp_flag)
+    if (deltab_flag) then
+        call free_magnetic_fluctuation(interp_flag)
+    endif
+    if (correlation_flag) then
+        call free_correlation_length(interp_flag)
+    endif
 
     call cpu_time(finish)
     if (mpi_rank == master) then
@@ -300,8 +428,12 @@ program stochastic
                         '-wm whole_mhd_data -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
-                        '-in inject_new_ptl -ij inject_at_shock -cf conf_file '//&
-                        '-nf num_fine_steps'])
+                        '-in inject_new_ptl -ij inject_at_shock '//&
+                        '-ip inject_part_box -xs ptl_xmin -xe ptl_xmax '//&
+                        '-ys ptl_ymin -ye ptl_ymax -cf conf_file '//&
+                        '-nf num_fine_steps -dw dpp_wave -ds dpp_shear '//&
+                        '-d0 dpp0_wave -d1 dpp0_shear -db deltab_flag '//&
+                        '-co correlation_flag -lc lc0'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -414,6 +546,22 @@ program stochastic
             help='Normalization for Dpp by wave scattering', &
             required=.false., def='1E-2', act='store', error=error)
         if (error/=0) stop
+        call cli%add(switch='--dpp0_shear', switch_ab='-d1', &
+            help='Normalization for Dpp by flow shear', &
+            required=.false., def='1.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--deltab_flag', switch_ab='-db', &
+            help='whether to include spatially dependent magnetic fluctuation', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--correlation', switch_ab='-co', &
+            help='whether to include turbulence correlation lenght', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--lc0', switch_ab='-lc', &
+            help='Normalization for turbulence correlation length (km)', &
+            required=.false., def='5E3', act='store', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -470,6 +618,14 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-d0', val=dpp0_wave, error=error)
         if (error/=0) stop
+        call cli%get(switch='-d1', val=dpp0_shear, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-db', val=deltab_flag, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-co', val=correlation_flag, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-lc', val=lc0, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -520,10 +676,18 @@ program stochastic
             endif
             if (dpp_shear) then
                 print '(A)', 'Include momentum diffusion due to flow shear'
+                print '(A,E)', 'Normalization for Dpp by wave scattering', dpp0_shear
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
             if (local_dist) then
                 print '(A)', 'Simulation will diagnose local particle distribution'
+            endif
+            if (deltab_flag) then
+                print '(A)', 'Including spatially dependent magnetic fluctuation'
+            endif
+            if (correlation_flag) then
+                print '(A)', 'Include spatially dependent turbulence correlation length'
+                print '(A,E)', 'Normalization for turbulence correlation length', lc0
             endif
         endif
     end subroutine get_cmd_args

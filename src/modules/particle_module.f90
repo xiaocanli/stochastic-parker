@@ -17,7 +17,7 @@ module particle_module
         save_tracked_particle_points, inject_particles_at_shock, &
         set_mpi_io_data_sizes, init_local_particle_distributions, &
         free_local_particle_distributions, inject_particles_at_large_jz, &
-        set_dpp_params
+        set_dpp_params, set_flags_params
 
     type particle_type
         real(dp) :: x, y, p         !< Position and momentum
@@ -90,7 +90,11 @@ module particle_module
 
     !< Momentum diffusion
     logical :: dpp_wave_flag, dpp_shear_flag
-    real(dp) :: dpp0
+    real(dp) :: dpp0_wave, dpp0_shear
+
+    ! Other flags and parameters
+    logical :: deltab_flag, correlation_flag
+    real(dp) :: lc0 ! Normalization for turbulence correlation length
 
     contains
 
@@ -160,20 +164,40 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Set parameters for momentum diffusion
     !< Args:
-    !<  dpp_wave(integer): flag for momentum diffusion due to wave scattering
-    !<  dpp_shear(integer): flag for momentum diffusion due to flow shear
-    !<  dpp0: normalization for Dpp due to wave scattering (v_A^2/kappa_0)
+    !<  dpp_wave_int(integer): flag for momentum diffusion due to wave scattering
+    !<  dpp_shear_int(integer): flag for momentum diffusion due to flow shear
+    !<  dpp1: normalization for Dpp due to wave scattering (v_A^2/kappa_0)
+    !<  dpp2: normalization for Dpp due to flow shear (\tau_0p_0^2)
     !---------------------------------------------------------------------------
-    subroutine set_dpp_params(dpp_wave, dpp_shear, dpp0_wave)
+    subroutine set_dpp_params(dpp_wave_int, dpp_shear_int, dpp1, dpp2)
         implicit none
-        integer, intent(in) :: dpp_wave, dpp_shear
-        real(dp), intent(in) :: dpp0_wave
+        integer, intent(in) :: dpp_wave_int, dpp_shear_int
+        real(dp), intent(in) :: dpp1, dpp2
         dpp_wave_flag = .false.
         dpp_shear_flag = .false.
-        if (dpp_wave) dpp_wave_flag = .true.
-        if (dpp_shear) dpp_shear_flag = .true.
-        dpp0 = dpp0_wave
+        if (dpp_wave_int) dpp_wave_flag = .true.
+        if (dpp_shear_int) dpp_shear_flag = .true.
+        dpp0_wave = dpp1
+        dpp0_shear = dpp2
     end subroutine set_dpp_params
+
+    !---------------------------------------------------------------------------
+    !< Set other flags and parameters
+    !< Args:
+    !<  deltab_flag_int(integer): flag for magnetic fluctuation
+    !<  correlation_flag_int(integer): flag for turbulence correlation length
+    !<  lc0_in(real8): normalization for turbulence correlation length
+    !---------------------------------------------------------------------------
+    subroutine set_flags_params(deltab_flag_int, correlation_flag_int, lc0_in)
+        implicit none
+        integer, intent(in) :: deltab_flag_int, correlation_flag_int
+        real(dp), intent(in) :: lc0_in
+        deltab_flag = .false.
+        correlation_flag = .false.
+        if (deltab_flag_int) deltab_flag = .true.
+        if (correlation_flag_int) correlation_flag = .true.
+        lc0 = lc0_in
+    end subroutine set_flags_params
 
     !---------------------------------------------------------------------------
     !< Set MPI datatype for particle type
@@ -404,7 +428,8 @@ module particle_module
             nsteps_interval, num_fine_steps)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: interp_fields
+        use mhd_data_parallel, only: interp_fields, interp_magnetic_fluctuation, &
+            interp_correlation_length
         use mpi_module
         implicit none
         real(dp), intent(in) :: t0
@@ -488,6 +513,12 @@ module particle_module
                     rt1 = 1.0_dp - rt
 
                     call interp_fields(ix, iy, rx, ry, rt)
+                    if (deltab_flag) then
+                        call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+                    endif
+                    if (correlation_flag) then
+                        call interp_correlation_length(ix, iy, rx, ry, rt)
+                    endif
                     call calc_spatial_diffusion_coefficients
                     call set_time_step(t0, dt_target)
                     call push_particle(rt, deltax, deltay, deltap)
@@ -527,6 +558,12 @@ module particle_module
                         rt1 = 1.0_dp - rt
 
                         call interp_fields(ix, iy, rx, ry, rt)
+                        if (deltab_flag) then
+                            call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+                        endif
+                        if (correlation_flag) then
+                            call interp_correlation_length(ix, iy, rx, ry, rt)
+                        endif
                         call calc_spatial_diffusion_coefficients
                         call push_particle(rt, deltax, deltay, deltap)
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
@@ -797,11 +834,12 @@ module particle_module
     !< Calculate the spatial diffusion coefficients
     !---------------------------------------------------------------------------
     subroutine calc_spatial_diffusion_coefficients
-        use mhd_data_parallel, only: fields, gradf
+        use mhd_data_parallel, only: fields, gradf, db2, lc, grad_db, grad_lc
         implicit none
         real(dp) :: pnorm
         real(dp) :: bx, by, b, ib1, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbx_dy, dby_dy, db_dx, db_dy
+        real(dp) :: dkdx, dkdy
 
         bx = fields(5)
         by = fields(6)
@@ -813,7 +851,7 @@ module particle_module
         db_dx = gradf(19)
         db_dy = gradf(20)
         if (b == 0) then
-            ib1 = 0.0
+            ib1 = 1.0
         else
             ib1 = 1.0_dp / b
         endif
@@ -823,30 +861,54 @@ module particle_module
 
         pnorm = 1.0_dp
         if (mag_dependency == 1) then
-            pnorm = pnorm * ib1
+            pnorm = pnorm * ib1**(1./3.)
         endif
         if (momentum_dependency == 1) then
             pnorm = pnorm * (ptl%p / p0)**pindex
         endif
 
+        ! Magnetic fluctuation dB^2/B^2
+        if (deltab_flag) then
+            pnorm = pnorm / db2
+        endif
+
+        ! Turbulence correlation length
+        if (correlation_flag) then
+            pnorm = pnorm * (lc/lc0)**(2./3.)
+        endif
+
         kpara = kpara0 * pnorm
         kperp = kpara * kret
 
+        ! if (mag_dependency == 1) then
+        !     dkxx_dx = -kperp*db_dx*ib1 + (kperp-kpara)*db_dx*bx*bx*ib3 + &
+        !         2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
+        !     dkyy_dy = -kperp*db_dy*ib1 + (kperp-kpara)*db_dy*by*by*ib3 + &
+        !         2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
+        !     dkxy_dx = (kperp-kpara)*db_dx*bx*by*ib3 + (kpara-kperp) * &
+        !         ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
+        !     dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib3 + (kpara-kperp) * &
+        !         ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
+        ! else
+        !     dkxx_dx = 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
+        !     dkyy_dy = 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
+        !     dkxy_dx = (kpara-kperp) * ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
+        !     dkxy_dy = (kpara-kperp) * ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
+        ! endif
+        dkdx = 2 * grad_lc(1) / (3 * lc) - grad_db(1) / db2
+        dkdy = 2 * grad_lc(2) / (3 * lc) - grad_db(2) / db2
         if (mag_dependency == 1) then
-            dkxx_dx = -kperp*db_dx*ib1 + (kperp-kpara)*db_dx*bx*bx*ib3 + &
-                2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
-            dkyy_dy = -kperp*db_dy*ib1 + (kperp-kpara)*db_dy*by*by*ib3 + &
-                2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
-            dkxy_dx = (kperp-kpara)*db_dx*bx*by*ib3 + (kpara-kperp) * &
-                ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
-            dkxy_dy = (kperp-kpara)*db_dy*bx*by*ib3 + (kpara-kperp) * &
-                ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
-        else
-            dkxx_dx = 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
-            dkyy_dy = 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
-            dkxy_dx = (kpara-kperp) * ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
-            dkxy_dy = (kpara-kperp) * ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
+            dkdx = dkdx - db_dx * ib1 / 3
+            dkdy = dkdy - db_dx * ib1 / 3
         endif
+        dkxx_dx = kperp*dkdx + (kpara+kperp)*dkdx*bx**2*ib2 + &
+            2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
+        dkyy_dy = kperp*dkdy + (kpara-kperp)*dkdy*by**2*ib2 + &
+            2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
+        dkxy_dx = (kpara-kperp)*dkdx*bx*by*ib2 + (kpara-kperp) * &
+            ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
+        dkxy_dy = (kpara-kperp)*dkdy*bx*by*ib2 + (kpara-kperp) * &
+            ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
     end subroutine calc_spatial_diffusion_coefficients
 
     !---------------------------------------------------------------------------
@@ -1035,13 +1097,14 @@ module particle_module
     subroutine push_particle(rt, deltax, deltay, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: fields, gradf, interp_fields
+        use mhd_data_parallel, only: fields, gradf, interp_fields, &
+            interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: rt
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp) :: xtmp, ytmp
-        real(dp) :: sdt, dvx_dx, dvy_dy
+        real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv, gshear
         real(dp) :: bx, by, b, vx, vy, px, py, rx, ry, rt1, ib
         real(dp) :: bx1, by1, b1, ib1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym, skperp1, skpara_perp1
@@ -1116,6 +1179,12 @@ module particle_module
             ry = py + 1 - iy
             rt1 = 1.0_dp - rt
             call interp_fields(ix, iy, rx, ry, rt)
+            if (deltab_flag) then
+                call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+            endif
+            if (correlation_flag) then
+                call interp_correlation_length(ix, iy, rx, ry, rt)
+            endif
 
             call calc_spatial_diffusion_coefficients
 
@@ -1146,18 +1215,31 @@ module particle_module
         ptl%t = ptl%t + ptl%dt
 
         ! Momentum
-        deltap = -ptl%p * (dvx_dx+dvy_dy) * ptl%dt / 3.0d0
+        divv = dvx_dx + dvy_dy
+        deltap = -ptl%p * divv * ptl%dt / 3.0d0
+        ! Momentum diffusion due to wave scattering
         if (dpp_wave_flag) then
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0 * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0 * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
             endif
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
         endif
+
+        ! Momentum diffusion due to flow shear
+        if (dpp_shear_flag) then
+            dvx_dy = gradf(2)
+            dvy_dx = gradf(4)
+            gshear = (2*(dvx_dy+dvy_dx)**2 + 4*(dvx_dx**2+dvy_dy**2))/30 - 2*divv**2/45
+            deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
+            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
+        endif
+
         ptl%p = ptl%p + deltap
     end subroutine push_particle
 
