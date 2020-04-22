@@ -1,5 +1,5 @@
 # States that CMake required version must be greater than 2.6
-cmake_minimum_required(VERSION 2.6) 
+cmake_minimum_required(VERSION 2.6)
 project("stochastic integration")
 
 enable_language (Fortran)
@@ -13,17 +13,22 @@ link_directories(${MPI_Fortran_LIBRARIES})
 get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} NAME)
 include(cmake/submodules.cmake)
 
-# set(HDF5_USE_STATIC_LIBRARIES ON)
-# find_package(HDF5 COMPONENTS Fortran REQUIRED)
-# #find_path(HDF5_INCLUDE include/hdf5.mod HINTS ${HDF5_ROOT})
-# add_definitions(${HDF5_DEFINITIONS})
-# if(DEFINED ENV{HDF5_INCL})
-#     include_directories($ENV{HDF5_INCL})
-# elseif(DEFINED ENV{TACC_HDF5_INC})
-#     include_directories($ENV{TACC_HDF5_INC})
-# endif()
-# link_directories(${HDF5_Fortran_LIBRARIES})
-# MESSAGE(${HDF5_Fortran_LIBRARIES})
+set(HDF5_USE_STATIC_LIBRARIES ON)
+find_package(HDF5 COMPONENTS Fortran REQUIRED)
+#find_path(HDF5_INCLUDE include/hdf5.mod HINTS ${HDF5_ROOT})
+add_definitions(${HDF5_DEFINITIONS})
+if(DEFINED ENV{HDF5_INCL})
+    include_directories($ENV{HDF5_INCL})
+    set(HDF5_INCLUDE $ENV{HDF5_INCL})
+elseif(DEFINED ENV{HDF5_ROOT})
+    include_directories($ENV{HDF5_ROOT}/include)
+    set(HDF5_INCLUDE $ENV{HDF5_ROOT}/include)
+elseif(DEFINED ENV{TACC_HDF5_INC})
+    include_directories($ENV{TACC_HDF5_INC})
+    set(HDF5_INCLUDE $ENV{TACC_HDF5_INC})
+endif()
+link_directories(${HDF5_Fortran_LIBRARIES})
+MESSAGE(STATUS ${HDF5_Fortran_LIBRARIES})
 
 # FLAP to deal with command line arguments
 set(FLAP_DIR ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/FLAP)
@@ -87,7 +92,7 @@ add_subdirectory(src/programs ${BIN})
 
 # build a CPack driven installer package
 include (InstallRequiredSystemLibraries)
-# set (CPACK_RESOURCE_FILE_LICENSE  
+# set (CPACK_RESOURCE_FILE_LICENSE
 #      "${CMAKE_CURRENT_SOURCE_DIR}/License.txt")
 # set (CPACK_PACKAGE_VERSION_MAJOR "${Tutorial_VERSION_MAJOR}")
 # set (CPACK_PACKAGE_VERSION_MINOR "${Tutorial_VERSION_MINOR}")
@@ -95,6 +100,6 @@ set (CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 include (CPack)
 
 # Add a distclean target to the Makefile
-ADD_CUSTOM_TARGET(distclean 
+ADD_CUSTOM_TARGET(distclean
     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/distclean.cmake
 )
