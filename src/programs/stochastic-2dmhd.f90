@@ -163,6 +163,7 @@ program stochastic
 
     call set_mpi_io_data_sizes
     call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
+    call quick_check(t_start, .true., diagnostics_directory)
 
     !< Time loop
     do tf = t_start, t_end
@@ -176,12 +177,8 @@ program stochastic
         if (split_flag == 1) then
             call split_particle
         endif
-        if (tf == t_start) then
-            call quick_check(tf, .true., diagnostics_directory)
-        else
-            call quick_check(tf, .false., diagnostics_directory)
-        endif
-        call distributions_diagnostics(tf + 1, diagnostics_directory, whole_mhd_data, local_dist)
+        call quick_check(tf+1, .false., diagnostics_directory)
+        call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "
         endif

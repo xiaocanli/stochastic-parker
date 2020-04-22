@@ -67,25 +67,21 @@ module particle_module
     !< Parameters for particle distributions
     real(dp) :: pmin  !< Minimum particle momentum
     real(dp) :: pmax  !< Maximum particle momentum
-    real(dp) :: dx_diag, dy_diag, pmin_log, pmax_log, dp_log
+    real(dp) :: dx_diag, dy_diag, pmin_log, pmax_log, dp_log, dp_bands_log
     integer :: nx, ny, npp, nreduce
     integer :: nx_mhd_reduced, ny_mhd_reduced
 
-    real(dp), allocatable, dimension(:, :) :: f0, f1, f2, f3, f4, f5
-    real(dp), allocatable, dimension(:, :) :: f0_sum, f1_sum, f2_sum, f3_sum, f4_sum, f5_sum
-    real(dp), allocatable, dimension(:) :: fp0, fp0_sum
-    real(dp), allocatable, dimension(:) :: fdpdt, fdpdt_sum
-    real(dp), allocatable, dimension(:, :) :: fp1, fp1_sum
-    real(dp), allocatable, dimension(:, :) :: fp2, fp2_sum
-    real(dp), allocatable, dimension(:) :: parray
-    real(dp), allocatable, dimension(:) :: fnptl, fnptl_sum
+    ! Particle distributions
+    integer, parameter :: nbands = 12  ! Divide pmin to pmax by nbands
+    real(dp), allocatable, dimension(:, :, :) :: fbands, fbands_sum
+    real(dp), allocatable, dimension(:, :) :: fdpdt, fdpdt_sum
+    real(dp), allocatable, dimension(:) :: fp_global, fp_global_sum
+    real(dp), allocatable, dimension(:) :: parray, parray_bands
     ! Particle distribution in each cell
     real(dp), allocatable, dimension(:, :, :) :: fp_local, fp_local_sum
 
     !< MPI/IO data sizes
-    integer, dimension(2) :: sizes_fpx, subsizes_fpx, starts_fpx
-    integer, dimension(2) :: sizes_fpy, subsizes_fpy, starts_fpy
-    integer, dimension(2) :: sizes_fxy, subsizes_fxy, starts_fxy
+    integer, dimension(3) :: sizes_fxy, subsizes_fxy, starts_fxy
     integer, dimension(3) :: sizes_fp_local, subsizes_fp_local, starts_fp_local
 
     !< Momentum diffusion
@@ -119,6 +115,7 @@ module particle_module
         ptls%tag = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0     ! No particle initially
+        nptl_new = 0
 
         !< Particles crossing domain boundaries
         allocate(senders(nptl_max / 10, 4))
@@ -1321,54 +1318,54 @@ module particle_module
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
         character(*), intent(in) :: file_path
-        real(dp) :: pdt_min, pdt_max, pdt_avg, ntot
-        real(dp) :: ntot_g, leak_g, leak_negp_g
-        integer :: i, nptl_current_g
+        integer, parameter :: nvar = 6
+        real(dp) :: pdt_min, pdt_max, pdt_min_g, pdt_max_g
+        real(dp), dimension(nvar) :: var_local, var_global
+        integer :: i
         logical :: dir_e
 
         inquire(file='./data/.', exist=dir_e)
         if (.not. dir_e) then
             call system('mkdir -p ./data')
         endif
-        ntot = 0.0_dp
+        var_local = 0.0_dp
+        var_global = 0.0_dp
         pdt_min = 1.0_dp
         pdt_max = 0.0_dp
-        pdt_avg = 0.0_dp
-        ntot_g = 0.0_dp
-        leak_g = 0.0_dp
-        leak_negp_g = 0.0_dp
-        nptl_current_g = 0
+        pdt_min_g = 0.0_dp
+        pdt_max_g = 0.0_dp
+        var_local(1) = nptl_current
+        var_local(2) = nptl_new
+        var_local(4) = leak
+        var_local(5) = leak_negp
         do i = 1, nptl_current
-            ntot = ntot + ptls(i)%weight
+            var_local(3) = var_local(3) + ptls(i)%weight
             if (ptls(i)%dt < pdt_min) pdt_min = ptls(i)%dt
             if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
-            pdt_avg = pdt_avg + ptls(i)%dt
+            var_local(6) = var_local(6) + ptls(i)%dt
         enddo
-        if (nptl_current > 0) then
-            pdt_avg = pdt_avg / nptl_current
-        else
-            pdt_avg = 0.0
-        endif
-        call MPI_REDUCE(ntot, ntot_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
+        call MPI_REDUCE(var_local, var_global, nvar, MPI_DOUBLE_PRECISION, MPI_SUM, &
             master, MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(leak, leak_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
+        call MPI_REDUCE(pdt_min, pdt_min_g, 1, MPI_DOUBLE_PRECISION, MPI_MIN, &
             master, MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(leak_negp, leak_negp_g, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
-            master, MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(nptl_current, nptl_current_g, 1, MPI_INTEGER, MPI_SUM, &
+        call MPI_REDUCE(pdt_max, pdt_max_g, 1, MPI_DOUBLE_PRECISION, MPI_MAX, &
             master, MPI_COMM_WORLD, ierr)
         if (mpi_rank == master) then
+            if (var_global(1) > 0) then
+                var_global(6) = var_global(6) / var_global(1)
+            else
+                var_global(6) = 0.0_dp
+            endif
             if (if_create_file) then
                 open (17, file=trim(file_path)//'quick.dat', status='unknown')
-                write(17, "(A,A)") "iframe, nptl_current, nptl_new, ntot, ", &
-                    "leak, leak_negp, pdt_min, pdt_max, pdt_avg"
+                write(17, "(A6,8A13)") "iframe", "nptl_current", "nptl_new", &
+                    "ntot", "leak", "leak_negp", "pdt_min", "pdt_max", "pdt_avg"
             else
                 open (17, file=trim(file_path)//'quick.dat', status="old", &
                     position="append", action="write")
             endif
-            write(17, "(I4.4,A,I9.9,A,I6.6,A,6E13.6E2)") &
-                iframe, ' ', nptl_current_g, ' ', nptl_new, ' ', ntot_g, &
-                leak_g, leak_negp_g, pdt_min, pdt_max, pdt_avg
+            write(17, "(I6.6,8E13.6)") iframe, var_global(1:5), &
+                pdt_min_g, pdt_max_g, var_global(6)
             close(17)
         endif
     end subroutine quick_check
@@ -1381,28 +1378,14 @@ module particle_module
         use mpi_module, only: mpi_rank, master
         implicit none
         integer :: i
-        allocate(f0(nx, ny))
-        allocate(f1(nx, ny))
-        allocate(f2(nx, ny))
-        allocate(f3(nx, ny))
-        allocate(f4(nx, ny))
-        allocate(f5(nx, ny))
-        allocate(fp0(npp))
-        allocate(fp1(npp, nx))
-        allocate(fp2(npp, ny))
-        allocate(fdpdt(npp))
-        allocate(fnptl(npp))
-        allocate(f0_sum(nx, ny))
-        allocate(f1_sum(nx, ny))
-        allocate(f2_sum(nx, ny))
-        allocate(f3_sum(nx, ny))
-        allocate(f4_sum(nx, ny))
-        allocate(f5_sum(nx, ny))
-        allocate(fp0_sum(npp))
-        allocate(fp1_sum(npp, nx))
-        allocate(fp2_sum(npp, ny))
-        allocate(fdpdt_sum(npp))
-        allocate(fnptl_sum(npp))
+        allocate(fbands(nx, ny, nbands))
+        allocate(fp_global(npp))
+        allocate(fdpdt(npp, 2))
+        if (mpi_rank == master) then
+            allocate(fbands_sum(nx, ny, nbands))
+            allocate(fp_global_sum(npp))
+            allocate(fdpdt_sum(npp, 2))
+        endif
         call clean_particle_distributions
 
         !< Intervals for distributions
@@ -1414,13 +1397,21 @@ module particle_module
         pmax_log = log10(pmax)
         dp_log = (pmax_log - pmin_log) / (npp - 1)
 
-        ! if (mpi_rank == master) then
-            allocate(parray(npp))
-            parray = 0.0_dp
-            do i = 1, npp
-                parray(i) = 10**(pmin_log + (i-1) * dp_log)
-            enddo
-        ! endif
+        !< Momentum bins for 1D distributions
+        allocate(parray(npp))
+        parray = 0.0_dp
+        do i = 1, npp
+            parray(i) = 10**(pmin_log + (i-1) * dp_log)
+        enddo
+
+        !< Momentum band edges for distributions in different energy band
+        allocate(parray_bands(nbands+1))
+        parray_bands = 0.0_dp
+        dp_bands_log = (pmax_log - pmin_log) / nbands
+        do i = 1, nbands+1
+            parray_bands(i) = 10**(pmin_log + (i-1) * dp_bands_log)
+        enddo
+
         if (mpi_rank == master) then
             write(*, "(A)") "Finished Initializing particle distributions."
         endif
@@ -1443,29 +1434,16 @@ module particle_module
     !< Set particle distributions to be zero
     !---------------------------------------------------------------------------
     subroutine clean_particle_distributions
+        use mpi_module, only: mpi_rank, master
         implicit none
-        f0 = 0.0_dp
-        f1 = 0.0_dp
-        f2 = 0.0_dp
-        f3 = 0.0_dp
-        f4 = 0.0_dp
-        f5 = 0.0_dp
-        fp0 = 0.0_dp
-        fp1 = 0.0_dp
-        fp2 = 0.0_dp
+        fbands = 0.0_dp
+        fp_global = 0.0_dp
         fdpdt = 0.0_dp
-        fnptl = 0.0_dp
-        f0_sum = 0.0_dp
-        f1_sum = 0.0_dp
-        f2_sum = 0.0_dp
-        f3_sum = 0.0_dp
-        f4_sum = 0.0_dp
-        f5_sum = 0.0_dp
-        fp0_sum = 0.0_dp
-        fp1_sum = 0.0_dp
-        fp2_sum = 0.0_dp
-        fdpdt_sum = 0.0_dp
-        fnptl_sum = 0.0_dp
+        if (mpi_rank == master) then
+            fbands_sum = 0.0_dp
+            fp_global_sum = 0.0_dp
+            fdpdt_sum = 0.0_dp
+        endif
     end subroutine clean_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -1486,14 +1464,14 @@ module particle_module
     subroutine free_particle_distributions
         use mpi_module, only: mpi_rank, master
         implicit none
-        deallocate(f0, f1, f2, f3, f4, f5, fp0, fp1, fp2)
-        deallocate(f0_sum, f1_sum, f2_sum, f3_sum, f4_sum, f5_sum)
-        deallocate(fp0_sum, fp1_sum, fp2_sum)
-        deallocate(fdpdt, fdpdt_sum)
-        deallocate(fnptl, fnptl_sum)
-        ! if (mpi_rank == master) then
-            deallocate(parray)
-        ! endif
+        deallocate(fbands, parray_bands)
+        deallocate(fp_global, parray)
+        deallocate(fdpdt)
+        if (mpi_rank == master) then
+            deallocate(fbands_sum)
+            deallocate(fp_global_sum)
+            deallocate(fdpdt_sum)
+        endif
     end subroutine free_particle_distributions
 
     !---------------------------------------------------------------------------
@@ -1542,8 +1520,8 @@ module particle_module
             dvx_dx = gradf(1)
             dvy_dy = gradf(5)
 
-            fnptl(ip) = fnptl(ip) + ptl%weight
-            fdpdt(ip) = fdpdt(ip) - ptl%p * (dvx_dx + dvy_dy) / 3.0d0 * ptl%weight
+            fdpdt(ip, 1) = fdpdt(ip, 1) + ptl%weight
+            fdpdt(ip, 2) = fdpdt(ip, 2) - ptl%p * (dvx_dx + dvy_dy) / 3.0d0 * ptl%weight
         endif
     end subroutine energization_dist
 
@@ -1580,30 +1558,15 @@ module particle_module
 
             !< Different momentum band
             if (ix >= 1 .and. ix <= nx .and. iy >= 1 .and. iy <= ny) then
-                if (p <= 0.75*p0) then
-                    f0(ix,iy) = f0(ix,iy) + weight
-                else if (p > 0.75*p0 .and. p <= 1.5*p0) then
-                    f1(ix,iy) = f1(ix,iy) + weight
-                else if (p > 1.5*p0 .and. p <= 3.0*p0) then
-                    f2(ix,iy) = f2(ix,iy) + weight
-                else if (p > 3.0*p0 .and. p <= 6.0*p0) then
-                    f3(ix,iy) = f3(ix,iy) + weight
-                else if (p > 6.0*p0 .and. p <= 12.0*p0) then
-                    f4(ix,iy) = f4(ix,iy) + weight
-                else
-                    f5(ix,iy) = f5(ix,iy) + weight
+                ip = floor((log10(ptl%p)-pmin_log) / dp_bands_log)
+                if (ip > 0 .and. ip <= nbands) then
+                    fbands(ix, iy, ip+1) = fbands(ix, iy, ip+1) + weight
                 endif
             endif
 
             if (p > pmin .and. p <= pmax) then
                 ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
-                fp0(ip) = fp0(ip) + weight
-                if (ix >= 1 .and. ix <= nx) then
-                    fp1(ip, ix) = fp1(ip, ix) + weight
-                endif
-                if (iy >= 1 .and. iy <= ny) then
-                    fp2(ip, iy) = fp2(ip, iy) + weight
-                endif
+                fp_global(ip) = fp_global(ip) + weight
                 if (local_dist) then
                     if (ix >= 1 .and. ix <= nx .and. iy >= 1 .and. iy <= ny) then
                         fp_local(ip, ix, iy) = fp_local(ip, ix, iy) + weight
@@ -1612,41 +1575,16 @@ module particle_module
             endif
         enddo
 
-        call MPI_REDUCE(fp0, fp0_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fnptl, fnptl_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fdpdt, fdpdt_sum, npp, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-            MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fp_global, fp_global_sum, npp, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, master, MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(fdpdt, fdpdt_sum, npp*2, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, master, MPI_COMM_WORLD, ierr)
         if (whole_mhd_data == 1) then
-            call MPI_REDUCE(f0, f0_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(f1, f1_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(f2, f2_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(f3, f3_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(f4, f4_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(f5, f5_sum, nx*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, master, &
-                MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nbands, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
             if (local_dist) then
-                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny, MPI_DOUBLE_PRECISION, &
-                    MPI_SUM, master, MPI_COMM_WORLD, ierr)
-            endif
-        else
-            if (nx == mhd_config%nx / nreduce) then
-                call MPI_REDUCE(fp1, fp1_sum, npp*nx, MPI_DOUBLE_PRECISION, MPI_SUM, &
-                    master, MPI_COMM_WORLD, ierr)
-            endif
-            if (ny == mhd_config%ny / nreduce) then
-                call MPI_REDUCE(fp2, fp2_sum, npp*ny, MPI_DOUBLE_PRECISION, MPI_SUM, &
-                    master, MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
             endif
         endif
     end subroutine calc_particle_distributions
@@ -1691,7 +1629,7 @@ module particle_module
                  form='unformatted', action='write')
             write(fh, pos=1) parray
             pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fp0_sum
+            write(fh, pos=pos1) fp_global_sum
             close(fh)
 
             fname = trim(file_path)//'fdpdt-'//ctime//'_sum.dat'
@@ -1699,43 +1637,21 @@ module particle_module
                  form='unformatted', action='write')
             write(fh, pos=1) parray
             pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fnptl_sum
-            pos1 = pos1 + npp * sizeof(1.0_dp)
             write(fh, pos=pos1) fdpdt_sum
             close(fh)
         endif
 
         if (whole_mhd_data == 1) then
             if (mpi_rank == master) then
-                fh = 16
-                fname = trim(file_path)//'fpx-'//ctime//'_sum.dat'
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) fp1_sum
-                close(fh)
-
-                fh = 17
-                fname = trim(file_path)//'fpy-'//ctime//'_sum.dat'
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) fp2_sum
-                close(fh)
-
                 fh = 18
                 fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
                 open(fh, file=trim(fname), access='stream', status='unknown', &
                      form='unformatted', action='write')
-                write(fh, pos=1) f0_sum
-                pos1 = nx * ny * sizeof(1.0_dp) + 1
-                write(fh, pos=pos1) f1_sum
-                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-                write(fh, pos=pos1) f2_sum
-                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-                write(fh, pos=pos1) f3_sum
-                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-                write(fh, pos=pos1) f4_sum
-                pos1 = pos1 + nx * ny * sizeof(1.0_dp)
-                write(fh, pos=pos1) f5_sum
+                write(fh, pos=1) (nbands + 0.0_dp)
+                pos1 = sizeof(1.0_dp) + 1
+                write(fh, pos=pos1) parray_bands
+                pos1 = pos1 + (nbands + 1) * sizeof(1.0_dp)
+                write(fh, pos=pos1) fbands_sum
                 close(fh)
 
                 if (local_dist) then
@@ -1749,40 +1665,6 @@ module particle_module
             endif
         else
             call set_mpi_info
-            ! fpx
-            fh = 16
-            fname = trim(file_path)//'fpx-'//ctime//'_sum.dat'
-            if (nx == mhd_config%nx) then
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) fp1_sum
-                close(fh)
-            else
-                mpi_datatype = set_mpi_datatype_double(sizes_fpx, subsizes_fpx, starts_fpx)
-                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
-                disp = 0
-                offset = 0
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fpx, disp, offset, fp1)
-                call MPI_FILE_CLOSE(fh, ierror)
-            endif
-
-            ! fpy
-            fh = 17
-            fname = trim(file_path)//'fpy-'//ctime//'_sum.dat'
-            if (ny == mhd_config%ny) then
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) fp2_sum
-                close(fh)
-            else
-                mpi_datatype = set_mpi_datatype_double(sizes_fpy, subsizes_fpy, starts_fpy)
-                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
-                disp = 0
-                offset = 0
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fpy, disp, offset, fp2)
-                call MPI_FILE_CLOSE(fh, ierror)
-            endif
-
             ! fxy for different energy band
             fh = 18
             fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
@@ -1790,17 +1672,7 @@ module particle_module
             offset = 0
             mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
             call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f0)
-            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f1)
-            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f2)
-            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f3)
-            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f4)
-            disp = disp + nx_mhd_reduced * ny_mhd_reduced * 8
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, f5)
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
             call MPI_FILE_CLOSE(fh, ierror)
 
             if (local_dist) then
@@ -2006,17 +1878,9 @@ module particle_module
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: mpi_ix, mpi_iy
         implicit none
-        sizes_fpx = (/ npp, nx_mhd_reduced /)
-        subsizes_fpx = (/ npp, nx /)
-        starts_fpx = (/ 0, nx * mpi_ix /)
-
-        sizes_fpy = (/ npp, ny_mhd_reduced /)
-        subsizes_fpy = (/ npp, ny /)
-        starts_fpy = (/ 0, ny * mpi_iy /)
-
-        sizes_fxy = (/ nx_mhd_reduced, ny_mhd_reduced /)
-        subsizes_fxy = (/ nx, ny /)
-        starts_fxy = (/ nx * mpi_ix, ny * mpi_iy /)
+        sizes_fxy = (/ nx_mhd_reduced, ny_mhd_reduced, nbands /)
+        subsizes_fxy = (/ nx, ny, nbands /)
+        starts_fxy = (/ nx * mpi_ix, ny * mpi_iy, 0 /)
 
         sizes_fp_local = (/ npp, nx_mhd_reduced, ny_mhd_reduced /)
         subsizes_fp_local = (/ npp, nx, ny /)
