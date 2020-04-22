@@ -20,10 +20,10 @@ module mpi_io_module
 
     interface write_data_mpi_io
         module procedure &
-            write_data_mpi_io_real_3d, write_data_mpi_io_real_2d, &
-            write_data_mpi_io_real_1d, &
-            write_data_mpi_io_double_3d, write_data_mpi_io_double_2d, &
-            write_data_mpi_io_double_1d
+            write_data_mpi_io_real_4d, write_data_mpi_io_real_3d, &
+            write_data_mpi_io_real_2d, write_data_mpi_io_real_1d, &
+            write_data_mpi_io_double_4d, write_data_mpi_io_double_3d, &
+            write_data_mpi_io_double_2d, write_data_mpi_io_double_1d
     end interface write_data_mpi_io
 
     integer :: fileinfo     ! MPI_INFO object
@@ -318,6 +318,32 @@ module mpi_io_module
     end subroutine read_data_mpi_io_double_1d
 
     !---------------------------------------------------------------------------
+    ! Write data to files using MPI/IO for 4D REAL data.
+    ! Input:
+    !   fh: file handler.
+    !   datatype: MPI data type.
+    !   subsizes: the sub-sizes of the data in current MPI process.
+    !   disp: displacement form the beginning of the file (in bytes).
+    !   offset: offset from current file view (in data etypes (e.g. int, real)).
+    ! Output:
+    !   wdata: the data to write to file.
+    !---------------------------------------------------------------------------
+    subroutine write_data_mpi_io_real_4d(fh, datatype, subsizes, disp, offset, wdata)
+        use constants, only: fp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(4), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(fp), dimension(:,:,:,:), intent(in) :: wdata
+
+        call set_file_view_real(fh, datatype, disp)
+
+        call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
+                product(subsizes), MPI_REAL, status, ierror)
+        call handle_write_error
+    end subroutine write_data_mpi_io_real_4d
+
+    !---------------------------------------------------------------------------
     ! Write data to files using MPI/IO for 3D REAL data.
     ! Input:
     !   fh: file handler.
@@ -378,6 +404,24 @@ module mpi_io_module
                 subsizes(1), MPI_REAL, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_real_1d
+
+    !---------------------------------------------------------------------------
+    ! Write data to files using MPI/IO for 4D DOUBLE data.
+    !---------------------------------------------------------------------------
+    subroutine write_data_mpi_io_double_4d(fh, datatype, subsizes, disp, offset, wdata)
+        use constants, only: dp
+        implicit none
+        integer, intent(in) :: fh, datatype
+        integer, dimension(4), intent(in) :: subsizes
+        integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
+        real(dp), dimension(:,:,:,:), intent(in) :: wdata
+
+        call set_file_view_double(fh, datatype, disp)
+
+        call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
+                product(subsizes), MPI_DOUBLE, status, ierror)
+        call handle_write_error
+    end subroutine write_data_mpi_io_double_4d
 
     !---------------------------------------------------------------------------
     ! Write data to files using MPI/IO for 3D DOUBLE data.
