@@ -295,9 +295,12 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt
-        integer :: i, imod2, iy, ix
-        real(dp) :: xmin, ymin, xmax, ymax, dpy, shock_xpos
+        integer :: i, iy, imod2
+        real(dp) :: xmin, ymin, xmax, ymax
+        real(dp) :: ry, dpy, shock_xpos
         real(dp), dimension(2) :: rands
+        integer, dimension(2) :: pos
+        real(dp), dimension(4) :: weights
 
         xmin = fconfig%xmin
         xmax = fconfig%xmax
@@ -311,7 +314,11 @@ module particle_module
             dpy = ptls(nptl_current)%y / mhd_config%dy
             iy = floor(dpy)
             !< We assume that particles are inject at the earlier shock location
-            shock_xpos = interp_shock_location(iy, dpy - iy, 0.0d0) + 2  ! Two ghost cells
+            pos = (/ iy, 1 /)
+            ry = dpy - iy
+            weights(1) = (1 - ry)
+            weights(2) = ry
+            shock_xpos = interp_shock_location(pos, weights, 0.0d0) + 2  ! Two ghost cells
             ptls(nptl_current)%x = shock_xpos * (xmax - xmin) / fconfig%nxg
             if (dist_flag == 0) then
                 imod2 = mod(i, 2)

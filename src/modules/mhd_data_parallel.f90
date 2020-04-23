@@ -1165,31 +1165,43 @@ module mhd_data_parallel
     end subroutine locate_shock_xpos
 
     !---------------------------------------------------------------------------
-    !< Interpolate shock location, assuming a 2D shock
+    !< Interpolate shock location
     !< nz is assumed to be 1. We assume shock is propagating along x-direction
     !< Args:
-    !<  ix, iy: the lower-left corner of the grid.
-    !<  rx, ry: the offset to the lower-left corner of the grid where the
-    !<          the position is. They are normalized to the grid sizes.
+    !<  pos: the lower-left corner of the grid in grid indices.
+    !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !---------------------------------------------------------------------------
-    function interp_shock_location(iy, ry, rt) result(shock_xpos)
+    function interp_shock_location(pos, weights, rt) result(shock_xpos)
         implicit none
-        real(dp), intent(in) :: ry, rt
-        integer, intent(in) :: iy
-        real(dp) :: ry1, rt1, sx1, sx2, shock_xpos
-        integer :: iy1
-        iy1 = iy + 1
-        ry1 = 1.0 - ry
-        rt1 = 1.0 - rt
+        integer, dimension(2), intent(in) :: pos
+        real(dp), dimension(4), intent(in) :: weights
+        real(dp), intent(in) :: rt
+        real(dp) :: sx1, sx2, shock_xpos
+        integer :: iy, iz, j, k
 
-        !< iy starts at 0, so we need to consider the ghost cells
-        sx1 = shock_xpos1(iy-1, 1) * ry1 + shock_xpos1(iy1-1, 1) * ry
-        sx2 = shock_xpos2(iy-1, 1) * ry1 + shock_xpos2(iy1-1, 1) * ry
+        iy = pos(1)
+        iz = pos(2)
 
+        if (dim_field .eq. 1) then
+            sx1 = shock_xpos1(1, 1)
+            sx2 = shock_xpos2(1, 1)
+        else if (dim_field .eq. 2) then
+            do j = 0, 1
+                sx1 = sx1 + shock_xpos1(iy+j-1, 1) * weights(j+1)
+                sx2 = sx2 + shock_xpos2(iy+j-1, 1) * weights(j+1)
+            enddo
+        else
+            do k = 0, 1
+            do j = 0, 1
+                sx1 = sx1 + shock_xpos1(iy+j-1, iz+k-1) * weights(k*2+j+1)
+                sx2 = sx2 + shock_xpos2(iy+j-1, iz+k-1) * weights(k*2+j+1)
+            enddo
+            enddo
+        endif
         !< Time interpolation
-        shock_xpos = sx2 * rt1 + sx1 * rt
+        shock_xpos = sx2 * (1.0 - rt) + sx1 * rt
     end function interp_shock_location
 
 end module mhd_data_parallel
