@@ -361,6 +361,8 @@ module particle_module
         real(dp) :: xtmp, ytmp, px, py, rx, ry, rt, jz
         real(dp) :: dxm, dym, dby_dx, dbx_dy
         real(dp), dimension(2) :: rands
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
 
         xmin = part_box(1)
         xmax = part_box(3)
@@ -381,14 +383,17 @@ module particle_module
                 ! Field interpolation parameters
                 px = (xtmp-xmin_box) / dxm
                 py = (ytmp-ymin_box) / dym
-                ix = floor(px) + 1
-                iy = floor(py) + 1
-                rx = px + 1 - ix
-                ry = py + 1 - iy
+                pos = (/ floor(px)+1,  floor(py)+1, 1 /)
+                rx = px - pos(1) + 1
+                ry = py - pos(2) + 1
+                weights(1) = (1 - rx) * (1 - ry)
+                weights(2) = rx * (1 - ry)
+                weights(3) = (1 - rx) * ry
+                weights(4) = rx * ry
                 rt = 0.0_dp
-                call interp_fields(ix, iy, rx, ry, rt)
-                dbx_dy = gradf(11)
-                dby_dx = gradf(13)
+                call interp_fields(pos, weights, rt)
+                dbx_dy = gradf(14)
+                dby_dx = gradf(16)
                 jz = abs(dby_dx - dbx_dy)
             enddo
             ptls(nptl_current)%x = xtmp
@@ -426,7 +431,7 @@ module particle_module
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, interp_magnetic_fluctuation, &
-            interp_correlation_length
+            interp_correlation_length, dim_field
         use mpi_module
         implicit none
         real(dp), intent(in) :: t0
@@ -434,9 +439,11 @@ module particle_module
         integer, intent(in) :: num_fine_steps
         real(dp) :: dtf, dxm, dym, xmin, xmax, ymin, ymax
         real(dp) :: xmin1, xmax1, ymin1, ymax1
-        real(dp) :: px, py, rx, ry, rt, rt1
         real(dp) :: deltax, deltay, deltap
         real(dp) :: dt_target, dt_fine
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
+        real(dp) :: px, py, rx, ry, rt
         integer :: i, ix, iy, tracking_step, offset, tfine, step
 
         dtf = mhd_config%dt_out
@@ -502,19 +509,21 @@ module particle_module
                     ! Field interpolation parameters
                     px = (ptl%x-xmin) / dxm
                     py = (ptl%y-ymin) / dym
-                    ix = floor(px) + 1
-                    iy = floor(py) + 1
-                    rx = px + 1 - ix
-                    ry = py + 1 - iy
+                    pos = (/ floor(px)+1,  floor(py)+1, 1 /)
+                    rx = px - pos(1) + 1
+                    ry = py - pos(2) + 1
+                    weights(1) = (1 - rx) * (1 - ry)
+                    weights(2) = rx * (1 - ry)
+                    weights(3) = (1 - rx) * ry
+                    weights(4) = rx * ry
                     rt = (ptl%t - t0) / dtf
-                    rt1 = 1.0_dp - rt
 
-                    call interp_fields(ix, iy, rx, ry, rt)
+                    call interp_fields(pos, weights, rt)
                     if (deltab_flag) then
-                        call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+                        call interp_magnetic_fluctuation(pos, weights, rt)
                     endif
                     if (correlation_flag) then
-                        call interp_correlation_length(ix, iy, rx, ry, rt)
+                        call interp_correlation_length(pos, weights, rt)
                     endif
                     call calc_spatial_diffusion_coefficients
                     call set_time_step(t0, dt_target)
@@ -546,20 +555,21 @@ module particle_module
 
                         px = (ptl%x-xmin) / dxm
                         py = (ptl%y-ymin) / dym
-                        ix = floor(px) + 1
-                        iy = floor(py) + 1
-
-                        rx = px + 1 - ix
-                        ry = py + 1 - iy
+                        pos = (/ floor(px)+1,  floor(py)+1, 1 /)
+                        rx = px - pos(1) + 1
+                        ry = py - pos(2) + 1
+                        weights(1) = (1 - rx) * (1 - ry)
+                        weights(2) = rx * (1 - ry)
+                        weights(3) = (1 - rx) * ry
+                        weights(4) = rx * ry
                         rt = (ptl%t - t0) / dtf
-                        rt1 = 1.0_dp - rt
 
-                        call interp_fields(ix, iy, rx, ry, rt)
+                        call interp_fields(pos, weights, rt)
                         if (deltab_flag) then
-                            call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+                            call interp_magnetic_fluctuation(pos, weights, rt)
                         endif
                         if (correlation_flag) then
-                            call interp_correlation_length(ix, iy, rx, ry, rt)
+                            call interp_correlation_length(pos, weights, rt)
                         endif
                         call calc_spatial_diffusion_coefficients
                         call push_particle(rt, deltax, deltay, deltap)
@@ -841,12 +851,12 @@ module particle_module
         bx = fields(5)
         by = fields(6)
         b = fields(8)
-        dbx_dx = gradf(10)
-        dbx_dy = gradf(11)
-        dby_dx = gradf(13)
-        dby_dy = gradf(14)
-        db_dx = gradf(19)
-        db_dy = gradf(20)
+        dbx_dx = gradf(13)
+        dbx_dy = gradf(14)
+        dby_dx = gradf(16)
+        dby_dy = gradf(17)
+        db_dx = gradf(22)
+        db_dy = gradf(23)
         if (b == 0) then
             ib1 = 1.0
         else
@@ -896,7 +906,7 @@ module particle_module
         dkdy = 2 * grad_lc(2) / (3 * lc) - grad_db(2) / db2
         if (mag_dependency == 1) then
             dkdx = dkdx - db_dx * ib1 / 3
-            dkdy = dkdy - db_dx * ib1 / 3
+            dkdy = dkdy - db_dy * ib1 / 3
         endif
         dkxx_dx = kperp*dkdx + (kpara+kperp)*dkdx*bx**2*ib2 + &
             2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -1109,7 +1119,8 @@ module particle_module
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
-        integer :: ix, iy
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
 
         vx = fields(1)
         vy = fields(2)
@@ -1170,17 +1181,19 @@ module particle_module
             !< Second-order method. It requires xtmp and ytmp are in the local domain.
             px = (xtmp - xmin) / dxm
             py = (ytmp - ymin) / dym
-            ix = floor(px) + 1
-            iy = floor(py) + 1
-            rx = px + 1 - ix
-            ry = py + 1 - iy
-            rt1 = 1.0_dp - rt
-            call interp_fields(ix, iy, rx, ry, rt)
+            pos = (/ floor(px)+1,  floor(py)+1, 1 /)
+            rx = px - pos(1) + 1
+            ry = py - pos(2) + 1
+            weights(1) = (1 - rx) * (1 - ry)
+            weights(2) = rx * (1 - ry)
+            weights(3) = (1 - rx) * ry
+            weights(4) = rx * ry
+            call interp_fields(pos, weights, rt)
             if (deltab_flag) then
-                call interp_magnetic_fluctuation(ix, iy, rx, ry, rt)
+                call interp_magnetic_fluctuation(pos, weights, rt)
             endif
             if (correlation_flag) then
-                call interp_correlation_length(ix, iy, rx, ry, rt)
+                call interp_correlation_length(pos, weights, rt)
             endif
 
             call calc_spatial_diffusion_coefficients
@@ -1344,10 +1357,13 @@ module particle_module
             if (ptls(i)%dt > pdt_max) pdt_max = ptls(i)%dt
             var_local(6) = var_local(6) + ptls(i)%dt
         enddo
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(var_local, var_global, nvar, MPI_DOUBLE_PRECISION, MPI_SUM, &
             master, MPI_COMM_WORLD, ierr)
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(pdt_min, pdt_min_g, 1, MPI_DOUBLE_PRECISION, MPI_MIN, &
             master, MPI_COMM_WORLD, ierr)
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(pdt_max, pdt_max_g, 1, MPI_DOUBLE_PRECISION, MPI_MAX, &
             master, MPI_COMM_WORLD, ierr)
         if (mpi_rank == master) then
@@ -1499,6 +1515,8 @@ module particle_module
         integer :: ix, iy, ip
         real(dp) :: weight, px, py, rx, ry, rt
         real(dp) :: dvx_dx, dvy_dy
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
 
         if (ptl%p > pmin .and. ptl%p <= pmax) then
             ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
@@ -1512,11 +1530,15 @@ module particle_module
             if (ix > nx) ix = nx
             if (iy < 1) iy = 1
             if (iy > ny) iy = ny
-            ix = floor(px) + 1
-            iy = floor(py) + 1
-            rx = px + 1 - ix
-            ry = py + 1 - iy
-            call interp_fields(ix, iy, rx, ry, rt)
+            pos = (/ ix, iy, 1 /)
+            rx = px - pos(1) + 1
+            ry = py - pos(2) + 1
+            weights(1) = (1 - rx) * (1 - ry)
+            weights(2) = rx * (1 - ry)
+            weights(3) = (1 - rx) * ry
+            weights(4) = rx * ry
+            rt = (ptl%t - t0) / mhd_config%dt_out
+            call interp_fields(pos, weights, rt)
             dvx_dx = gradf(1)
             dvy_dy = gradf(5)
 
@@ -1575,14 +1597,18 @@ module particle_module
             endif
         enddo
 
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(fp_global, fp_global_sum, npp, MPI_DOUBLE_PRECISION, &
             MPI_SUM, master, MPI_COMM_WORLD, ierr)
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(fdpdt, fdpdt_sum, npp*2, MPI_DOUBLE_PRECISION, &
             MPI_SUM, master, MPI_COMM_WORLD, ierr)
         if (whole_mhd_data == 1) then
+            call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(fbands, fbands_sum, nx*ny*nbands, MPI_DOUBLE_PRECISION, &
                 MPI_SUM, master, MPI_COMM_WORLD, ierr)
             if (local_dist) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny, &
                     MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
             endif

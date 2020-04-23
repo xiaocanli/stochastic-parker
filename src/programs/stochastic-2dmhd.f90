@@ -28,7 +28,8 @@ program stochastic
         read_correlation_length, copy_correlation_length, &
         init_gradient_magnetic_fluctuation, free_gradient_magnetic_fluctuation, &
         calc_gradient_magnetic_fluctuation, init_gradient_correlation_length, &
-        free_gradient_correlation_length, calc_gradient_correlation_length
+        free_gradient_correlation_length, calc_gradient_correlation_length,&
+        set_field_params
 
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
@@ -85,15 +86,16 @@ program stochastic
     nx = fconfig%nx
     ny = fconfig%ny
     nz = fconfig%nz
-    call init_field_data(interp_flag, nx, ny, nz, ndim=2)
-    call init_fields_gradients(interp_flag, nx, ny, nz, ndim=2)
+    call set_field_params(2, nx, ny, nz)
+    call init_field_data(interp_flag)
+    call init_fields_gradients(interp_flag)
     if (deltab_flag) then
-        call init_magnetic_fluctuation(interp_flag, nx, ny, nz, ndim=2)
-        call init_gradient_magnetic_fluctuation(interp_flag, nx, ny, nz, ndim=2)
+        call init_magnetic_fluctuation(interp_flag)
+        call init_gradient_magnetic_fluctuation(interp_flag)
     endif
     if (correlation_flag) then
-        call init_correlation_length(interp_flag, nx, ny, nz, ndim=2)
-        call init_gradient_correlation_length(interp_flag, nx, ny, nz, ndim=2)
+        call init_correlation_length(interp_flag)
+        call init_gradient_correlation_length(interp_flag)
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
@@ -136,8 +138,8 @@ program stochastic
 
     ! Whether it is a shock problem
     if (inject_at_shock == 1) then
-        call init_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
-        call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+        call init_shock_xpos(interp_flag)
+        call locate_shock_xpos(interp_flag)
         call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
     else
         if (inject_large_jz) then
@@ -212,7 +214,7 @@ program stochastic
             endif
         endif
         if (inject_at_shock == 1) then
-            call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+            call locate_shock_xpos(interp_flag)
             call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
         else
             if (inject_new_ptl) then
@@ -252,7 +254,7 @@ program stochastic
 
         ! It uses the initial part of the random number series
         if (inject_at_shock == 1) then
-            call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+            call locate_shock_xpos(interp_flag)
             call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
         else
             if (inject_large_jz) then
@@ -337,7 +339,7 @@ program stochastic
                 endif
             endif
             if (inject_at_shock == 1) then
-                call locate_shock_xpos(interp_flag, nx, ny, nz, ndim=2)
+                call locate_shock_xpos(interp_flag)
                 call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
             else
                 if (inject_large_jz) then
