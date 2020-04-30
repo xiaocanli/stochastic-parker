@@ -17,7 +17,8 @@ program stochastic
         negative_particle_tags, save_tracked_particle_points, &
         inject_particles_at_shock, set_mpi_io_data_sizes, &
         init_local_particle_distributions, free_local_particle_distributions, &
-        inject_particles_at_large_jz, set_dpp_params, set_flags_params
+        inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
+        set_drift_parameters
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -28,9 +29,7 @@ program stochastic
         read_correlation_length, copy_correlation_length, &
         init_gradient_magnetic_fluctuation, free_gradient_magnetic_fluctuation, &
         calc_gradient_magnetic_fluctuation, init_gradient_correlation_length, &
-        free_gradient_correlation_length, calc_gradient_correlation_length,&
-        set_field_params
-
+        free_gradient_correlation_length, calc_gradient_correlation_length
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors
@@ -43,13 +42,14 @@ program stochastic
     character(len=32) :: conf_file
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min
-    real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax
+    real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: dpp0_wave     ! Normalization for Dpp by wave scattering
     real(dp) :: dpp0_shear    ! Normalization for Dpp by flow shear
     real(dp) :: lc0           ! Normalization for turbulence correlation length
-    real(dp), dimension(4) :: part_box
+    real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
+    real(dp), dimension(6) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
-    integer :: interp_flag, nx, ny, nz, local_dist
+    integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: inject_at_shock  ! Inject particles at shock location
     integer :: num_fine_steps   ! Number of the fine steps for diagnostics
@@ -60,6 +60,8 @@ program stochastic
     integer :: dpp_shear        ! Whether to include momentum diffusion due to flow shear
     integer :: deltab_flag      ! Whether to include spatially dependent magnetic fluctuation
     integer :: correlation_flag ! Whether to include turbulence correlation length
+    integer :: ndim_field       ! Number of the dimension of the MHD fields
+    integer :: charge           ! Particle change in the unit of e
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -78,15 +80,11 @@ program stochastic
     endif
     call read_simuation_mpi_topology(conf_file)
     call read_particle_boundary_conditions(conf_file)
-    call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=2)
+    call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=ndim_field)
     call set_neighbors(whole_data_flag=whole_mhd_data)
 
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
-    nx = fconfig%nx
-    ny = fconfig%ny
-    nz = fconfig%nz
-    call set_field_params(2, nx, ny, nz)
     call init_field_data(interp_flag)
     call init_fields_gradients(interp_flag)
     if (deltab_flag) then
@@ -100,6 +98,9 @@ program stochastic
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
     call set_flags_params(deltab_flag, correlation_flag, lc0)
+    if (ndim_field == 3) then
+        call set_drift_parameters(drift_param1, drift_param2, charge)
+    endif
 
     call init_particles(nptl_max)
     call init_particle_distributions
@@ -136,8 +137,7 @@ program stochastic
         call calc_gradient_correlation_length(var_flag=1)
     endif
 
-    ! Whether it is a shock problem
-    if (inject_at_shock == 1) then
+    if (inject_at_shock == 1) then ! Whether it is a shock problem
         call init_shock_xpos(interp_flag)
         call locate_shock_xpos(interp_flag)
         call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
@@ -146,13 +146,17 @@ program stochastic
             if (inject_part_box) then
                 part_box(1) = ptl_xmin
                 part_box(2) = ptl_ymin
-                part_box(3) = ptl_xmax
-                part_box(4) = ptl_ymax
+                part_box(3) = ptl_zmin
+                part_box(4) = ptl_xmax
+                part_box(5) = ptl_ymax
+                part_box(6) = ptl_zmax
             else
                 part_box(1) = fconfig%xmin
                 part_box(2) = fconfig%ymin
-                part_box(3) = fconfig%xmax
-                part_box(4) = fconfig%ymax
+                part_box(3) = fconfig%zmin
+                part_box(4) = fconfig%xmax
+                part_box(5) = fconfig%ymax
+                part_box(6) = fconfig%zmax
             endif
             call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
                 jz_min, part_box)
@@ -219,17 +223,6 @@ program stochastic
         else
             if (inject_new_ptl) then
                 if (inject_large_jz) then
-                    if (inject_part_box) then
-                        part_box(1) = ptl_xmin
-                        part_box(2) = ptl_ymin
-                        part_box(3) = ptl_xmax
-                        part_box(4) = ptl_ymax
-                    else
-                        part_box(1) = fconfig%xmin
-                        part_box(2) = fconfig%ymin
-                        part_box(3) = fconfig%xmax
-                        part_box(4) = fconfig%ymax
-                    endif
                     call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
@@ -258,17 +251,6 @@ program stochastic
             call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
         else
             if (inject_large_jz) then
-                if (inject_part_box) then
-                    part_box(1) = ptl_xmin
-                    part_box(2) = ptl_ymin
-                    part_box(3) = ptl_xmax
-                    part_box(4) = ptl_ymax
-                else
-                    part_box(1) = fconfig%xmin
-                    part_box(2) = fconfig%ymin
-                    part_box(3) = fconfig%xmax
-                    part_box(4) = fconfig%ymax
-                endif
                 call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
                     jz_min, part_box)
             else
@@ -343,17 +325,6 @@ program stochastic
                 call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
             else
                 if (inject_large_jz) then
-                    if (inject_part_box) then
-                        part_box(1) = ptl_xmin
-                        part_box(2) = ptl_ymin
-                        part_box(3) = ptl_xmax
-                        part_box(4) = ptl_ymax
-                    else
-                        part_box(1) = fconfig%xmin
-                        part_box(2) = fconfig%ymin
-                        part_box(3) = fconfig%xmax
-                        part_box(4) = fconfig%ymax
-                    endif
                     call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
@@ -429,10 +400,11 @@ program stochastic
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_at_shock '//&
                         '-ip inject_part_box -xs ptl_xmin -xe ptl_xmax '//&
-                        '-ys ptl_ymin -ye ptl_ymax -cf conf_file '//&
-                        '-nf num_fine_steps -dw dpp_wave -ds dpp_shear '//&
-                        '-d0 dpp0_wave -d1 dpp0_shear -db deltab_flag '//&
-                        '-co correlation_flag -lc lc0'])
+                        '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
+                        '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
+                        '-ds dpp_shear -d0 dpp0_wave -d1 dpp0_shear '//&
+                        '-db deltab_flag -co correlation_flag -lc lc0 '//&
+                        '-dp1 drift_param1 -dp2 drift_param2 -ch charge'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -521,6 +493,14 @@ program stochastic
             help='Maximum y of the region to inject new particles', &
             required=.false., def='1.0', act='store', error=error)
         if (error/=0) stop
+        call cli%add(switch='--ptl_zmin', switch_ab='-zs', &
+            help='Minimum z of the region to inject new particles', &
+            required=.false., def='0.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ptl_zmax', switch_ab='-ze', &
+            help='Maximum z of the region to inject new particles', &
+            required=.false., def='1.0', act='store', error=error)
+        if (error/=0) stop
         call cli%add(switch='--conf_file', switch_ab='-cf', &
             help='Configuration file name', required=.false., &
             act='store', def='conf.dat', error=error)
@@ -560,6 +540,22 @@ program stochastic
         call cli%add(switch='--lc0', switch_ab='-lc', &
             help='Normalization for turbulence correlation length (km)', &
             required=.false., def='5E3', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ndim_field', switch_ab='-nd', &
+            help='the number of dimensions of the MHD field', &
+            required=.false., act='store', def='2', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--drift_param1', switch_ab='-dp1', &
+            help='Drift parameter for 3D simulation (ev_ABL_0/pc)', &
+            required=.false., def='4E7', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--drift_param2', switch_ab='-dp2', &
+            help='Drift parameter for 3D simulation (mev_ABL_0/p^2)', &
+            required=.false., def='2E8', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--charge', switch_ab='-ch', &
+            help='Particle charge in the unit of e', &
+            required=.false., act='store', def='-1', error=error)
         if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
@@ -605,6 +601,10 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ye', val=ptl_ymax, error=error)
         if (error/=0) stop
+        call cli%get(switch='-zs', val=ptl_zmin, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ze', val=ptl_zmax, error=error)
+        if (error/=0) stop
         call cli%get(switch='-cf', val=conf_file, error=error)
         if (error/=0) stop
         call cli%get(switch='-nf', val=num_fine_steps, error=error)
@@ -624,6 +624,14 @@ program stochastic
         call cli%get(switch='-co', val=correlation_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-lc', val=lc0, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-nd', val=ndim_field, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-dp1', val=drift_param1, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-dp2', val=drift_param2, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ch', val=charge, error=error)
         if (error/=0) stop
 
         if (mpi_rank == master) then
@@ -667,6 +675,8 @@ program stochastic
                         ptl_xmin, ptl_xmax
                     print '(A,E,E)', 'Minimum and maximum y of the region to inject new particles', &
                         ptl_ymin, ptl_ymax
+                    print '(A,E,E)', 'Minimum and maximum z of the region to inject new particles', &
+                        ptl_zmin, ptl_zmax
                 endif
             endif
             if (dpp_wave) then
@@ -687,6 +697,12 @@ program stochastic
             if (correlation_flag) then
                 print '(A)', 'Include spatially dependent turbulence correlation length'
                 print '(A,E)', 'Normalization for turbulence correlation length', lc0
+            endif
+            print '(A,I)', 'MHD field dimension:', ndim_field
+            if (ndim_field == 3) then
+                print '(A,E,E)', 'Parameters for particle drift in 3D simulation', &
+                    drift_param1, drift_param2
+                print '(A,I)', 'Particle change in the unit of e:', charge
             endif
         endif
     end subroutine get_cmd_args

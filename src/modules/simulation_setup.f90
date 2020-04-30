@@ -10,7 +10,7 @@ module simulation_setup_module
     save
 
     public mpi_sizex, mpi_sizey, mpi_sizez, fconfig, mpi_ix, mpi_iy, mpi_iz, &
-        neighbors
+        neighbors, ndim_field
     public read_simuation_mpi_topology, set_field_configuration, &
         read_particle_boundary_conditions, set_neighbors
 
@@ -23,7 +23,7 @@ module simulation_setup_module
     type field_configuration
         integer :: nxg, nyg, nzg    ! Total number of MHD grids with ghost cells
         integer :: nxf, nyf, nzf    ! Local grid sizes with ghost cells
-        integer :: nx, ny, nz       ! Local grid size without ghost cells 
+        integer :: nx, ny, nz       ! Local grid size without ghost cells
         integer :: ix_min, ix_max, iy_min
         integer :: iy_max, iz_min, iz_max
         real(dp) :: xmin, ymin, zmin
@@ -31,6 +31,7 @@ module simulation_setup_module
     end type field_configuration
 
     type(field_configuration) :: fconfig
+    integer :: ndim_field ! Number of the dimension of the field data
 
     contains
 
@@ -82,7 +83,7 @@ module simulation_setup_module
            stop
 
         endif
-  
+
         if (mpi_rank == master) then
             !< echo the information
             print *, "---------------------------------------------------"
@@ -169,13 +170,14 @@ module simulation_setup_module
     !---------------------------------------------------------------------------
     subroutine set_field_configuration(whole_data_flag, ndim)
         implicit none
-        integer, intent(in) :: whole_data_flag, ndim 
+        integer, intent(in) :: whole_data_flag, ndim
         integer :: ix, iy, iz, nx, ny, nz
 
         fconfig%nxg = mhd_config%nx + 4
-        if (ndim > 1) then
+        ndim_field = ndim
+        if (ndim_field > 1) then
             fconfig%nyg = mhd_config%ny + 4
-            if (ndim > 2) then
+            if (ndim_field > 2) then
                 fconfig%nzg = mhd_config%nz + 4
             else
                 fconfig%nzg = mhd_config%nz
@@ -197,11 +199,11 @@ module simulation_setup_module
             call set_data_boundaries(ix, nx, fconfig%ix_min, fconfig%ix_max)
             fconfig%xmin = ix * nx * mhd_config%dx + mhd_config%xmin
             fconfig%xmax = fconfig%xmin + nx * mhd_config%dx
-            if (ndim > 1) then
+            if (ndim_field > 1) then
                 call set_data_boundaries(iy, ny, fconfig%iy_min, fconfig%iy_max)
                 fconfig%ymin = iy * ny * mhd_config%dy + mhd_config%ymin
                 fconfig%ymax = fconfig%ymin + ny * mhd_config%dy
-                if (ndim > 2) then
+                if (ndim_field > 2) then
                     call set_data_boundaries(iz, nz, fconfig%iz_min, fconfig%iz_max)
                     fconfig%zmin = iz * nz * mhd_config%dz + mhd_config%zmin
                     fconfig%zmax = fconfig%zmin + nz * mhd_config%dz
@@ -234,11 +236,11 @@ module simulation_setup_module
             fconfig%iz_min = 1
             fconfig%ix_max = mhd_config%nx + 4
             fconfig%nxf = mhd_config%nx + 4
-            
-            if (ndim > 1) then
+
+            if (ndim_field > 1) then
                 fconfig%iy_max = mhd_config%ny + 4
                 fconfig%nyf = mhd_config%ny + 4
-                if (ndim > 2) then
+                if (ndim_field > 2) then
                     fconfig%iz_max = mhd_config%nz + 4
                     fconfig%nzf = mhd_config%nz + 4
                 else

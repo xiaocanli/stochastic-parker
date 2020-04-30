@@ -3,6 +3,7 @@
 !*******************************************************************************
 module mhd_data_parallel
     use constants, only: fp, dp
+    use simulation_setup_module, only: fconfig, ndim_field
     implicit none
     private
     save
@@ -21,9 +22,8 @@ module mhd_data_parallel
            copy_correlation_length, &
            init_gradient_correlation_length, &
            free_gradient_correlation_length, &
-           calc_gradient_correlation_length, &
-           set_field_params
-    public fields, gradf, db2, lc, grad_db, grad_lc, dim_field
+           calc_gradient_correlation_length
+    public fields, gradf, db2, lc, grad_db, grad_lc
 
     real(dp) :: db2, db2_1
     real(dp) :: lc0_1, lc0_2, lc
@@ -38,8 +38,6 @@ module mhd_data_parallel
     !dir$ attributes align:128 :: gradf
     !dir$ attributes align:128 :: gradf1
 
-    integer :: dim_field ! Number of dimensions of the fields (1, 2, or 3)
-    integer :: nx_mhd, ny_mhd, nz_mhd ! MHD grid sizes, excluding ghost cells
     real(fp), allocatable, dimension(:, :, :, :) :: f_array1, f_array2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: fgrad_array1, fgrad_array2
     real(fp), allocatable, dimension(:, :, :) :: deltab1, deltab2 ! Current,next
@@ -63,21 +61,6 @@ module mhd_data_parallel
 
     contains
     !---------------------------------------------------------------------------
-    !< Set parameters for MHD field data
-    !< Args:
-    !<  ndim: number of actual dimension of the data. 1, 2 or 3
-    !<  nx, ny, nz: the dimensions of the data
-    !---------------------------------------------------------------------------
-    subroutine set_field_params(ndim, nx, ny, nz)
-        implicit none
-        integer, intent(in) :: ndim, nx, ny, nz
-        dim_field = ndim
-        nx_mhd = nx
-        ny_mhd = ny
-        nz_mhd = nz
-    end subroutine set_field_params
-
-    !---------------------------------------------------------------------------
     !< Initialize MHD field data arrays
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
@@ -85,24 +68,29 @@ module mhd_data_parallel
     subroutine init_field_data(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
 
         !< vx, vy, vz, rho, bx, by, bz, btot
-        if (dim_field == 1) then
-            allocate(f_array1(nfields, -1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(f_array1(nfields, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+        if (ndim_field == 1) then
+            allocate(f_array1(nfields, -1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(f_array1(nfields, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(f_array1(nfields, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(f_array1(nfields, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
         f_array1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(f_array2(nfields, -1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(f_array2(nfields, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(f_array2(nfields, -1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(f_array2(nfields, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(f_array2(nfields, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(f_array2(nfields, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
             f_array2 = 0.0
         endif
@@ -116,27 +104,32 @@ module mhd_data_parallel
     subroutine init_fields_gradients(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
 
         !< dvx_dx, dvx_dy, dvx_dz, dvy_dx, dvy_dy, dvy_dz,
         !< dvz_dx, dvz_dy, dvz_dz, drho_dx, drho_d, drho_dz,
         !< dbx_dx, dbx_dy, dbx_dz, dby_dx, dby_dy, dby_dz,
         !< dbz_dx, dbz_dy, dbz_dz, dbtot_dx, dbtot_dy, dbtot_dz
-        if (dim_field == 1) then
-            allocate(fgrad_array1(ngrads, -1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(fgrad_array1(ngrads, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+        if (ndim_field == 1) then
+            allocate(fgrad_array1(ngrads, -1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(fgrad_array1(ngrads, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(fgrad_array1(ngrads, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(fgrad_array1(ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
         fgrad_array1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(fgrad_array2(ngrads, -1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(fgrad_array2(ngrads, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(fgrad_array2(ngrads, -1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(fgrad_array2(ngrads, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(fgrad_array2(ngrads, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(fgrad_array2(ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
             fgrad_array2 = 0.0
         endif
@@ -150,23 +143,28 @@ module mhd_data_parallel
     subroutine init_magnetic_fluctuation(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
 
-        if (dim_field == 1) then
-            allocate(deltab1(-1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(deltab1(-1:nx_mhd+2, -1:ny_mhd+2, 1))
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        if (ndim_field == 1) then
+            allocate(deltab1(-1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(deltab1(-1:nx+2, -1:ny+2, 1))
         else
-            allocate(deltab1(-1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(deltab1(-1:nx+2, -1:ny+2, -1:nz+2))
         endif
         deltab1 = 1.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(deltab2(-1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(deltab2(-1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(deltab2(-1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(deltab2(-1:nx+2, -1:ny+2, 1))
             else
-                allocate(deltab2(-1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(deltab2(-1:nx+2, -1:ny+2, -1:nz+2))
             endif
             deltab2 = 1.0
         endif
@@ -180,24 +178,29 @@ module mhd_data_parallel
     subroutine init_gradient_magnetic_fluctuation(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
 
         !< 3 components
-        if (dim_field == 1) then
-            allocate(grad_deltab1(3, -1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(grad_deltab1(3, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+        if (ndim_field == 1) then
+            allocate(grad_deltab1(3, -1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(grad_deltab1(3, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(grad_deltab1(3, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(grad_deltab1(3, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
         grad_deltab1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(grad_deltab2(3, -1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(grad_deltab2(3, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(grad_deltab2(3, -1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(grad_deltab2(3, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(grad_deltab2(3, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(grad_deltab2(3, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
             grad_deltab2 = 0.0
         endif
@@ -211,23 +214,28 @@ module mhd_data_parallel
     subroutine init_correlation_length(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
 
-        if (dim_field == 1) then
-            allocate(lc1(-1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(lc1(-1:nx_mhd+2, -1:ny_mhd+2, 1))
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        if (ndim_field == 1) then
+            allocate(lc1(-1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(lc1(-1:nx+2, -1:ny+2, 1))
         else
-            allocate(lc1(-1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(lc1(-1:nx+2, -1:ny+2, -1:nz+2))
         endif
         lc1 = 1.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(lc2(-1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(lc2(-1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(lc2(-1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(lc2(-1:nx+2, -1:ny+2, 1))
             else
-                allocate(lc2(-1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(lc2(-1:nx+2, -1:ny+2, -1:nz+2))
             endif
             lc2 = 1.0
         endif
@@ -241,24 +249,29 @@ module mhd_data_parallel
     subroutine init_gradient_correlation_length(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: nx, ny, nz
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
 
         !< 3 components
-        if (dim_field == 1) then
-            allocate(grad_correl1(3, -1:nx_mhd+2, 1, 1))
-        else if (dim_field == 2) then
-            allocate(grad_correl1(3, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+        if (ndim_field == 1) then
+            allocate(grad_correl1(3, -1:nx+2, 1, 1))
+        else if (ndim_field == 2) then
+            allocate(grad_correl1(3, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(grad_correl1(3, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(grad_correl1(3, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
         grad_correl1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
-                allocate(grad_correl2(3, -1:nx_mhd+2, 1, 1))
-            else if (dim_field == 2) then
-                allocate(grad_correl2(3, -1:nx_mhd+2, -1:ny_mhd+2, 1))
+            if (ndim_field == 1) then
+                allocate(grad_correl2(3, -1:nx+2, 1, 1))
+            else if (ndim_field == 2) then
+                allocate(grad_correl2(3, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(grad_correl2(3, -1:nx_mhd+2, -1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(grad_correl2(3, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
             grad_correl2 = 0.0
         endif
@@ -358,7 +371,6 @@ module mhd_data_parallel
     subroutine read_field_data_parallel(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use simulation_setup_module, only: fconfig
         use mpi_module
         implicit none
         character(*), intent(in) :: filename
@@ -427,7 +439,6 @@ module mhd_data_parallel
     subroutine read_magnetic_fluctuation(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use simulation_setup_module, only: fconfig
         use mpi_module
         implicit none
         character(*), intent(in) :: filename
@@ -493,7 +504,6 @@ module mhd_data_parallel
     subroutine read_correlation_length(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use simulation_setup_module, only: fconfig
         use mpi_module
         implicit none
         character(*), intent(in) :: filename
@@ -903,14 +913,14 @@ module mhd_data_parallel
         fields1 = 0.0_dp
         gradf = 0.0_dp
         gradf1 = 0.0_dp
-        if (dim_field .eq. 1) then
+        if (ndim_field .eq. 1) then
             do i = 0, 1
                 fields = fields + f_array1(:, ix+i, 1, 1) * weights(i+1)
                 fields1 = fields1 + f_array2(:, ix+i, 1, 1) * weights(i+1)
                 gradf = gradf + fgrad_array1(:, ix+i, 1, 1) * weights(i+1)
                 gradf1 = gradf1 + fgrad_array2(:, ix+i, 1, 1) * weights(i+1)
             enddo
-        else if (dim_field .eq. 2) then
+        else if (ndim_field .eq. 2) then
             do j = 0, 1
             do i = 0, 1
                 fields = fields + &
@@ -968,14 +978,14 @@ module mhd_data_parallel
         db2_1 = 0.0_dp
         grad_db = 0.0_dp
         grad_db1 = 0.0_dp
-        if (dim_field .eq. 1) then
+        if (ndim_field .eq. 1) then
             do i = 0, 1
                 db2 = db2 + deltab1(ix+i, 1, 1) * weights(i+1)
                 db2_1 = db2_1 + deltab2(ix+i, 1, 1) * weights(i+1)
                 grad_db = grad_db + grad_deltab1(:, ix+i, 1, 1) * weights(i+1)
                 grad_db1 = grad_db1 + grad_deltab2(:, ix+i, 1, 1) * weights(i+1)
             enddo
-        else if (dim_field .eq. 2) then
+        else if (ndim_field .eq. 2) then
             do j = 0, 1
             do i = 0, 1
                 db2 = db2 + deltab1(ix+i, iy+j, 1) * weights(j*2+i+1)
@@ -1029,14 +1039,14 @@ module mhd_data_parallel
         lc0_2 = 0.0_dp
         grad_lc = 0.0_dp
         grad_lc1 = 0.0_dp
-        if (dim_field .eq. 1) then
+        if (ndim_field .eq. 1) then
             do i = 0, 1
                 lc0_1 = lc0_1 + lc1(ix+i, 1, 1) * weights(i+1)
                 lc0_2 = lc0_2 + lc2(ix+i, 1, 1) * weights(i+1)
                 grad_lc = grad_lc + grad_correl1(:, ix+i, 1, 1) * weights(i+1)
                 grad_lc1 = grad_lc1 + grad_correl2(:, ix+i, 1, 1) * weights(i+1)
             enddo
-        else if (dim_field .eq. 2) then
+        else if (ndim_field .eq. 2) then
             do j = 0, 1
             do i = 0, 1
                 lc0_1 = lc0_1 + lc1(ix+i, iy+j, 1) * weights(j*2+i+1)
@@ -1101,23 +1111,27 @@ module mhd_data_parallel
     subroutine init_shock_xpos(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
+        integer :: ny, nz
 
-        if (dim_field == 1) then
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        if (ndim_field == 1) then
             allocate(shock_xpos1(1, 1))
-        else if (dim_field == 2) then
-            allocate(shock_xpos1(-1:ny_mhd+2, 1))
+        else if (ndim_field == 2) then
+            allocate(shock_xpos1(-1:ny+2, 1))
         else
-            allocate(shock_xpos1(-1:ny_mhd+2, -1:nz_mhd+2))
+            allocate(shock_xpos1(-1:ny+2, -1:nz+2))
         endif
         shock_xpos1 = 0
         ! Next time step
         if (interp_flag == 1) then
-            if (dim_field == 1) then
+            if (ndim_field == 1) then
                 allocate(shock_xpos2(1, 1))
-            else if (dim_field == 2) then
-                allocate(shock_xpos2(-1:ny_mhd+2, 1))
+            else if (ndim_field == 2) then
+                allocate(shock_xpos2(-1:ny+2, 1))
             else
-                allocate(shock_xpos2(-1:ny_mhd+2, -1:nz_mhd+2))
+                allocate(shock_xpos2(-1:ny+2, -1:nz+2))
             endif
         endif
         shock_xpos2 = 0
@@ -1146,17 +1160,17 @@ module mhd_data_parallel
         use mpi_module
         implicit none
         integer, intent(in) :: interp_flag
-        if (dim_field == 1) then
+        if (ndim_field == 1) then
             shock_xpos1(1, 1) = maxloc(abs(fgrad_array1(1, :, 1, 1)), dim=1)
-        else if (dim_field == 2) then
+        else if (ndim_field == 2) then
             shock_xpos1(:, 1) = maxloc(abs(fgrad_array1(1, :, :, 1)), dim=1)
         else
             shock_xpos1(:, :) = maxloc(abs(fgrad_array1(1, :, :, :)), dim=1)
         endif
         if (interp_flag == 1) then
-            if (dim_field == 1) then
+            if (ndim_field == 1) then
                 shock_xpos2(1, 1) = maxloc(abs(fgrad_array2(1, :, 1, 1)), dim=1)
-            else if (dim_field == 2) then
+            else if (ndim_field == 2) then
                 shock_xpos2(:, 1) = maxloc(abs(fgrad_array2(1, :, :, 1)), dim=1)
             else
                 shock_xpos2(:, :) = maxloc(abs(fgrad_array2(1, :, :, :)), dim=1)
@@ -1184,10 +1198,10 @@ module mhd_data_parallel
         iy = pos(1)
         iz = pos(2)
 
-        if (dim_field .eq. 1) then
+        if (ndim_field .eq. 1) then
             sx1 = shock_xpos1(1, 1)
             sx2 = shock_xpos2(1, 1)
-        else if (dim_field .eq. 2) then
+        else if (ndim_field .eq. 2) then
             do j = 0, 1
                 sx1 = sx1 + shock_xpos1(iy+j-1, 1) * weights(j+1)
                 sx2 = sx2 + shock_xpos2(iy+j-1, 1) * weights(j+1)
