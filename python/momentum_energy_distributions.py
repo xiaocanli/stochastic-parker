@@ -21,12 +21,6 @@ mpl.rc('text', usetex=True)
 mpl.rcParams['text.latex.preamble'] = [r"\usepackage{amsmath}"]
 COLORS = palettable.colorbrewer.qualitative.Set1_9.mpl_colors
 
-FONT = {'family' : 'serif',
-        'color'  : 'black',
-        'weight' : 'normal',
-        'size'   : 24}
-
-
 def func_power(xvar, pindex, const):
     """Function for fitting with power-law expression.
     """
@@ -86,8 +80,8 @@ def plot_momentum_distribution(pmom, fmom, ax, plot_config, **kwargs):
                     horizontalalignment='left', verticalalignment='center',
                     transform=ax.transAxes)
 
-    ax.set_xlabel(r'$p/p_0$', fontdict=FONT, fontsize=24)
-    ax.set_ylabel(r'$f(p)p^3$', fontdict=FONT, fontsize=24)
+    ax.set_xlabel(r'$p/p_0$', fontsize=24)
+    ax.set_ylabel(r'$f(p)p^3$', fontsize=24)
     ax.tick_params(labelsize=20)
 
 
@@ -144,9 +138,14 @@ def plot_energy_distribution(elog, fene, ax, plot_config, **kwargs):
                     horizontalalignment='left', verticalalignment='center',
                     transform=ax.transAxes)
 
-    ax.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=FONT, fontsize=24)
-    # ax.set_ylabel(r'$f(p)p$', fontdict=FONT, fontsize=24)
-    ax.set_ylabel(r'$f(\varepsilon)$', fontdict=FONT, fontsize=24)
+    ax.tick_params(bottom=True, top=True, left=True, right=True)
+    ax.tick_params(axis='x', which='minor', direction='in')
+    ax.tick_params(axis='x', which='major', direction='in')
+    ax.tick_params(axis='y', which='minor', direction='in')
+    ax.tick_params(axis='y', which='major', direction='in')
+    ax.set_xlabel(r'$\varepsilon/$keV', fontsize=24)
+    # ax.set_ylabel(r'$f(p)p$', fontsize=24)
+    ax.set_ylabel(r'$f(\varepsilon)$', fontsize=24)
     ax.tick_params(labelsize=20)
 
     if kwargs["show_plot"]:
@@ -172,6 +171,7 @@ def plot_particle_distributions(tframe, ax1, ax2, plot_config, **kwargs):
     pinit = 0.1
     pmom = data[0:nbins] / pinit
     elog = pmom**2
+    elog *= plot_config["e0"]  # to keV
     print("Total number of particles: %d" % np.sum(data[nbins:]))
     fmom = data[nbins:] * pmom / np.gradient(pmom)
     fene = fmom / pmom**2
@@ -204,6 +204,7 @@ def momentum_energy_distributions(plot_config, power_test=True):
         color = plt.cm.jet((tframe-tmin)/float(tmax-tmin), 1)
         kwargs["color"] = color
         kwargs["plot_power"] = False if tframe < tmax - 1 else True
+        # kwargs["plot_power"] = False
         plot_particle_distributions(tframe, ax1, ax2, plot_config, **kwargs)
     fp_name = 'fp_time_1.pdf'
     fe_name = 'fe_time_1.pdf'
@@ -280,10 +281,10 @@ def energy_distributions_bg(config, sde_run):
     ax.set_xlim([1E-1, 2E2])
     ax.set_ylim([1E-2, 1E7])
     ax.set_yticks(np.logspace(-1, 7, num=5))
-    ax.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontdict=FONT, fontsize=24)
-    ax.set_ylabel(r'$f(\varepsilon)$', fontdict=FONT, fontsize=24)
+    ax.set_xlabel(r'$\varepsilon/\varepsilon_0$', fontsize=24)
+    ax.set_ylabel(r'$f(\varepsilon)$', fontsize=24)
     ax.tick_params(labelsize=20)
-    fe_name = "fe_" + sde_run + ".eps"
+    fe_name = "fe_" + sde_run + ".pdf"
     fig1.savefig(fdir + fe_name)
     plt.show()
 
@@ -312,7 +313,7 @@ def main():
     sde_run = args.sde_run
     run_name = mhd_run + "/" + sde_run
     power_test = args.power_test
-    with open('config/spectrum_config_bg.json', 'r') as file_handler:
+    with open('config/spectrum_config_10ta.json', 'r') as file_handler:
         config = json.load(file_handler)
     plot_config = config[run_name]
     if args.multi_bg:
