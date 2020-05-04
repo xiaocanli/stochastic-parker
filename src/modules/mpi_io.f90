@@ -58,7 +58,7 @@ module mpi_io_module
         sz = size(sizes)
 
         call MPI_TYPE_CREATE_SUBARRAY(sz, sizes, subsizes, starts, &
-                MPI_ORDER_FORTRAN, MPI_DOUBLE, datatype, ierror)
+                MPI_ORDER_FORTRAN, MPI_DOUBLE_PRECISION, datatype, ierror)
         call MPI_TYPE_COMMIT(datatype, ierror)
     end function set_mpi_datatype_double
 
@@ -135,7 +135,7 @@ module mpi_io_module
         implicit none
         integer, intent(in) :: fh, datatype
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp
-        call MPI_FILE_SET_VIEW(fh, disp, MPI_DOUBLE, datatype, 'native', &
+        call MPI_FILE_SET_VIEW(fh, disp, MPI_DOUBLE_PRECISION, datatype, 'native', &
             MPI_INFO_NULL, ierror)
         if (ierror /= 0) then
             call MPI_ERROR_STRING(ierror, err_msg, err_length, ierror2)
@@ -419,7 +419,7 @@ module mpi_io_module
         call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
-                product(subsizes), MPI_DOUBLE, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_double_4d
 
@@ -437,7 +437,7 @@ module mpi_io_module
         call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
-                product(subsizes), MPI_DOUBLE, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_double_3d
 
@@ -455,7 +455,7 @@ module mpi_io_module
         call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
-                product(subsizes), MPI_DOUBLE, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_double_2d
 
@@ -473,7 +473,7 @@ module mpi_io_module
         call set_file_view_double(fh, datatype, disp)
 
         call MPI_FILE_WRITE_AT_ALL(fh, offset, wdata, &
-                subsizes(1), MPI_DOUBLE, status, ierror)
+                subsizes(1), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_write_error
     end subroutine write_data_mpi_io_double_1d
 

@@ -8,7 +8,8 @@ module mhd_config_module
     save
     public mhd_config
     public broadcast_mhd_config, save_mhd_config, load_mhd_config, &
-           set_mhd_config, echo_mhd_config
+           set_mhd_config, echo_mhd_config, set_mhd_grid_type
+    public uniform_grid_flag, spherical_coord_flag
 
     type mhd_configuration
         real(dp) :: dx = 1.0_dp, dy = 1.0_dp, dz = 1.0_dp
@@ -24,6 +25,8 @@ module mhd_config_module
     end type mhd_configuration
 
     type(mhd_configuration) :: mhd_config
+    logical :: uniform_grid_flag     ! whether the grid is uniform
+    logical :: spherical_coord_flag  ! whether the grid is in spherical coordinates
 
     contains
 
@@ -89,7 +92,7 @@ module mhd_config_module
             " * ", mhd_config%topoy, " * ", mhd_config%topoz
         write(*, "(A,I0,A,I0,A,I0)") " Grid dimensions at each MPI rank: ", &
             mhd_config%nxs, ",", mhd_config%nys, ",", mhd_config%nzs
-        write(*, "(A,F7.3)") " Time interval for MHD data output: ", &
+        write(*, "(A,E13.6)") " Time interval for MHD data output: ", &
             mhd_config%dt_out
         if (mhd_config%bcx == 0) then
             write(*, "(A)") " MHD simulation is periodic along x"
@@ -154,7 +157,7 @@ module mhd_config_module
         offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER
         blockcounts(1) = 13
-        ! Define structured type and commit it. 
+        ! Define structured type and commit it.
         call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
             mhd_config_type, ierr)
         call MPI_TYPE_COMMIT(mhd_config_type, ierr)
@@ -163,4 +166,15 @@ module mhd_config_module
         call MPI_TYPE_FREE(mhd_config_type, ierr)
     end subroutine broadcast_mhd_config
 
+    !---------------------------------------------------------------------------
+    !< Set MHD grid type
+    !---------------------------------------------------------------------------
+    subroutine set_mhd_grid_type(uniform_grid, spherical_coord)
+        implicit none
+        integer, intent(in) :: uniform_grid, spherical_coord
+        uniform_grid_flag = .false.
+        spherical_coord_flag = .false.
+        if (uniform_grid) uniform_grid_flag = .true.
+        if (spherical_coord) spherical_coord_flag = .true.
+    end subroutine set_mhd_grid_type
 end module mhd_config_module

@@ -5,7 +5,8 @@
 program stochastic
     use constants, only: fp, dp
     use mpi_module
-    use mhd_config_module, only: load_mhd_config, mhd_config, echo_mhd_config
+    use mhd_config_module, only: load_mhd_config, mhd_config, &
+        echo_mhd_config, set_mhd_grid_type
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, remove_particles, split_particle, &
@@ -22,14 +23,18 @@ program stochastic
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
-        calc_fields_gradients, copy_fields, init_shock_xpos, free_shock_xpos, &
+        calc_fields_gradients, calc_fields_gradients_nonuniform, &
+        copy_fields, init_shock_xpos, free_shock_xpos, &
         locate_shock_xpos, init_magnetic_fluctuation, free_magnetic_fluctuation, &
         read_magnetic_fluctuation, copy_magnetic_fluctuation, &
         init_correlation_length, free_correlation_length, &
         read_correlation_length, copy_correlation_length, &
-        init_gradient_magnetic_fluctuation, free_gradient_magnetic_fluctuation, &
-        calc_gradient_magnetic_fluctuation, init_gradient_correlation_length, &
-        free_gradient_correlation_length, calc_gradient_correlation_length
+        init_grad_deltab2, free_grad_deltab2, &
+        calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
+        init_grad_correl_length, & free_grad_correl_length, &
+        calc_grad_correl_length, calc_grad_correl_length_nonuniform, &
+        init_grid_positions, free_grid_positions, &
+        set_local_grid_positions
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors
@@ -62,6 +67,8 @@ program stochastic
     integer :: correlation_flag ! Whether to include turbulence correlation length
     integer :: ndim_field       ! Number of the dimension of the MHD fields
     integer :: charge           ! Particle change in the unit of e
+    integer :: spherical_coord  ! Whether MHD simulations are in spherical coordinates
+    integer :: uniform_grid     ! Whether the grid is uniform
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -78,10 +85,13 @@ program stochastic
     if (mpi_rank == master) then
         call echo_mhd_config
     endif
+    call set_mhd_grid_type(uniform_grid, spherical_coord)
     call read_simuation_mpi_topology(conf_file)
     call read_particle_boundary_conditions(conf_file)
     call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=ndim_field)
     call set_neighbors(whole_data_flag=whole_mhd_data)
+    call init_grid_positions
+    call set_local_grid_positions(dir_mhd_data)
 
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
@@ -89,11 +99,11 @@ program stochastic
     call init_fields_gradients(interp_flag)
     if (deltab_flag) then
         call init_magnetic_fluctuation(interp_flag)
-        call init_gradient_magnetic_fluctuation(interp_flag)
+        call init_grad_deltab2(interp_flag)
     endif
     if (correlation_flag) then
         call init_correlation_length(interp_flag)
-        call init_gradient_correlation_length(interp_flag)
+        call init_grad_correl_length(interp_flag)
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
@@ -126,15 +136,30 @@ program stochastic
         call read_correlation_length(fname2, var_flag=1)
     endif
 
-    call calc_fields_gradients(var_flag=0)
-    call calc_fields_gradients(var_flag=1)
+    if (uniform_grid) then
+        call calc_fields_gradients(var_flag=0)
+        call calc_fields_gradients(var_flag=1)
+    else
+        call calc_fields_gradients_nonuniform(var_flag=0)
+        call calc_fields_gradients_nonuniform(var_flag=1)
+    endif
     if (deltab_flag) then
-        call calc_gradient_magnetic_fluctuation(var_flag=0)
-        call calc_gradient_magnetic_fluctuation(var_flag=1)
+        if (uniform_grid) then
+            call calc_grad_deltab2(var_flag=0)
+            call calc_grad_deltab2(var_flag=1)
+        else
+            call calc_grad_deltab2_nonuniform(var_flag=0)
+            call calc_grad_deltab2_nonuniform(var_flag=1)
+        endif
     endif
     if (correlation_flag) then
-        call calc_gradient_correlation_length(var_flag=0)
-        call calc_gradient_correlation_length(var_flag=1)
+        if (uniform_grid) then
+            call calc_grad_correl_length(var_flag=0)
+            call calc_grad_correl_length(var_flag=1)
+        else
+            call calc_grad_correl_length_nonuniform(var_flag=0)
+            call calc_grad_correl_length_nonuniform(var_flag=1)
+        endif
     endif
 
     if (inject_at_shock == 1) then ! Whether it is a shock problem
@@ -209,12 +234,24 @@ program stochastic
                 write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
                 call read_correlation_length(fname2, var_flag=1)
             endif
-            call calc_fields_gradients(var_flag=1)
+            if (uniform_grid) then
+                call calc_fields_gradients(var_flag=1)
+            else
+                call calc_fields_gradients_nonuniform(var_flag=1)
+            endif
             if (deltab_flag) then
-                call calc_gradient_magnetic_fluctuation(var_flag=1)
+                if (uniform_grid) then
+                    call calc_grad_deltab2(var_flag=1)
+                else
+                    call calc_grad_deltab2_nonuniform(var_flag=1)
+                endif
             endif
             if (correlation_flag) then
-                call calc_gradient_correlation_length(var_flag=1)
+                if (uniform_grid) then
+                    call calc_grad_correl_length(var_flag=1)
+                else
+                    call calc_grad_correl_length_nonuniform(var_flag=1)
+                endif
             endif
         endif
         if (inject_at_shock == 1) then
@@ -278,15 +315,30 @@ program stochastic
             call read_correlation_length(fname2, var_flag=1)
         endif
 
-        call calc_fields_gradients(var_flag=0)
-        call calc_fields_gradients(var_flag=1)
+        if (uniform_grid) then
+            call calc_fields_gradients(var_flag=0)
+            call calc_fields_gradients(var_flag=1)
+        else
+            call calc_fields_gradients_nonuniform(var_flag=0)
+            call calc_fields_gradients_nonuniform(var_flag=1)
+        endif
         if (deltab_flag) then
-            call calc_gradient_magnetic_fluctuation(var_flag=0)
-            call calc_gradient_magnetic_fluctuation(var_flag=1)
+            if (uniform_grid) then
+                call calc_grad_deltab2(var_flag=0)
+                call calc_grad_deltab2(var_flag=1)
+            else
+                call calc_grad_deltab2_nonuniform(var_flag=0)
+                call calc_grad_deltab2_nonuniform(var_flag=1)
+            endif
         endif
         if (correlation_flag) then
-            call calc_gradient_correlation_length(var_flag=0)
-            call calc_gradient_correlation_length(var_flag=1)
+            if (uniform_grid) then
+                call calc_grad_correl_length(var_flag=0)
+                call calc_grad_correl_length(var_flag=1)
+            else
+                call calc_grad_correl_length_nonuniform(var_flag=0)
+                call calc_grad_correl_length_nonuniform(var_flag=1)
+            endif
         endif
         !< Time loop
         do tf = t_start, t_end
@@ -304,12 +356,24 @@ program stochastic
             if (tf < t_end) then
                 write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
                 call read_field_data_parallel(fname2, var_flag=1)
-                call calc_fields_gradients(var_flag=1)
+                if (uniform_grid) then
+                    call calc_fields_gradients(var_flag=1)
+                else
+                    call calc_fields_gradients_nonuniform(var_flag=1)
+                endif
                 if (deltab_flag) then
-                    call calc_gradient_magnetic_fluctuation(var_flag=1)
+                    if (uniform_grid) then
+                        call calc_grad_deltab2(var_flag=1)
+                    else
+                        call calc_grad_deltab2_nonuniform(var_flag=1)
+                    endif
                 endif
                 if (correlation_flag) then
-                    call calc_gradient_correlation_length(var_flag=1)
+                    if (uniform_grid) then
+                        call calc_grad_correl_length(var_flag=1)
+                    else
+                        call calc_grad_correl_length_nonuniform(var_flag=1)
+                    endif
                 endif
                 if (deltab_flag) then
                     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
@@ -355,10 +419,10 @@ program stochastic
     call free_particles
     call free_fields_gradients(interp_flag)
     if (deltab_flag) then
-        call free_gradient_magnetic_fluctuation(interp_flag)
+        call free_grad_deltab2(interp_flag)
     endif
     if (correlation_flag) then
-        call free_gradient_correlation_length(interp_flag)
+        call free_grad_correl_length(interp_flag)
     endif
     call free_field_data(interp_flag)
     if (deltab_flag) then
@@ -367,6 +431,8 @@ program stochastic
     if (correlation_flag) then
         call free_correlation_length(interp_flag)
     endif
+
+    call free_grid_positions
 
     call cpu_time(finish)
     if (mpi_rank == master) then
@@ -419,7 +485,7 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--tinterval', switch_ab='-dt', &
             help='Time interval to push particles', required=.false., &
-            act='store', def='1E-6', error=error)
+            act='store', def='1E-7', error=error)
         if (error/=0) stop
         call cli%add(switch='--tstart', switch_ab='-ts', &
             help='Starting time frame', required=.false., &
@@ -557,6 +623,14 @@ program stochastic
             help='Particle charge in the unit of e', &
             required=.false., act='store', def='-1', error=error)
         if (error/=0) stop
+        call cli%add(switch='--spherical_coord', switch_ab='-sc', &
+            help='whether MHD simulations are spherical coordinates', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--uniform_grid', switch_ab='-ug', &
+            help='whether the grid is uniform', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -633,6 +707,10 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ch', val=charge, error=error)
         if (error/=0) stop
+        call cli%get(switch='-sc', val=spherical_coord, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ug', val=uniform_grid, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -703,6 +781,14 @@ program stochastic
                 print '(A,E,E)', 'Parameters for particle drift in 3D simulation', &
                     drift_param1, drift_param2
                 print '(A,I)', 'Particle change in the unit of e:', charge
+            endif
+            if (spherical_coord) then
+                print '(A)', 'MHD simulations are in spherical coordinates'
+            endif
+            if (uniform_grid) then
+                print '(A)', 'The grid is uniform'
+            else
+                print '(A)', 'The grid is non-uniform'
             endif
         endif
     end subroutine get_cmd_args

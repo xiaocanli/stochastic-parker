@@ -4,6 +4,7 @@
 module particle_module
     use constants, only: fp, dp
     use simulation_setup_module, only: ndim_field
+    use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
     implicit none
     private
     save
@@ -58,6 +59,7 @@ module particle_module
     real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
     real(dp) :: kpara, kperp
+    real(dp) :: kxx, kyy, kzz, kxy, kxz, kyz
     real(dp) :: dkxx_dx, dkyy_dy, dkzz_dz
     real(dp) :: dkxy_dx, dkxy_dy
     real(dp) :: dkxz_dx, dkxz_dz
@@ -420,6 +422,84 @@ module particle_module
     end subroutine get_interp_paramters
 
     !---------------------------------------------------------------------------
+    !< Binary search. We are searching for the cell not the exact grid point.
+    !< Modified from https://rosettacode.org/wiki/Binary_search#Fortran
+    !---------------------------------------------------------------------------
+    recursive function binarySearch_R (a, value) result (bsresult)
+        real(dp), intent(in) :: a(:), value
+        integer :: bsresult, mid
+
+        mid = size(a)/2 + 1
+        if (size(a) == 0) then
+            bsresult = 0
+        else if (a(mid) > value) then
+            bsresult = binarySearch_R(a(:mid-1), value)
+        else if (a(mid) < value) then
+            bsresult = binarySearch_R(a(mid+1:), value)
+            bsresult = mid + bsresult
+        else
+            bsresult = mid
+        end if
+    end function binarySearch_R
+
+    !---------------------------------------------------------------------------
+    !< Gets the corner indices and weights for linear interpolation in spherical
+    !< coordinates
+    !< Args:
+    !<  x, y, z: corner position in real values
+    !<  pos: indices of the cells where the particle is
+    !<  weights: for interpolation
+    !---------------------------------------------------------------------------
+    subroutine get_interp_paramters_spherical(x, y, z, pos, weights)
+        use constants, only: pi
+        use mhd_data_parallel, only: xpos_local, ypos_local, zpos_local
+        implicit none
+        real(dp), intent(in) :: x, y, z  ! r, theta, phi
+        real(dp), dimension(8), intent(out) :: weights
+        integer, dimension(3), intent(out) :: pos
+        real(dp) :: rx, ry, rz, rx1, ry1, rz1, dv
+        real(dp) :: ctheta1, ctheta2, ctheta
+        real(dp) :: x3_1, x3_2, x3, one_third
+        real(dp) :: half_pi
+
+        ! The lbound of the position array is -1, so -2
+        pos(1) = binarySearch_R(xpos_local, x) - 2
+        pos(2) = binarySearch_R(ypos_local, y) - 2
+        pos(3) = binarySearch_R(zpos_local, z) - 2
+        half_pi = pi * 0.5
+        ! We assume here theta is from -pi/2 to pi/2
+        ctheta1 = cos(ypos_local(pos(2)) + half_pi)
+        ctheta2 = cos(ypos_local(pos(2)+1) + half_pi)
+        ctheta = cos(y + half_pi)
+        one_third = 1.0_dp / 3.0_dp
+        x3 = x**3 * one_third
+        x3_1 = xpos_local(pos(1))**3 * one_third
+        x3_2 = xpos_local(pos(1)+1)**3 * one_third
+
+        rx = x3 - x3_1
+        ry = ctheta1 - ctheta
+        rz = z - zpos_local(pos(3))
+        rx1 = x3_2 - x3
+        ry1 = ctheta - ctheta2
+        rz1 = zpos_local(pos(3)+1) - z
+
+        ! Volume of the cell
+        dv = (x3_2 - x3_1) * (ctheta1 - ctheta2) * &
+            (zpos_local(pos(3)+1) - zpos_local(pos(3)))
+
+        weights(1) = rx1 * ry1 * rz1
+        weights(2) = rx * ry1 * rz1
+        weights(3) = rx1 * ry * rz1
+        weights(4) = rx * ry * rz1
+        weights(5) = rx1 * ry1 * rz
+        weights(6) = rx * ry1 * rz
+        weights(7) = rx1 * ry * rz
+        weights(8) = rx * ry * rz
+
+        weights = weights / dv
+    end subroutine get_interp_paramters_spherical
+
+    !---------------------------------------------------------------------------
     !< Inject particles where current density jz is large
     !< Note that this might not work if each MPI rank only handle part of the
     !< MHD simulation, because jz is always close to 0 in some part of the MHD
@@ -436,7 +516,7 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use mpi_module, only: mpi_rank, master
         use mhd_config_module, only: mhd_config
-        use mhd_data_parallel, only: gradf, interp_fields
+        use mhd_data_parallel, only: gradf, fields, interp_fields
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
@@ -447,7 +527,7 @@ module particle_module
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xtmp, ytmp, ztmp, px, py, pz
         real(dp) :: dxm, dym, dzm, dby_dx, dbx_dy
-        real(dp) :: rt, jz
+        real(dp) :: rt, jz, by
         real(dp), dimension(2) :: rands
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
@@ -488,11 +568,20 @@ module particle_module
                     pz = (ztmp-zmin_box) / dzm
                 endif
                 rt = 0.0_dp
-                call get_interp_paramters(px, py, pz, pos, weights)
+                if (spherical_coord_flag) then
+                    call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                else
+                    call get_interp_paramters(px, py, pz, pos, weights)
+                endif
                 call interp_fields(pos, weights, rt)
                 dbx_dy = gradf(14)
                 dby_dx = gradf(16)
-                jz = abs(dby_dx - dbx_dy)
+                if (spherical_coord_flag) then
+                    by = fields(6)
+                    jz = abs(dby_dx + (by - dbx_dy) / xtmp)
+                else
+                    jz = abs(dby_dx - dbx_dy)
+                endif
             enddo
             ptls(nptl_current)%x = xtmp
             ptls(nptl_current)%y = ytmp
@@ -618,7 +707,11 @@ module particle_module
                     py = (ptl%y-ymin) / dym
                     pz = (ptl%z-zmin) / dzm
                     rt = (ptl%t - t0) / dtf
-                    call get_interp_paramters(px, py, pz, pos, weights)
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(ptl%x, ptl%y, ptl%z, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
                     call interp_fields(pos, weights, rt)
                     if (deltab_flag) then
                         call interp_magnetic_fluctuation(pos, weights, rt)
@@ -665,7 +758,12 @@ module particle_module
                         py = (ptl%y-ymin) / dym
                         pz = (ptl%z-ymin) / dzm
                         rt = (ptl%t - t0) / dtf
-                        call get_interp_paramters(px, py, pz, pos, weights)
+                        if (spherical_coord_flag) then
+                            call get_interp_paramters_spherical(&
+                                ptl%x, ptl%y, ptl%z, pos, weights)
+                        else
+                            call get_interp_paramters(px, py, pz, pos, weights)
+                        endif
                         call interp_fields(pos, weights, rt)
                         if (deltab_flag) then
                             call interp_magnetic_fluctuation(pos, weights, rt)
@@ -1002,7 +1100,10 @@ module particle_module
         real(dp) :: db_dx, db_dy, db_dz
         real(dp) :: dkdx, dkdy, dkdz
 
-        b = fields(8)
+        bx = fields(5)
+        by = fields(6)
+        bz = fields(7)
+        b = dsqrt(bx**2 + by**2 + bz**2)
         if (b == 0) then
             ib1 = 1.0
         else
@@ -1045,9 +1146,10 @@ module particle_module
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
             endif
             dkxx_dx = kpara*dkdx
+            if (spherical_coord_flag) then
+                kxx = kpara
+            endif
         else if (ndim_field == 2) then
-            bx = fields(5)
-            by = fields(6)
             dbx_dx = gradf(13)
             dbx_dy = gradf(14)
             dby_dx = gradf(16)
@@ -1068,7 +1170,7 @@ module particle_module
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
                 dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
             endif
-            dkxx_dx = kperp*dkdx + (kpara+kperp)*dkdx*bx**2*ib2 + &
+            dkxx_dx = kperp*dkdx + (kpara-kperp)*dkdx*bx**2*ib2 + &
                 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
             dkyy_dy = kperp*dkdy + (kpara-kperp)*dkdy*by**2*ib2 + &
                 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
@@ -1076,10 +1178,12 @@ module particle_module
                 ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
             dkxy_dy = (kpara-kperp)*dkdy*bx*by*ib2 + (kpara-kperp) * &
                 ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
+            if (spherical_coord_flag) then
+                kxx = kperp + (kpara - kperp) * bx * bx * ib2
+                kyy = kperp + (kpara - kperp) * by * by * ib2
+                kxy = (kpara - kperp) * bx * by * ib2
+            endif
         else
-            bx = fields(5)
-            by = fields(6)
-            bz = fields(7)
             dbx_dx = gradf(13)
             dbx_dy = gradf(14)
             dbx_dz = gradf(15)
@@ -1110,7 +1214,7 @@ module particle_module
                 dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
                 dkdz = dkdz + 2 * grad_lc(3) / (3 * lc)
             endif
-            dkxx_dx = kperp*dkdx + (kpara+kperp)*dkdx*bx**2*ib2 + &
+            dkxx_dx = kperp*dkdx + (kpara-kperp)*dkdx*bx**2*ib2 + &
                 2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
             dkyy_dy = kperp*dkdy + (kpara-kperp)*dkdy*by**2*ib2 + &
                 2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
@@ -1128,6 +1232,14 @@ module particle_module
                 ((dby_dy*bz+by*dbz_dy)*ib2 - 2.0*by*bz*db_dy*ib3)
             dkyz_dz = (kpara-kperp)*dkdz*by*bz*ib2 + (kpara-kperp) * &
                 ((dby_dz*bz+by*dbz_dz)*ib2 - 2.0*by*bz*db_dz*ib3)
+            if (spherical_coord_flag) then
+                kxx = kperp + (kpara - kperp) * bx * bx * ib2
+                kyy = kperp + (kpara - kperp) * by * by * ib2
+                kzz = kperp + (kpara - kperp) * bz * bz * ib2
+                kxy = (kpara - kperp) * bx * by * ib2
+                kxz = (kpara - kperp) * bx * bz * ib2
+                kyz = (kpara - kperp) * by * bz * ib2
+            endif
         endif
     end subroutine calc_spatial_diffusion_coefficients
 
@@ -1256,21 +1368,26 @@ module particle_module
     end subroutine read_particle_params
 
     !---------------------------------------------------------------------------
-    !< Determine the time step.
+    !< Determine the time step. X, Y, Z are for r, theta, phi in
+    !< spherical coordinates
     !< Args;
     !<  t0: the initial time for current particle
     !<  dtf: the time interval between fine diagnostics
     !---------------------------------------------------------------------------
     subroutine set_time_step(t0, dtf)
+        use constants, only: pi
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: fields, gradf
         implicit none
         real(dp), intent(in) :: t0, dtf
-        real(dp) :: tmp30, tmp40, bx, by, bz, bxy, ibxy, b, ib, ib2, ib3
+        real(dp) :: tmp30, tmp40, bx, by, bz, b, ib, ib2, ib3
         real(dp) :: vx, vy, vz, dxm, dym, dzm, dt1, dt2, dt3
         real(dp) :: vdx, vdy, vdz, vdp
         real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
-        real(dp) :: db_dx, db_dy, db_dz
+        real(dp) :: db_dx, db_dy, db_dz, bxn, byn, bzn, bxyn, ibxyn
+        real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm, ctheta, istheta, ir, ir2
+        real(dp) :: qtmp1, qtmp2, atmp
+        real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
 
         skpara = dsqrt(2.0*kpara)
         skperp = dsqrt(2.0*kperp)
@@ -1280,7 +1397,11 @@ module particle_module
             vx = fields(1)
             dxm = mhd_config%dx
             tmp30 = skpara
-            tmp40 = abs(vx + dkxx_dx)
+            if (spherical_coord_flag) then
+                tmp40 = abs(vx + dkxx_dx + 2.0*kxx/ptl%x)
+            else
+                tmp40 = abs(vx + dkxx_dx)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     ptl%dt = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1301,14 +1422,37 @@ module particle_module
             else
                 ib = 1.0_dp / b
             endif
-            bx = bx * ib
-            by = by * ib
+            bxn = bx * ib
+            byn = by * ib
             dxm = mhd_config%dx
             dym = mhd_config%dy
 
+            if (spherical_coord_flag) then
+                ctheta = cos(ptl%y + 0.5*pi)
+                istheta = 1.0 / sin(ptl%y + 0.5*pi)
+                ir = 1.0 / ptl%x
+                ir2 = 1.0 / ptl%x**2
+                a1 = kxx
+                b1 = kxy * ir
+                c1 = kyy * ir2
+                atmp = dsqrt((a1-c1)**2 + 4*b1**2)
+                Qpp = atmp + (a1 + c1)
+                Qmp = atmp - (a1 + c1)
+                Qpm = atmp + (a1 - c1)
+                Qmm = atmp - (a1 - c1)
+                qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
+                qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
+            endif
+
             ! X-direction
-            tmp30 = skperp + skpara_perp * abs(bx)
-            tmp40 = abs(vx + dkxx_dx + dkxy_dy)
+            if (spherical_coord_flag) then
+                tmp30 = abs(-Qmm * qtmp1) + abs(Qpm * qtmp2)
+                tmp40 = abs(vx + dkxx_dx + &
+                    (2.0*kxx + dkxy_dy*ir + kxy*ctheta*istheta)*ir)
+            else
+                tmp30 = skperp + skpara_perp * abs(bxn)
+                tmp40 = abs(vx + dkxx_dx + dkxy_dy)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1320,8 +1464,14 @@ module particle_module
             endif
 
             ! Y-direction
-            tmp30 = skperp + skpara_perp * abs(by)
-            tmp40 = abs(vy + dkxy_dx + dkyy_dy)
+            if (spherical_coord_flag) then
+                tmp30 = abs(2*b1*qtmp1) + abs(2*b1*qtmp2)
+                tmp40 = abs((vy+dkxy_dx)*ir + &
+                    (kxy + dkyy_dy + kyy*ctheta*istheta)*ir2)
+            else
+                tmp30 = skperp + skpara_perp * abs(byn)
+                tmp40 = abs(vy + dkxy_dx + dkyy_dy)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1345,18 +1495,32 @@ module particle_module
             else
                 ib = 1.0_dp / b
             endif
-            bx = bx * ib
-            by = by * ib
-            bz = bz * ib
-            bxy = dsqrt(bx**2 + by**2)
-            if (bxy == 0.0d0) then
-                ibxy = 0.0d0
+            bxn = bx * ib
+            byn = by * ib
+            bzn = bz * ib
+            bxyn = dsqrt(bxn**2 + byn**2)
+            if (bxyn == 0.0d0) then
+                ibxyn = 0.0d0
             else
-                ibxy = 1.0_dp / bxy
+                ibxyn = 1.0_dp / bxyn
             endif
             dxm = mhd_config%dx
             dym = mhd_config%dy
             dzm = mhd_config%dz
+
+            if (spherical_coord_flag) then
+                ctheta = cos(ptl%y + 0.5*pi)
+                istheta = 1.0 / sin(ptl%y + 0.5*pi)
+                ir = 1.0 / ptl%x
+                ir2 = ir**2
+                p11 = dsqrt(2.0*(kxx*kyz**2 + kyy*kxz**2 + kzz*kxy**2 - &
+                                 2.0*kxy*kxz*kyz - kxx*kyy*kzz) / (kyz**2 - kyy*kzz))
+                p12 = (kxz*kyz - kxy*kzz) * dsqrt(2.0*(kyy - (kyz**2/kzz))) / (kyz**2 - kyy*kzz)
+                p13 = dsqrt(2.0 / kzz) * kxz
+                p22 = dsqrt(2.0 * (kyy - kyz**2/kzz)) * ir
+                p23 = dsqrt(2.0 / kzz) * kyz * ir
+                p33 = dsqrt(2.0 * kzz) * istheta * ir
+            endif
 
             ! Drift velocity
             dbx_dy = gradf(14)
@@ -1371,13 +1535,31 @@ module particle_module
             ib2 = ib * ib
             ib3 = ib * ib2
             vdp = pcharge / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2) / 3
-            vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
-            vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
-            vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
+            if (spherical_coord_flag) then
+                gbr = db_dx
+                gbt = db_dy * ir
+                gbp = db_dz * ir * istheta
+                vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
+                             (gbt*bz - gbp*by*istheta)*2.0*ir*ib3)
+                vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
+                             (gbp*bx*istheta*ir - gbr*bz)*2.0*ib3)
+                vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
+                             (gbr*by - gbt*bx*ir)*2.0*ib3)
+            else
+                vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
+                vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
+                vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
+            endif
 
             ! X-direction
-            tmp30 = abs(bx)*skpara + abs(bx*bz)*skperp*ibxy + abs(by)*skperp*ibxy
-            tmp40 = abs(vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz)
+            if (spherical_coord_flag) then
+                tmp30 = abs(p11) + abs(p12) + abs(p13)
+                tmp40 = abs(vx + vdx + dkxx_dx + &
+                    (2.0*kxx + dkxy_dy + kxy*ctheta*istheta + dkxz_dz*istheta)*ir)
+            else
+                tmp30 = abs(bxn)*skpara + abs(bxn*bzn)*skperp*ibxyn + abs(byn)*skperp*ibxyn
+                tmp40 = abs(vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1389,8 +1571,14 @@ module particle_module
             endif
 
             ! Y-direction
-            tmp30 = abs(by)*skpara + abs(by*bz)*skperp*ibxy + abs(bx)*skperp*ibxy
-            tmp40 = abs(vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz)
+            if (spherical_coord_flag) then
+                tmp30 = abs(p22) + abs(p33)
+                tmp40 = abs((vy + vdy + dkxy_dx)*ir + &
+                    (kxy + dkyy_dy + kyy*ctheta*istheta + dkyz_dz*istheta)*ir2)
+            else
+                tmp30 = abs(byn)*skpara + abs(byn*bzn)*skperp*ibxyn + abs(bxn)*skperp*ibxyn
+                tmp40 = abs(vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1402,8 +1590,14 @@ module particle_module
             endif
 
             ! Z-direction
-            tmp30 = abs(bz)*skpara + bxy*skperp
-            tmp40 = abs(vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz)
+            if (spherical_coord_flag) then
+                tmp30 = abs(p33)
+                tmp40 = abs((vz + vdz + dkxz_dx)*istheta*ir + &
+                    (kxz + dkyz_dy + dkzz_dz*istheta)*istheta*ir2)
+            else
+                tmp30 = abs(bzn)*skpara + bxyn*skperp
+                tmp40 = abs(vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz)
+            endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     dt3 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
@@ -1479,8 +1673,12 @@ module particle_module
         deltap = 0.0
 
         sdt = dsqrt(ptl%dt)
-        xtmp = ptl%x + (vx+dkxx_dx)*ptl%dt + skpara*sdt
-        deltax = (vx+dkxx_dx)*ptl%dt
+        if (spherical_coord_flag) then
+            deltax = (vx+dkxx_dx+2.0*kxx/ptl%x)*ptl%dt
+        else
+            deltax = (vx+dkxx_dx)*ptl%dt
+        endif
+        xtmp = ptl%x + deltax + skpara*sdt
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
 
@@ -1493,7 +1691,11 @@ module particle_module
         else
             !< Second-order method. It requires xtmp and ytmp are in the local domain.
             px = (xtmp - xmin) / dxm
-            call get_interp_paramters(px, 0.0_dp, 0.0_dp, pos, weights)
+            if (spherical_coord_flag) then
+                call get_interp_paramters_spherical(ptl%x, 0.0_dp, 0.0_dp, pos, weights)
+            else
+                call get_interp_paramters(px, 0.0_dp, 0.0_dp, pos, weights)
+            endif
             call interp_fields(pos, weights, rt)
             if (deltab_flag) then
                 call interp_magnetic_fluctuation(pos, weights, rt)
@@ -1515,8 +1717,12 @@ module particle_module
         ptl%t = ptl%t + ptl%dt
 
         ! Momentum
-        divv = dvx_dx
-        deltap = -ptl%p * divv * ptl%dt / 3.0d0
+        if (spherical_coord_flag) then
+            divv = dvx_dx
+        else
+            divv = dvx_dx + 2.0*vx/ptl%x
+        endif
+            deltap = -ptl%p * divv * ptl%dt / 3.0d0
         ! Momentum diffusion due to wave scattering
         if (dpp_wave_flag) then
             rho = fields(4)
@@ -1550,6 +1756,7 @@ module particle_module
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_2d(rt, deltax, deltay, deltap)
+        use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: fields, gradf, interp_fields, &
@@ -1560,14 +1767,18 @@ module particle_module
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp) :: xtmp, ytmp
         real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv, gshear
-        real(dp) :: bx, by, b, vx, vy, px, py, pz, rt1, ib
-        real(dp) :: bx1, by1, b1, ib1
+        real(dp) :: bx, by, bz, b, vx, vy, px, py, pz, rt1, ib
+        real(dp) :: bx1, by1, btot1, ib1
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym
         reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
         real(dp) :: skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
+        real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm, ctheta, istheta, ir, ir2
+        real(dp) :: qtmp1, qtmp2, atmp
+        real(dp) :: a1_1, b1_1, c1_1, Qpp_1, Qpm_1, Qmp_1, Qmm_1
+        real(dp) :: qtmp1_1, qtmp2_1
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -1575,7 +1786,8 @@ module particle_module
         vy = fields(2)
         bx = fields(5)
         by = fields(6)
-        b = fields(8)
+        bz = fields(7)
+        b = dsqrt(bx**2 + by**2 + bz**2)
         dvx_dx = gradf(1)
         dvy_dy = gradf(5)
         xmin = fconfig%xmin
@@ -1604,10 +1816,37 @@ module particle_module
         else
             ib = 1.0 / b
         endif
-        xtmp = ptl%x + (vx+dkxx_dx+dkxy_dy)*ptl%dt + (skperp+skpara_perp*bx*ib)*sdt
-        ytmp = ptl%y + (vy+dkxy_dx+dkyy_dy)*ptl%dt + (skperp+skpara_perp*by*ib)*sdt
-        deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
-        deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
+
+        if (spherical_coord_flag) then
+            ctheta = cos(ptl%y + 0.5*pi)
+            istheta = 1.0 / sin(ptl%y + 0.5*pi)
+            ir = 1.0 / ptl%x
+            ir2 = 1.0 / ptl%x**2
+            a1 = kxx
+            b1 = kxy * ir
+            c1 = kyy * ir2
+            atmp = dsqrt((a1-c1)**2 + 4*b1**2)
+            Qpp = atmp + (a1 + c1)
+            Qmp = atmp - (a1 + c1)
+            Qpm = atmp + (a1 - c1)
+            Qmm = atmp - (a1 - c1)
+            qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
+            qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
+        endif
+
+        if (spherical_coord_flag) then
+            deltax = (vx + dkxx_dx + &
+                (2.0*kxx + dkxy_dy*ir + kxy*ctheta*istheta)*ir)*ptl%dt
+            deltay = ((vy+dkxy_dx)*ir + &
+                (kxy + dkyy_dy + kyy*ctheta*istheta)*ir2)*ptl%dt
+            xtmp = ptl%x + deltax + (-Qmm*qtmp1 + Qpm*qtmp2)*sdt
+            ytmp = ptl%y + deltay + (2*b1*qtmp1 + 2*b1*qtmp2)*sdt
+        else
+            deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
+            deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
+            xtmp = ptl%x + deltax + (skperp+skpara_perp*bx*ib)*sdt
+            ytmp = ptl%y + deltay + (skperp+skpara_perp*by*ib)*sdt
+        endif
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
         ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
@@ -1624,13 +1863,22 @@ module particle_module
         !< Therefore, we switch between first-order and second-order method.
         if (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1) then
             !< First-order method
-            deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib
-            deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib
+            if (spherical_coord_flag) then
+                deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
+                deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
+            else
+                deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib
+                deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib
+            endif
         else
             !< Second-order method. It requires xtmp and ytmp are in the local domain.
             px = (xtmp - xmin) / dxm
             py = (ytmp - ymin) / dym
-            call get_interp_paramters(px, py, 0.0_dp, pos, weights)
+            if (spherical_coord_flag) then
+                call get_interp_paramters_spherical(ptl%x, ptl%y, 0.0_dp, pos, weights)
+            else
+                call get_interp_paramters(px, py, 0.0_dp, pos, weights)
+            endif
             call interp_fields(pos, weights, rt)
             if (deltab_flag) then
                 call interp_magnetic_fluctuation(pos, weights, rt)
@@ -1641,26 +1889,50 @@ module particle_module
 
             call calc_spatial_diffusion_coefficients
 
+            if (spherical_coord_flag) then
+                ir = 1.0 / xtmp
+                ir2 = ir * ir
+                a1_1 = kxx
+                b1_1 = kxy * ir
+                c1_1 = kyy * ir2
+                atmp = dsqrt((a1_1-c1_1)**2 + 4*b1_1**2)
+                Qpp_1 = atmp + (a1_1 + c1_1)
+                Qmp_1 = atmp - (a1_1 + c1_1)
+                Qpm_1 = atmp + (a1_1 - c1_1)
+                Qmm_1 = atmp - (a1_1 - c1_1)
+                qtmp1_1 = dsqrt(-Qmp_1/(Qmm_1**2+4*b1_1**2))
+                qtmp2_1 = dsqrt(Qpp_1/(Qpm_1**2+4*b1_1**2))
+            endif
+
             !< Magnetic field at the predicted position
             bx1 = fields(5)
             by1 = fields(6)
-            b1 = fields(8)
+            btot1 = fields(8)
 
             skperp1 = dsqrt(2.0*kperp)
             skpara_perp1 = dsqrt(2.0*(kpara-kperp))
 
-            if (b1 == 0) then
+            if (btot1 == 0) then
                 ib1 = 0.0
             else
-                ib1 = 1.0 / b1
+                ib1 = 1.0 / btot1
             endif
 
-            deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
-                     (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
-                     (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
-            deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
-                     (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
-                     (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
+            if (spherical_coord_flag) then
+                deltax = deltax - Qmm*qtmp1*ran1*sdt + Qpm*qtmp2*ran2*sdt + &
+                         (-Qmm_1*qtmp1_1 + Qmm*qtmp1)*(ran1*ran1-1.0)*sdt/2.0 + &
+                         (Qpm_1*qtmp2_1 - Qpm*qtmp2)*(ran2*ran2-1.0)*sdt/2.0
+                deltay = deltay + 2*b1*qtmp1*ran1*sdt + 2*b1*qtmp2*ran2*sdt + &
+                         (2*b1_1*qtmp1_1 - 2*b1_1*qtmp1_1)*(ran1*ran1-1.0)*sdt/2.0 + &
+                         (2*b1_1*qtmp2_1 - 2*b1_1*qtmp2_1)*(ran2*ran2-1.0)*sdt/2.0
+            else
+                deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
+                         (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
+                         (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
+                deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
+                         (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
+                         (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
+            endif
         endif
 
         ptl%x = ptl%x + deltax
@@ -1668,7 +1940,11 @@ module particle_module
         ptl%t = ptl%t + ptl%dt
 
         ! Momentum
-        divv = dvx_dx + dvy_dy
+        if (spherical_coord_flag) then
+            divv = dvx_dx + (2.0*vx + dvy_dy + vy*ctheta*istheta)*ir
+        else
+            divv = dvx_dx + dvy_dy
+        endif
         deltap = -ptl%p * divv * ptl%dt / 3.0d0
         ! Momentum diffusion due to wave scattering
         if (dpp_wave_flag) then
@@ -1704,6 +1980,7 @@ module particle_module
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_3d(rt, deltax, deltay, deltaz, deltap)
+        use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: fields, gradf, interp_fields, &
@@ -1718,7 +1995,8 @@ module particle_module
         real(dp) :: dvz_dx, dvz_dy, dvz_dz
         real(dp) :: divv, gshear
         real(dp) :: vx, vy, vz
-        real(dp) :: bx, by, bz, b, ib, ib2, ib3, bxy, ibxy
+        real(dp) :: bx, by, bz, b, ib, ib2, ib3
+        real(dp) :: bxn, byn, bzn, bxyn, ibxyn
         real(dp) :: px, py, pz
         real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
         real(dp) :: db_dx, db_dy, db_dz
@@ -1728,6 +2006,8 @@ module particle_module
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
+        real(dp) :: ctheta, istheta, ir, ir2
+        real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -1743,14 +2023,14 @@ module particle_module
         else
             ib = 1.0_dp / b
         endif
-        bx = bx * ib
-        by = by * ib
-        bz = bz * ib
-        bxy = dsqrt(bx**2 + by**2)
-        if (bxy == 0.0d0) then
-            ibxy = 0.0d0
+        bxn = bx * ib
+        byn = by * ib
+        bzn = bz * ib
+        bxyn = dsqrt(bxn**2 + byn**2)
+        if (bxyn == 0.0d0) then
+            ibxyn = 0.0d0
         else
-            ibxy = 1.0_dp / bxy
+            ibxyn = 1.0_dp / bxyn
         endif
         dvx_dx = gradf(1)
         dvy_dy = gradf(5)
@@ -1768,6 +2048,20 @@ module particle_module
         dymh = 0.5 * dym
         dzmh = 0.5 * dzm
 
+        if (spherical_coord_flag) then
+            ctheta = cos(ptl%y + 0.5*pi)
+            istheta = 1.0 / sin(ptl%y + 0.5*pi)
+            ir = 1.0 / ptl%x
+            ir2 = 1.0 / ptl%x**2
+            p11 = dsqrt(2.0*(kxx*kyz**2 + kyy*kxz**2 + kzz*kxy**2 - &
+                             2.0*kxy*kxz*kyz - kxx*kyy*kzz) / (kyz**2 - kyy*kzz))
+            p12 = (kxz*kyz - kxy*kzz) * dsqrt(2.0*(kyy - (kyz**2/kzz))) / (kyz**2 - kyy*kzz)
+            p13 = dsqrt(2.0 / kzz) * kxz
+            p22 = dsqrt(2.0 * (kyy - kyz**2/kzz)) * ir
+            p23 = dsqrt(2.0 / kzz) * kyz * ir
+            p33 = dsqrt(2.0 * kzz) * istheta * ir
+        endif
+
         ! Drift velocity
         dbx_dy = gradf(14)
         dbx_dz = gradf(15)
@@ -1781,9 +2075,21 @@ module particle_module
         ib2 = ib * ib
         ib3 = ib * ib2
         vdp = pcharge / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2) / 3
-        vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
-        vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
-        vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
+        if (spherical_coord_flag) then
+            gbr = db_dx
+            gbt = db_dy * ir
+            gbp = db_dz * ir * istheta
+            vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
+                         (gbt*bz - gbp*by*istheta)*2.0*ir*ib3)
+            vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
+                         (gbp*bx*istheta*ir - gbr*bz)*2.0*ib3)
+            vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
+                         (gbr*by - gbt*bx*ir)*2.0*ib3)
+        else
+            vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
+            vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
+            vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
+        endif
 
         !< The field data has two ghost cells, so the particles can cross the
         !< boundary without causing segment fault errors
@@ -1792,9 +2098,18 @@ module particle_module
         xmax1 = xmax + dxmh
         ymax1 = ymax + dymh
 
-        deltax = (vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz) * ptl%dt
-        deltay = (vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz) * ptl%dt
-        deltaz = (vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz) * ptl%dt
+        if (spherical_coord_flag) then
+            deltax = (vx + vdx + dkxx_dx + &
+                (2.0*kxx + dkxy_dy + kxy*ctheta*istheta + dkxz_dz*istheta)*ir) * ptl%dt
+            deltay = ((vy + vdy + dkxy_dx)*ir + &
+                (kxy + dkyy_dy + kyy*ctheta*istheta + dkyz_dz*istheta)*ir2) * ptl%dt
+            deltaz = ((vz + vdz + dkxz_dx)*istheta*ir + &
+                (kxz + dkyz_dy + dkzz_dz*istheta)*istheta*ir2) * ptl%dt
+        else
+            deltax = (vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz) * ptl%dt
+            deltay = (vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz) * ptl%dt
+            deltaz = (vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz) * ptl%dt
+        endif
 
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
@@ -1803,11 +2118,17 @@ module particle_module
 
         sdt = dsqrt(ptl%dt)
 
-        deltax = deltax + &
-            (bx*skpara*ran1 - bx*bz*skperp*ibxy*ran2 - by*skperp*ibxy*ran3)*sdt
-        deltay = deltay + &
-            (by*skpara*ran1 - by*bz*skperp*ibxy*ran2 + bx*skperp*ibxy*ran3)*sdt
-        deltaz = deltaz + (bz*skpara*ran1 + bxy*skperp*ran2)*sdt
+        if (spherical_coord_flag) then
+            deltax = deltax + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
+            deltay = deltay + (p22*ran2 + p23*ran3)*sdt
+            deltaz = deltaz + p33*ran3*sdt
+        else
+            deltax = deltax + &
+                (bxn*skpara*ran1 - bxn*bzn*skperp*ibxyn*ran2 - byn*skperp*ibxyn*ran3)*sdt
+            deltay = deltay + &
+                (byn*skpara*ran1 - byn*bzn*skperp*ibxyn*ran2 + bxn*skperp*ibxyn*ran3)*sdt
+            deltaz = deltaz + (bzn*skpara*ran1 + bxyn*skperp*ran2)*sdt
+        endif
 
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
@@ -1815,7 +2136,12 @@ module particle_module
         ptl%t = ptl%t + ptl%dt
 
         ! Momentum
-        divv = dvx_dx + dvy_dy + dvz_dz
+        if (spherical_coord_flag) then
+            divv = dvx_dx + &
+                (2.0*vx + dvy_dy + vy*ctheta*istheta + dvz_dz*istheta)*ir
+        else
+            divv = dvx_dx + dvy_dy + dvz_dz
+        endif
         deltap = -ptl%p * divv * ptl%dt / 3.0d0
         ! Momentum diffusion due to wave scattering
         if (dpp_wave_flag) then
@@ -2001,9 +2327,9 @@ module particle_module
         call clean_particle_distributions
 
         !< Intervals for distributions
-        nx_mhd_reduced = (mhd_config%nx + nreduce + 1) / nreduce
-        ny_mhd_reduced = (mhd_config%ny + nreduce + 1) / nreduce
-        nz_mhd_reduced = (mhd_config%nz + nreduce + 1) / nreduce
+        nx_mhd_reduced = (mhd_config%nx + nreduce - 1) / nreduce
+        ny_mhd_reduced = (mhd_config%ny + nreduce - 1) / nreduce
+        nz_mhd_reduced = (mhd_config%nz + nreduce - 1) / nreduce
         dx_diag = mhd_config%lx / nx_mhd_reduced
         dy_diag = mhd_config%ly / ny_mhd_reduced
         dz_diag = mhd_config%lz / nz_mhd_reduced
@@ -2120,7 +2446,11 @@ module particle_module
             px = (ptl%x-fconfig%xmin) / mhd_config%dx
             py = (ptl%y-fconfig%ymin) / mhd_config%dy
             pz = (ptl%z-fconfig%zmin) / mhd_config%dz
-            call get_interp_paramters(px, py, pz, pos, weights)
+            if (spherical_coord_flag) then
+                call get_interp_paramters_spherical(ptl%x, ptl%y, ptl%z, pos, weights)
+            else
+                call get_interp_paramters(px, py, pz, pos, weights)
+            endif
             rt = (ptl%t - t0) / mhd_config%dt_out
             call interp_fields(pos, weights, rt)
             dvx_dx = gradf(1)
@@ -2173,7 +2503,7 @@ module particle_module
                 iy >= 1 .and. iy <= ny .and. &
                 iz >= 1 .and. iz <= nz) then
                 ip = floor((log10(ptl%p)-pmin_log) / dp_bands_log)
-                if (ip > 0 .and. ip <= nbands) then
+                if (ip > 0 .and. ip < nbands) then
                     fbands(ix, iy, iz, ip+1) = fbands(ix, iy, iz, ip+1) + weight
                 endif
             endif
@@ -2199,11 +2529,11 @@ module particle_module
             MPI_SUM, master, MPI_COMM_WORLD, ierr)
         if (whole_mhd_data == 1) then
             call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nbands, MPI_DOUBLE_PRECISION, &
+            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
                 MPI_SUM, master, MPI_COMM_WORLD, ierr)
             if (local_dist) then
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny, &
+                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
                     MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
             endif
         endif
@@ -2292,7 +2622,7 @@ module particle_module
             offset = 0
             mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
             call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands)
             call MPI_FILE_CLOSE(fh, ierror)
 
             if (local_dist) then
