@@ -454,12 +454,12 @@ program stochastic
         integer(I4P)                 :: error   !< Error trapping flag.
         integer :: tstart
         call cli%init(&
-            progname = 'stochastic-2dmhd', &
+            progname = 'stochastic-mhd', &
             authors     = 'Xiaocan Li', &
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['stochastic-2dmhd.exec -dm dir_mhd_data -nm nptl_max '//&
+            examples = ['stochastic-mhd.exec -dm dir_mhd_data -nm nptl_max '//&
                         '-np nptl -dt dt -ts t_start -te t_end -df dist_flag '//&
                         '-wm whole_mhd_data -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&

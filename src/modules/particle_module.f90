@@ -756,7 +756,7 @@ module particle_module
 
                         px = (ptl%x-xmin) / dxm
                         py = (ptl%y-ymin) / dym
-                        pz = (ptl%z-ymin) / dzm
+                        pz = (ptl%z-zmin) / dzm
                         rt = (ptl%t - t0) / dtf
                         if (spherical_coord_flag) then
                             call get_interp_paramters_spherical(&
@@ -935,7 +935,7 @@ module particle_module
                 ptl%count_flag = 0 !< remove particle
             else if (neighbors(2) == mpi_rank) then
                 ptl%x = ptl%x - xmax + xmin
-            else if (neighbors(2) == mpi_iy * mpi_sizex) then !< simulation boundary
+            else if (neighbors(2) == mpi_rank - mpi_sizex + 1) then !< simulation boundary
                 ptl%x = ptl%x - mhd_config%xmax + mhd_config%xmin
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
@@ -972,7 +972,7 @@ module particle_module
                     ptl%count_flag = 0
                 else if (neighbors(4) == mpi_rank) then
                     ptl%y = ptl%y - ymax + ymin
-                else if (neighbors(4) == mpi_ix) then
+                else if (neighbors(4) == mpi_rank - (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymax + mhd_config%ymin
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
@@ -992,7 +992,7 @@ module particle_module
                     ptl%count_flag = 0
                 else if (neighbors(5) == mpi_rank) then
                     ptl%z = ptl%z - zmin + zmax
-                else if (neighbors(5) == mpi_rank + (mpi_sizez - 1) * mpi_sizex) then
+                else if (neighbors(5) == mpi_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmin + mhd_config%zmax
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
@@ -1008,7 +1008,7 @@ module particle_module
                     ptl%count_flag = 0
                 else if (neighbors(6) == mpi_rank) then
                     ptl%z = ptl%z - zmax + zmin
-                else if (neighbors(6) == mpi_ix) then
+                else if (neighbors(6) == mpi_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmax + mhd_config%zmin
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
@@ -1955,7 +1955,9 @@ module particle_module
             else
                 deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
             endif
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            ! ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            rands = two_normals()
+            ran1 = rands(1)
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
         endif
 
@@ -1964,9 +1966,13 @@ module particle_module
             dvx_dy = gradf(2)
             dvy_dx = gradf(4)
             gshear = (2*(dvx_dy+dvy_dx)**2 + 4*(dvx_dx**2+dvy_dy**2))/30 - 2*divv**2/45
-            deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
+            if (gshear > 0) then
+                ! deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
+                deltap = deltap + 4 * gshear * dpp0_shear * ptl%p * ptl%dt
+                ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+                ! deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
+                deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ptl%p * ran1 * sdt
+            endif
         endif
 
         ptl%p = ptl%p + deltap
