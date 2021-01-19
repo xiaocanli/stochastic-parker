@@ -22,7 +22,7 @@ from sde_util import load_mhd_config, mkdir_p
 
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 mpl.rc('text', usetex=True)
-mpl.rcParams['text.latex.preamble'] = [r"\usepackage{amsmath}"]
+mpl.rcParams['text.latex.preamble'] = r"\usepackage{amsmath}"
 
 
 def inject_at_jz(plot_config, mhd_config, show_plot=True):
@@ -39,6 +39,12 @@ def inject_at_jz(plot_config, mhd_config, show_plot=True):
     ny = mhd_config["ny"][0] + 4
     dx = mhd_config["dx"][0]
     dy = mhd_config["dy"][0]
+    xmin, = mhd_config["xmin"]
+    xmax, = mhd_config["xmax"]
+    ymin, = mhd_config["ymin"]
+    ymax, = mhd_config["ymax"]
+    lx_mhd = xmax - xmin
+    ly_mhd = ymax - ymin
     fpath = plot_config["mhd_run_dir"] + 'bin_data/'
     fname = fpath + 'mhd_data_' + str(tframe).zfill(4)
     mhd_fields = np.fromfile(fname, dtype=np.float32)
@@ -57,10 +63,10 @@ def inject_at_jz(plot_config, mhd_config, show_plot=True):
     hgap = 0.03
     rect = np.copy(rect0)
     ax = fig.add_axes(rect)
-    sizes = [0.5*mhd_config["xmin"][0], 0.5*mhd_config["xmax"][0],
+    sizes = [mhd_config["xmin"][0], mhd_config["xmax"][0],
              mhd_config["ymin"][0], mhd_config["ymax"][0]]
     sizes = np.asarray(sizes) * L0
-    xs = nx//4
+    xs = 0
     fdata = absj[:, xs:(nx-xs)]
     xgrid = np.linspace(sizes[0], sizes[1], nx-xs*2)
     ygrid = np.linspace(sizes[2], sizes[3], ny)
@@ -96,6 +102,24 @@ def inject_at_jz(plot_config, mhd_config, show_plot=True):
     ax.text(0.05, 0.95, fig_text, color='w', fontsize=16,
             horizontalalignment='left', verticalalignment='center',
             transform=ax.transAxes)
+
+    fdir = '../data/' + plot_config["mhd_run"] + '/exhaust_boundary/'
+    fname = fdir + 'xz_right_' + str(tframe) + '.dat'
+    xlist_right, ylist_right = np.fromfile(fname).reshape([2, -1])
+    fname = fdir + 'xz_left_' + str(tframe) + '.dat'
+    xlist_left, ylist_left = np.fromfile(fname).reshape([2, -1])
+    if not np.all(xlist_right > xlist_left):
+        iy_max = np.argmax(ylist_right)
+        xlist_right = np.copy(xlist_right[:iy_max+1])
+        ylist_right = np.copy(ylist_right[:iy_max+1])
+        xlist_left = lx_mhd - xlist_right
+        ylist_left = np.copy(ylist_right)
+    ax.plot(xlist_left*L0, ylist_left*L0, color='w',
+            linewidth=1, linestyle='--')
+    ax.plot(xlist_right*L0, ylist_right*L0, color='w',
+            linewidth=1, linestyle='--')
+    ax.set_xlim([sizes[0], sizes[1]])
+    ax.set_ylim([sizes[2], sizes[3]])
 
     # nbins = 100
     # jbins = np.logspace(-1, 3, nbins+1)
@@ -236,18 +260,17 @@ def get_exhaust_boundary(plot_config, mhd_config, show_plot=True):
     ymax_grid = ymax + 2 * dy
     lx_grid = xmax_grid - xmin_grid
     ly_grid = ymax_grid - ymin_grid
-    xclose1, xclose2 = 0, lx_mhd  # Starting point for closed fieldline
-    xpos = np.linspace(lx_mhd-dx*0.1, 0.6*lx_mhd, 4)
-    while abs(xclose1 - xclose2) > dx * 0.1 or xclose1 == xclose2:
-        xclose1 = xclose2
-        for ix, x0 in enumerate(xpos):
-            # print("Starting x-position: %f" % x0)
-            xlist, ylist = trace_field_line(bx, by, x0, 0, lx_grid, ly_grid)
-            if np.any(xlist < 0.5*lx_mhd) and ylist.max() < 0.5*ly_mhd:
-                break
-        xclose2 = x0
-        xpos = np.linspace(xpos[ix-1], xpos[ix], 4)
-    xlist, ylist = trace_field_line(bx, by, xpos[0], 0, lx_grid, ly_grid)
+    x1, x2 = 0.5 * (xmin + xmax), xmax
+    while (x2 - x1) > 0.1 * dx:
+        xmid = (x1 + x2) * 0.5
+        # print("Starting x-position: %f" % xmid)
+        xlist, ylist = trace_field_line(bx, by, xmid, 0, lx_grid, ly_grid)
+        if np.any(xlist < 0.5*lx_mhd) and ylist.max() < 0.25*ly_mhd:
+            x1 = xmid
+        else:
+            x2 = xmid
+
+    xlist, ylist = trace_field_line(bx, by, x2, 0, lx_grid, ly_grid)
 
     fdir = '../data/' + plot_config["mhd_run"] + '/exhaust_boundary/'
     mkdir_p(fdir)
@@ -259,38 +282,38 @@ def get_exhaust_boundary(plot_config, mhd_config, show_plot=True):
     fname = fdir + 'xz_left_' + str(tframe) + '.dat'
     xz.tofile(fname)
 
-    # fig = plt.figure(figsize=[4, 8])
-    # rect0 = [0.15, 0.1, 0.8, 0.85]
-    # rect = np.copy(rect0)
-    # hgap = 0.03
-    # rect = np.copy(rect0)
-    # ax = fig.add_axes(rect)
-    # sizes = [xmin_grid, xmax_grid, ymin_grid, ymax_grid]
-    # L0 = 200  # in Mm
-    # sizes = np.asarray(sizes) * L0
-    # jx = np.gradient(bz, dy, axis=0)
-    # jy = -np.gradient(bz, dx, axis=1)
-    # jz = np.gradient(by, dx, axis=1) - np.gradient(bx, dy, axis=0)
-    # absj = np.sqrt(jx**2 + jy**2 + jz**2)
-    # img = ax.imshow(absj, extent=sizes, cmap=plt.cm.viridis,
-    #                 norm=LogNorm(vmin=1E1, vmax=1E3),
-    #                 # vmin=0, vmax=1E3,
-    #                 aspect='auto', origin='lower', interpolation='none')
-    # xlist *= L0
-    # ylist *= L0
-    # p1, = ax.plot(xlist, ylist, color='w', linewidth=1)
-    # ax.plot(lx_mhd*L0 - xlist, ylist, color=p1.get_color(), linewidth=1)
-    # ax.tick_params(labelsize=12)
-    # ax.set_xlabel(r'$x$/Mm', fontsize=16)
-    # ax.set_ylabel(r'$y$ (Mm)', fontsize=16)
+    fig = plt.figure(figsize=[4, 8])
+    rect0 = [0.15, 0.1, 0.8, 0.85]
+    rect = np.copy(rect0)
+    hgap = 0.03
+    rect = np.copy(rect0)
+    ax = fig.add_axes(rect)
+    sizes = [xmin_grid, xmax_grid, ymin_grid, ymax_grid]
+    L0 = 200  # in Mm
+    sizes = np.asarray(sizes) * L0
+    jx = np.gradient(bz, dy, axis=0)
+    jy = -np.gradient(bz, dx, axis=1)
+    jz = np.gradient(by, dx, axis=1) - np.gradient(bx, dy, axis=0)
+    absj = np.sqrt(jx**2 + jy**2 + jz**2)
+    img = ax.imshow(absj, extent=sizes, cmap=plt.cm.viridis,
+                    norm=LogNorm(vmin=1E1, vmax=1E3),
+                    # vmin=0, vmax=1E3,
+                    aspect='auto', origin='lower', interpolation='none')
+    xlist *= L0
+    ylist *= L0
+    p1, = ax.plot(xlist, ylist, color='w', linewidth=1)
+    ax.plot(lx_mhd*L0 - xlist, ylist, color=p1.get_color(), linewidth=1)
+    ax.tick_params(labelsize=12)
+    ax.set_xlabel(r'$x$/Mm', fontsize=16)
+    ax.set_ylabel(r'$y$ (Mm)', fontsize=16)
 
-    # if show_plot:
-    #     plt.show()
-    # else:
-    #     plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 
-def calc_deltaB(plot_config, mhd_config):
+def calc_deltab(plot_config, mhd_config):
     """Calculate the magnetic fluctuation
 
     Args:
@@ -336,7 +359,6 @@ def calc_deltaB(plot_config, mhd_config):
     jz = np.gradient(by, dx, axis=1) - np.gradient(bx, dy, axis=0)
     absj = np.sqrt(jx**2 + jy**2 + jz**2)
 
-
     fdir = '../data/' + plot_config["mhd_run"] + '/exhaust_boundary/'
     fname = fdir + 'xz_right_' + str(tframe) + '.dat'
     xlist_right, ylist_right = np.fromfile(fname).reshape([2, -1])
@@ -349,14 +371,14 @@ def calc_deltaB(plot_config, mhd_config):
         xlist_left = lx_mhd - xlist_right
         ylist_left = np.copy(ylist_right)
 
-    ycond = ylist_right < ly_mhd*0.6
-    ix = np.argmin(xlist_right[ycond] - xlist_left[ycond])
-    cond1 = (xlist_right[:ix] - xlist_left[:ix]) < 0.02
+    ix_top = len(xlist_right) - np.argmax(xlist_right[::-1] - xlist_left[::-1] > 0.1)
+    ix = np.argmin(xlist_right[:ix_top] - xlist_left[:ix_top])
+    cond1 = (xlist_right[:ix] - xlist_left[:ix]) < 0.01
     ips = np.argmin(cond1)
-    cond2 = (xlist_right[ix:] - xlist_left[ix:]) < 0.03
+    cond2 = (xlist_right[ix:] - xlist_left[ix:]) < 0.04
     ipe = np.argmax(cond2) + ix
     cond = np.concatenate((cond1, cond2), axis=0)
-    cond = np.logical_and(cond, ylist_right < ly_mhd*0.7)
+    cond = np.logical_and(cond, ylist_right < ylist_left.max()*0.8)
     ys = ylist_right[cond][0]
     ye = ylist_right[cond][-1]
     fleft = interp1d(ylist_left, xlist_left)
@@ -376,22 +398,33 @@ def calc_deltaB(plot_config, mhd_config):
     ix_left_mhd = np.floor((xlist_left_mhd - xmhd[0]) / dx + nghost).astype(int)
     ix_right_mhd = np.ceil((xlist_right_mhd - xmhd[0]) / dx + nghost).astype(int)
     # ix_right_mhd = nx - ix_left_mhd
-    ntranx = 5  # Number of transition cells at left and right
-    ntrany = 40  # Number of transition cells at top and bottom
+    dist = xlist_right - xlist_left
+    cond = np.logical_and(ylist_right > ys, ylist_right < ye)
+    y_xpoint = ylist_right[np.argmin(dist[cond]) + np.argmax(ylist_right > ys)]
+    ntranx = 20  # Number of transition cells at left and right
+    ntrany_bot = 150  # Number of transition cells at top and bottom
+    ntrany_top = 0.5 * (ye - y_xpoint) // dy // 2
+    if ntrany_top < ntrany_bot:
+        ntrany_top = ntrany_bot
     db_y = np.zeros(ny)
-    db_y = 0.5 * (np.tanh((ygrid - ys)/(ntrany*dy)) -
-                  np.tanh((ygrid - ye)/(ntrany*dy)))
+    db_y = 0.5 * (np.tanh((ygrid - ys)/(ntrany_bot*dy)) -
+                  np.tanh((ygrid - (ye + y_xpoint) * 0.5)/(ntrany_top*dy)))
+    db_y -= db_y.min()
     deltab = np.zeros([ny, nx])
+    # # plt.plot(ix_left_mhd)
+    # plt.plot(ix_left_mhd + ix_right_mhd)
+    # plt.show()
     for iy in range(nghost, iy_max+nghost):
         ix1 = ix_left_mhd[iy-nghost]
         ix2 = ix_right_mhd[iy-nghost]
-        deltab[iy, :] = 0.5 * db_y[iy] * (np.tanh((xgrid-xgrid[ix1])/(ntranx*dx)) -
-                                          np.tanh((xgrid-xgrid[ix2])/(ntranx*dx)))
+        deltab[iy, :] = 0.5 * db_y[iy] * (np.tanh((xgrid-xgrid[ix1-ntranx])/(ntranx*dx)) -
+                                          np.tanh((xgrid-xgrid[ix2+ntranx])/(ntranx*dx)))
         deltab[iy, :] += 1E-2
     for iy in range(nghost):
         deltab[iy, :] = deltab[nghost]
     for iy in range(iy_max+nghost, ny):
         deltab[iy, :] = 1E-2
+    # deltab[deltab < 1E-2] = 1E-2
     deltab = deltab.astype(np.float32)
 
     fname = fpath + 'deltab_' + str(tframe).zfill(4)
@@ -453,15 +486,33 @@ def calc_correlation_length(plot_config, mhd_config):
         xlist_left = lx_mhd - xlist_right
         ylist_left = np.copy(ylist_right)
 
+    ix_top = len(xlist_right) - np.argmax(xlist_right[::-1] - xlist_left[::-1] > 0.1)
+    ix = np.argmin(xlist_right[:ix_top] - xlist_left[:ix_top])
+    cond1 = (xlist_right[:ix] - xlist_left[:ix]) < 0.01
+    ips = np.argmin(cond1)
+    cond2 = (xlist_right[ix:] - xlist_left[ix:]) < 0.04
+    ipe = np.argmax(cond2) + ix
+    cond = np.concatenate((cond1, cond2), axis=0)
+    cond = np.logical_and(cond, ylist_right < ylist_left.max()*0.8)
+    ys = ylist_right[cond][0]
+    ye = ylist_right[cond][-1]
+
     fleft = interp1d(ylist_left, xlist_left)
     fright = interp1d(ylist_right, xlist_right)
     xlist_left_mhd = np.zeros(ny_mhd)
     xlist_right_mhd = np.zeros(ny_mhd)
     sep = np.zeros(ny_mhd)
     if ymhd[-1] > ylist_left[-1]:
-        iy_max = np.argmax(ymhd > ylist_left.max())
-        xlist_left_mhd[:iy_max] = fleft(ymhd[:iy_max])
-        xlist_right_mhd[:iy_max] = fright(ymhd[:iy_max])
+        iy_top = np.argmax(ymhd > ylist_left.max())
+        xlist_left_mhd[:iy_top] = fleft(ymhd[:iy_top])
+        xlist_right_mhd[:iy_top] = fright(ymhd[:iy_top])
+        # The exhaust boundaries intersect with left and right domain boundaries
+        if (xlist_right[-1] - xlist_left[-1]) > lx_mhd:
+            xlist_left_mhd[iy_top:] = xmin
+            xlist_right_mhd[iy_top:] = xmax
+            iy_max = ny_mhd - 1
+        else:
+            iy_max = iy_top
     else:
         xlist_left_mhd = fleft(ymhd)
         xlist_right_mhd = fright(ymhd)
@@ -470,29 +521,47 @@ def calc_correlation_length(plot_config, mhd_config):
     ix_left_mhd = np.floor((xlist_left_mhd - xmhd[0]) / dx + nghost).astype(int)
     ix_right_mhd = np.ceil((xlist_right_mhd - xmhd[0]) / dx + nghost).astype(int)
     # ix_right_mhd = nx - ix_left_mhd
-    sep[:iy_max] = (xlist_right_mhd[:iy_max] -
-                    xlist_left_mhd[:iy_max]) * L0 * 1E3  # in km
+    iy_looptop = int(ys / dx)
+    sep[iy_looptop:iy_max] = (xlist_right_mhd[iy_looptop:iy_max] -
+                              xlist_left_mhd[iy_looptop:iy_max]) * L0 * 1E3  # in km
+    sep[:iy_looptop] = (xlist_right_mhd[iy_looptop] -
+                        xlist_left_mhd[iy_looptop]) * L0 * 1E3
 
     lc_norm = 5000.0  # in km
     lc = np.zeros([ny, nx])
     absb_sqrt = np.sqrt(absb)
+    ntranx = 20  # Number of transition cells at left and right
     for iy in range(nghost, iy_max+nghost):
         ix1 = ix_left_mhd[iy-nghost]
         ix2 = ix_right_mhd[iy-nghost]
-        lc[iy, :ix1] = lc_norm / absb[iy, :ix1]
-        lc[iy, ix2:] = lc_norm / absb[iy, ix2:]
-        lc[iy, ix1:ix2] = sep[iy-nghost]
+        lc_b = lc_norm / absb[iy, ix1-4*ntranx]
+        if lc_b > sep[iy]:
+            lc[iy, :] = (np.tanh((xgrid-xgrid[ix1-ntranx])/(ntranx*dx)) -
+                         np.tanh((xgrid-xgrid[ix2+ntranx])/(ntranx*dx)))
+            lc[iy, :] = lc[iy, :].max() - lc[iy, :]
+            lc[iy, :] *= (lc_b - sep[iy]) / lc[iy, :].max()
+            lc[iy, :] += sep[iy]
+        else:
+            lc[iy, :] = (np.tanh((xgrid-xgrid[ix1-ntranx])/(ntranx*dx)) -
+                         np.tanh((xgrid-xgrid[ix2+ntranx])/(ntranx*dx)))
+            lc[iy, :] *= (sep[iy] - lc_b) / lc[iy, :].max()
+            lc[iy, :] += lc_b
+        lc[iy, :ix1-4*ntranx] = lc_norm / absb[iy, :ix1-4*ntranx]
+        lc[iy, ix2+4*ntranx:] = lc_norm / absb[iy, ix2+4*ntranx:]
     for iy in range(nghost):
         lc[iy, :] = lc[nghost]
     for iy in range(iy_max+nghost, ny):
-        lc[iy, :] = lc_norm / absb[iy, :]
+        if iy_max < ny_mhd - 1:
+            lc[iy, :] = lc_norm / absb[iy, :]
+        else:
+            lc[iy, :] = lc[iy_max+nghost-1]
 
     lc = lc.astype(np.float32)
     fname = fpath + 'lc_' + str(tframe).zfill(4)
     lc.tofile(fname)
 
 
-def plot_deltaB(plot_config, mhd_config, show_plot=True):
+def plot_deltab(plot_config, mhd_config, show_plot=True):
     """Plot the magnetic fluctuation
 
     Args:
@@ -597,6 +666,9 @@ def plot_deltaB(plot_config, mhd_config, show_plot=True):
         plt.show()
     else:
         plt.close()
+
+    # plt.plot(deltab[:, nx_mhd//2])
+    # plt.show()
 
 
 def plot_correlation_length(plot_config, mhd_config, show_plot=True):
@@ -836,11 +908,11 @@ def get_cmd_args():
                         help='ending time frame')
     parser.add_argument('--inject_at_jz', action="store_true", default=False,
                         help='Inject particles where jz is large')
-    parser.add_argument('--calc_deltaB', action="store_true", default=False,
+    parser.add_argument('--calc_deltab', action="store_true", default=False,
                         help='Calculate the magnetic fluctuation')
     parser.add_argument('--calc_lc', action="store_true", default=False,
                         help='Calculate the correlation length')
-    parser.add_argument('--plot_deltaB', action="store_true", default=False,
+    parser.add_argument('--plot_deltab', action="store_true", default=False,
                         help='Plot the magnetic fluctuation')
     parser.add_argument('--plot_lc', action="store_true", default=False,
                         help='Plot the correlation length')
@@ -856,12 +928,12 @@ def analysis_single_frames(plot_config, mhd_config, args):
     """
     if args.inject_at_jz:
         inject_at_jz(plot_config, mhd_config, show_plot=True)
-    elif args.calc_deltaB:
-        calc_deltaB(plot_config, mhd_config)
+    elif args.calc_deltab:
+        calc_deltab(plot_config, mhd_config)
     elif args.calc_lc:
         calc_correlation_length(plot_config, mhd_config)
-    elif args.plot_deltaB:
-        plot_deltaB(plot_config, mhd_config, show_plot=True)
+    elif args.plot_deltab:
+        plot_deltab(plot_config, mhd_config, show_plot=True)
     elif args.plot_lc:
         plot_correlation_length(plot_config, mhd_config, show_plot=True)
     elif args.exhaust_boundary:
@@ -876,8 +948,8 @@ def process_input(plot_config, mhd_config, args, tframe):
     print("Time frame: %d" % tframe)
     if args.exhaust_boundary:
         get_exhaust_boundary(plot_config, mhd_config, show_plot=False)
-    elif args.calc_deltaB:
-        calc_deltaB(plot_config, mhd_config)
+    elif args.calc_deltab:
+        calc_deltab(plot_config, mhd_config)
     elif args.calc_lc:
         calc_correlation_length(plot_config, mhd_config)
 
@@ -892,12 +964,13 @@ def analysis_multi_frames(plot_config, mhd_config, args):
             plot_config["tframe"] = tframe
             if args.inject_at_jz:
                 inject_at_jz(plot_config, mhd_config, show_plot=False)
-            elif args.plot_deltaB:
-                plot_deltaB(plot_config, mhd_config, show_plot=False)
+            elif args.plot_deltab:
+                plot_deltab(plot_config, mhd_config, show_plot=False)
             elif args.plot_lc:
                 plot_correlation_length(plot_config, mhd_config, show_plot=False)
     else:
         ncores = multiprocessing.cpu_count()
+        # ncores = 18
         Parallel(n_jobs=ncores)(delayed(process_input)(plot_config, mhd_config,
                                                        args, tframe)
                                 for tframe in tframes)

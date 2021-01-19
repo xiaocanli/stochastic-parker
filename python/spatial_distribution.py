@@ -426,7 +426,7 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
     by = mhd_fields[:, :, 5]
     jz = np.gradient(by, dx, axis=1) - np.gradient(bx, dy, axis=0)
 
-    fig = plt.figure(figsize=[24, 6])
+    fig = plt.figure(figsize=[18, 6])
     rect0 = [0.04, 0.1, 0.145, 0.83]
     rect = np.copy(rect0)
     hgap = 0.015
@@ -460,7 +460,7 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
             horizontalalignment='left', verticalalignment='center',
             transform=ax.transAxes)
 
-    fnorms = [1, 2, 4, 32]
+    fnorms = [1, 8, 16, 128]
 
     tframe_str = str(tframe).zfill(4)
     run_name = plot_config["run_name"]
@@ -495,7 +495,7 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
         ax = fig.add_axes(rect)
         vmin = plot_config['nmin']
         vmax = plot_config['nmax']
-        img = ax.imshow(fband + 0.1*vmin, cmap=plt.cm.viridis,
+        img = ax.imshow(fband + 0.1*vmin, cmap=plt.cm.inferno,
                         aspect='auto', origin='lower', extent=sizes,
                         # vmin=vmin, vmax=vmax,
                         norm=LogNorm(vmin=vmin, vmax=vmax),
