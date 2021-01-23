@@ -55,6 +55,7 @@ module particle_module
     real(dp) :: kret                !< The ratio of kpara to kperp
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
+    integer :: acc_region_flag      !< flag for whether to turn on acceleration in certain region
     real(dp) :: pindex              !< power index for the momentum dependency
     real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
@@ -65,6 +66,7 @@ module particle_module
     real(dp) :: dkxz_dx, dkxz_dz
     real(dp) :: dkyz_dy, dkyz_dz
     real(dp) :: skpara, skperp, skpara_perp
+    real(dp), dimension(6) :: acc_region  !< from 0 to 1 (xmin, xmax, ymin, ymax, zmin, zmax)
 
     real(dp) :: dt_min      !< Minimum time step
     real(dp) :: dt_max      !< Maximum time step
@@ -1290,6 +1292,15 @@ module particle_module
             nz = (fconfig%nz + nreduce - 1) / nreduce
             temp = get_variable(fh, 'npp', '=')
             npp = int(temp)
+            acc_region_flag = 0  !< In default, particles can be accelerated everywhere
+            temp = get_variable(fh, 'acc_region_flag', '=')
+            acc_region_flag = int(temp)
+            acc_region(1) = get_variable(fh, 'acc_xmin', '=')
+            acc_region(2) = get_variable(fh, 'acc_xmax', '=')
+            acc_region(3) = get_variable(fh, 'acc_ymin', '=')
+            acc_region(4) = get_variable(fh, 'acc_ymax', '=')
+            acc_region(5) = get_variable(fh, 'acc_zmin', '=')
+            acc_region(6) = get_variable(fh, 'acc_zmax', '=')
             close(fh)
             !< echo the information
             print *, "---------------------------------------------------"
@@ -1316,6 +1327,15 @@ module particle_module
             write(*, "(A,I0,A,I0,A,I0)") " Dimensions of spatial distributions = ", &
                 nx, " ", ny, " ", nz
             write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
+            if (acc_region_flag) then
+                write(*, "(A)") " Particle can only be accelerated in part of the box"
+                write(*, "(A,F13.6)") " acc_xmin = ", acc_region(1)
+                write(*, "(A,F13.6)") " acc_xmax = ", acc_region(2)
+                write(*, "(A,F13.6)") " acc_ymin = ", acc_region(3)
+                write(*, "(A,F13.6)") " acc_ymax = ", acc_region(4)
+                write(*, "(A,F13.6)") " acc_zmin = ", acc_region(5)
+                write(*, "(A,F13.6)") " acc_zmax = ", acc_region(6)
+            endif
             print *, "---------------------------------------------------"
         endif
         call MPI_BCAST(momentum_dependency, 1, MPI_INTEGER, master, &
@@ -1336,6 +1356,18 @@ module particle_module
         call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nz, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(acc_region_flag, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        if (acc_region_flag) then
+            call MPI_BCAST(acc_region, 6, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        else
+            acc_region(1) = 0.0
+            acc_region(2) = 1.0
+            acc_region(3) = 0.0
+            acc_region(4) = 1.0
+            acc_region(5) = 0.0
+            acc_region(6) = 1.0
+        endif
 
         if (ndim_field == 1) then
             if (nx * nreduce /= fconfig%nx) then
@@ -1631,6 +1663,30 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Push particle for a single step for a 1D simulation
     !< Args:
+    !<  ptl: one particle
+    !---------------------------------------------------------------------------
+    function particle_in_acceleration_region(particle) result (ptl_in_region)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        type(particle_type), intent(in) :: particle
+        logical :: ptl_in_region, inx, iny, inz
+        real(dp) :: xnorm, ynorm, znorm  !< 0 - 1
+        ptl_in_region = .true.
+        inx = .true.
+        iny = .true.
+        inz = .true.
+        xnorm = (particle%x - mhd_config%xmin) / mhd_config%lx
+        ynorm = (particle%y - mhd_config%ymin) / mhd_config%ly
+        znorm = (particle%z - mhd_config%zmin) / mhd_config%lz
+        inx = (xnorm >= acc_region(1)) .and. ((1.0d0-xnorm) <= acc_region(2))
+        iny = (ynorm >= acc_region(3)) .and. ((1.0d0-ynorm) <= acc_region(4))
+        inz = (znorm >= acc_region(5)) .and. ((1.0d0-znorm) <= acc_region(6))
+        ptl_in_region = inx .and. iny .and. inz
+    end function particle_in_acceleration_region
+
+    !---------------------------------------------------------------------------
+    !< Push particle for a single step for a 1D simulation
+    !< Args:
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  deltax, deltap: the change of x and p in this step
@@ -1745,7 +1801,15 @@ module particle_module
             deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
         endif
 
-        ptl%p = ptl%p + deltap
+        if (acc_region_flag) then
+            if (particle_in_acceleration_region(ptl)) then
+                ptl%p = ptl%p + deltap
+            else
+                deltap = 0.0
+            endif
+        else
+            ptl%p = ptl%p + deltap
+        endif
     end subroutine push_particle_1d
 
     !---------------------------------------------------------------------------
@@ -1975,7 +2039,15 @@ module particle_module
             endif
         endif
 
-        ptl%p = ptl%p + deltap
+        if (acc_region_flag) then
+            if (particle_in_acceleration_region(ptl)) then
+                ptl%p = ptl%p + deltap
+            else
+                deltap = 0.0
+            endif
+        else
+            ptl%p = ptl%p + deltap
+        endif
     end subroutine push_particle_2d
 
     !---------------------------------------------------------------------------
@@ -2178,7 +2250,15 @@ module particle_module
             deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
         endif
 
-        ptl%p = ptl%p + deltap
+        if (acc_region_flag) then
+            if (particle_in_acceleration_region(ptl)) then
+                ptl%p = ptl%p + deltap
+            else
+                deltap = 0.0
+            endif
+        else
+            ptl%p = ptl%p + deltap
+        endif
     end subroutine push_particle_3d
 
     !---------------------------------------------------------------------------
