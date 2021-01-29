@@ -277,8 +277,9 @@ module particle_module
     !<  dt: the time interval
     !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
     !<  ct_mhd: MHD simulation time frame
+    !<  part_box: box to inject particles
     !---------------------------------------------------------------------------
-    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd)
+    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, part_box)
         use simulation_setup_module, only: fconfig
         use mpi_module, only: mpi_rank, master
         use mhd_config_module, only: mhd_config
@@ -286,16 +287,17 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt
+        real(dp), intent(in), dimension(6) :: part_box
         integer :: i, imod2
         real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
         real(dp) :: rands(2)
 
-        xmin = fconfig%xmin
-        xmax = fconfig%xmax
-        ymin = fconfig%ymin
-        ymax = fconfig%ymax
-        zmin = fconfig%zmin
-        zmax = fconfig%zmax
+        xmin = part_box(1)
+        ymin = part_box(2)
+        zmin = part_box(3)
+        xmax = part_box(4)
+        ymax = part_box(5)
+        zmax = part_box(6)
 
         do i = 1, nptl
             nptl_current = nptl_current + 1
@@ -1048,7 +1050,7 @@ module particle_module
                 neighbors(recv_id), neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
         endif
         nrecvers(recv_id) = nrecv
-        if (mpi_direc / 2 == 0) then
+        if (mod(mpi_direc, 2) == 0) then
             if (nsend > 0) then
                 call MPI_SEND(senders(1:nsend, send_id), nsend, &
                     particle_datatype_mpi, neighbors(send_id), mpi_rank, &
@@ -1082,10 +1084,14 @@ module particle_module
         implicit none
         call send_recv_particle_one_neighbor(1, 2, mpi_ix) !< Right -> Left
         call send_recv_particle_one_neighbor(2, 1, mpi_ix) !< Left -> Right
-        call send_recv_particle_one_neighbor(3, 4, mpi_iy) !< Top -> Bottom
-        call send_recv_particle_one_neighbor(4, 3, mpi_iy) !< Bottom -> Top
-        call send_recv_particle_one_neighbor(5, 6, mpi_iz) !< Front -> Back
-        call send_recv_particle_one_neighbor(6, 5, mpi_iz) !< Back -> Front
+        if (ndim_field > 1) then
+            call send_recv_particle_one_neighbor(3, 4, mpi_iy) !< Top -> Bottom
+            call send_recv_particle_one_neighbor(4, 3, mpi_iy) !< Bottom -> Top
+            if (ndim_field == 3) then
+                call send_recv_particle_one_neighbor(5, 6, mpi_iz) !< Front -> Back
+                call send_recv_particle_one_neighbor(6, 5, mpi_iz) !< Back -> Front
+            endif
+        endif
     end subroutine send_recv_particles
 
     !---------------------------------------------------------------------------

@@ -167,26 +167,26 @@ program stochastic
         call locate_shock_xpos(interp_flag)
         call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
     else
+        if (inject_part_box) then
+            part_box(1) = ptl_xmin
+            part_box(2) = ptl_ymin
+            part_box(3) = ptl_zmin
+            part_box(4) = ptl_xmax
+            part_box(5) = ptl_ymax
+            part_box(6) = ptl_zmax
+        else
+            part_box(1) = fconfig%xmin
+            part_box(2) = fconfig%ymin
+            part_box(3) = fconfig%zmin
+            part_box(4) = fconfig%xmax
+            part_box(5) = fconfig%ymax
+            part_box(6) = fconfig%zmax
+        endif
         if (inject_large_jz) then
-            if (inject_part_box) then
-                part_box(1) = ptl_xmin
-                part_box(2) = ptl_ymin
-                part_box(3) = ptl_zmin
-                part_box(4) = ptl_xmax
-                part_box(5) = ptl_ymax
-                part_box(6) = ptl_zmax
-            else
-                part_box(1) = fconfig%xmin
-                part_box(2) = fconfig%ymin
-                part_box(3) = fconfig%zmin
-                part_box(4) = fconfig%xmax
-                part_box(5) = fconfig%ymax
-                part_box(6) = fconfig%zmax
-            endif
             call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
                 jz_min, part_box)
         else
-            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
+            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
         endif
     endif
 
@@ -263,7 +263,7 @@ program stochastic
                     call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1)
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
                 endif
             endif
         endif
@@ -291,7 +291,7 @@ program stochastic
                 call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
                     jz_min, part_box)
             else
-                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start)
+                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
             endif
         endif
 
@@ -392,7 +392,7 @@ program stochastic
                     call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
                         jz_min, part_box)
                 else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1)
+                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
                 endif
             endif
             call cpu_time(step2)
@@ -744,18 +744,18 @@ program stochastic
             if (inject_new_ptl) then
                 print '(A)', 'Inject new particles at every MHD time step'
             endif
+            if (inject_part_box) then
+                print '(A)', 'Inject new particles in part of the simulation box'
+                print '(A,E,E)', 'Minimum and maximum x of the region to inject new particles', &
+                    ptl_xmin, ptl_xmax
+                print '(A,E,E)', 'Minimum and maximum y of the region to inject new particles', &
+                    ptl_ymin, ptl_ymax
+                print '(A,E,E)', 'Minimum and maximum z of the region to inject new particles', &
+                    ptl_zmin, ptl_zmax
+            endif
             if (inject_large_jz) then
                 print '(A)', 'Inject new particles where jz is large'
                 print '(A,E)', 'Minumum jz in regions to inject new particles', jz_min
-                if (inject_part_box) then
-                    print '(A)', 'Inject new particles in part of the simulation box'
-                    print '(A,E,E)', 'Minimum and maximum x of the region to inject new particles', &
-                        ptl_xmin, ptl_xmax
-                    print '(A,E,E)', 'Minimum and maximum y of the region to inject new particles', &
-                        ptl_ymin, ptl_ymax
-                    print '(A,E,E)', 'Minimum and maximum z of the region to inject new particles', &
-                        ptl_zmin, ptl_zmax
-                endif
             endif
             if (dpp_wave) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'
