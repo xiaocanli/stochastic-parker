@@ -40,6 +40,7 @@ module mhd_data_parallel
     !dir$ attributes align:128 :: gradf
     !dir$ attributes align:128 :: gradf1
 
+    !< 80 variables in total
     real(fp), allocatable, dimension(:, :, :, :) :: f_array1, f_array2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: fgrad_array1, fgrad_array2
     real(fp), allocatable, dimension(:, :, :) :: deltab1, deltab2 ! Current,next

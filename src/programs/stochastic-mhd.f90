@@ -19,7 +19,7 @@ program stochastic
         inject_particles_at_shock, set_mpi_io_data_sizes, &
         init_local_particle_distributions, free_local_particle_distributions, &
         inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
-        set_drift_parameters
+        set_drift_parameters, get_pmax_global
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -195,6 +195,7 @@ program stochastic
     call set_mpi_io_data_sizes
     call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
     call quick_check(t_start, .true., diagnostics_directory)
+    call get_pmax_global(t_start, .true., diagnostics_directory)
 
     !< Time loop
     do tf = t_start, t_end
@@ -209,6 +210,7 @@ program stochastic
             call split_particle
         endif
         call quick_check(tf+1, .false., diagnostics_directory)
+        call get_pmax_global(tf+1, .false., diagnostics_directory)
         call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "

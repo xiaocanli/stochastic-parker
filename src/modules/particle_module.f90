@@ -19,7 +19,8 @@ module particle_module
         save_tracked_particle_points, inject_particles_at_shock, &
         set_mpi_io_data_sizes, init_local_particle_distributions, &
         free_local_particle_distributions, inject_particles_at_large_jz, &
-        set_dpp_params, set_flags_params, set_drift_parameters
+        set_dpp_params, set_flags_params, set_drift_parameters, &
+        get_pmax_global
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -78,6 +79,7 @@ module particle_module
     real(dp) :: pmax  !< Maximum particle momentum
     real(dp) :: dx_diag, dy_diag, dz_diag
     real(dp) :: pmin_log, pmax_log, dp_log, dp_bands_log
+    real(dp) :: pmax_local, pmax_global
     integer :: nx, ny, nz, npp, nreduce
     integer :: nx_mhd_reduced, ny_mhd_reduced, nz_mhd_reduced
 
@@ -2734,6 +2736,48 @@ module particle_module
             call clean_local_particle_distribution
         endif
     end subroutine distributions_diagnostics
+
+
+    !---------------------------------------------------------------------------
+    !< Get maximum particle momentum and write to file
+    !< Args:
+    !<  iframe: the time frame
+    !<  if_create_file: whether to create a file
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine get_pmax_global(iframe, if_create_file, file_path)
+        use mpi_module
+        implicit none
+        integer, intent(in) :: iframe
+        logical, intent(in) :: if_create_file
+        character(*), intent(in) :: file_path
+        integer :: i
+        logical :: dir_e
+
+        inquire(file='./data/.', exist=dir_e)
+        if (.not. dir_e) then
+            call system('mkdir -p ./data')
+        endif
+        pmax_local = 0.0_dp
+        do i = 1, nptl_current
+            if (ptls(i)%p > pmax_local) then
+                pmax_local = ptls(i)%p
+            endif
+        enddo
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+        call MPI_REDUCE(pmax_global, pmax_local, 1, MPI_DOUBLE_PRECISION, &
+            MPI_MAX, master, MPI_COMM_WORLD, ierr)
+        if (mpi_rank == master) then
+            if (if_create_file) then
+                open (17, file=trim(file_path)//'pmax_global.dat', status='unknown')
+            else
+                open (17, file=trim(file_path)//'pmax_global.dat', status="old", &
+                    position="append", action="write")
+            endif
+            write(17, "(E13.6)") pmax_global
+            close(17)
+        endif
+    end subroutine get_pmax_global
 
     !---------------------------------------------------------------------------
     !< quicksort particles w.r.t their energy/momentum
