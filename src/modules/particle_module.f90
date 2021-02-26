@@ -2765,7 +2765,7 @@ module particle_module
             endif
         enddo
         call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(pmax_global, pmax_local, 1, MPI_DOUBLE_PRECISION, &
+        call MPI_REDUCE(pmax_local, pmax_global, 1, MPI_DOUBLE_PRECISION, &
             MPI_MAX, master, MPI_COMM_WORLD, ierr)
         if (mpi_rank == master) then
             if (if_create_file) then
