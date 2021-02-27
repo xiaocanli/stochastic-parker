@@ -5,6 +5,7 @@ module particle_module
     use constants, only: fp, dp
     use simulation_setup_module, only: ndim_field
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
+    use hdf5
     implicit none
     private
     save
@@ -20,7 +21,7 @@ module particle_module
         set_mpi_io_data_sizes, init_local_particle_distributions, &
         free_local_particle_distributions, inject_particles_at_large_jz, &
         set_dpp_params, set_flags_params, set_drift_parameters, &
-        get_pmax_global
+        get_pmax_global, set_flag_check_drift_2d, dump_particles
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -108,11 +109,17 @@ module particle_module
     real(dp) :: drift1 ! ev_ABL_0/pc
     real(dp) :: drift2 ! mev_ABL_0/p^2
     integer :: pcharge ! Particle charge in the unit of of e
+    logical :: check_drift_2d ! Whether to check drift in 2D simulations
 
     interface push_particle
         module procedure &
             push_particle_1d, push_particle_2d, push_particle_3d
     end interface push_particle
+
+    interface write_ptl_element
+        module procedure &
+            write_integer_element, write_double_element
+    end interface write_ptl_element
 
     contains
 
@@ -239,6 +246,18 @@ module particle_module
         drift2 = drift_param2
         pcharge = charge
     end subroutine set_drift_parameters
+
+    !---------------------------------------------------------------------------
+    !< Set the flag for checking particle drift in 2D simulations
+    !< Args:
+    !<  check_drift_2d_flag(integer): flag for checking drift in 2D
+    !---------------------------------------------------------------------------
+    subroutine set_flag_check_drift_2d(check_drift_2d_flag)
+        implicit none
+        integer, intent(in) :: check_drift_2d_flag
+        check_drift_2d = .false.
+        if (check_drift_2d_flag) check_drift_2d = .true.
+    end subroutine set_flag_check_drift_2d
 
     !---------------------------------------------------------------------------
     !< Set MPI datatype for particle type
@@ -410,10 +429,20 @@ module particle_module
         integer, dimension(3), intent(out) :: pos
         real(dp) :: rx, ry, rz, rx1, ry1, rz1
 
-        pos = (/ floor(px)+1,  floor(py)+1, floor(pz)+1 /)
+        if (ndim_field == 1) then
+            pos = (/ floor(px)+1,  1, 1 /)
+            ry = 0.0
+            rz = 0.0
+        else if (ndim_field == 2) then
+            pos = (/ floor(px)+1,  floor(py)+1, 1 /)
+            ry = py - pos(2) + 1
+            rz = 0.0
+        else
+            pos = (/ floor(px)+1,  floor(py)+1, floor(pz)+1 /)
+            ry = py - pos(2) + 1
+            rz = pz - pos(3) + 1
+        endif
         rx = px - pos(1) + 1
-        ry = py - pos(2) + 1
-        rz = pz - pos(3) + 1
         rx1 = 1.0 - rx
         ry1 = 1.0 - ry
         rz1 = 1.0 - rz
@@ -470,8 +499,16 @@ module particle_module
 
         ! The lbound of the position array is -1, so -2
         pos(1) = binarySearch_R(xpos_local, x) - 2
-        pos(2) = binarySearch_R(ypos_local, y) - 2
-        pos(3) = binarySearch_R(zpos_local, z) - 2
+        if (ndim_field > 1) then
+            pos(2) = binarySearch_R(ypos_local, y) - 2
+            if (ndim_field == 3) then
+                pos(3) = binarySearch_R(zpos_local, z) - 2
+            else
+                pos(3) = 1
+            endif
+        else
+            pos(2) = 1
+        endif
         half_pi = pi * 0.5
         ! We assume here theta is from -pi/2 to pi/2
         ctheta1 = cos(ypos_local(pos(2)) + half_pi)
@@ -483,15 +520,24 @@ module particle_module
         x3_2 = xpos_local(pos(1)+1)**3 * one_third
 
         rx = x3 - x3_1
-        ry = ctheta1 - ctheta
-        rz = z - zpos_local(pos(3))
         rx1 = x3_2 - x3
-        ry1 = ctheta - ctheta2
-        rz1 = zpos_local(pos(3)+1) - z
+        if (ndim_field > 1) then
+            ry = ctheta1 - ctheta
+            ry1 = ctheta - ctheta2
+            if (ndim_field == 3) then
+                rz = z - zpos_local(pos(3))
+                rz1 = zpos_local(pos(3)+1) - z
+            else
+                rz = 0.0
+                rz1 = 1.0
+            endif
+        else
+            ry = 0.0
+            ry1 = 1.0
+        endif
 
         ! Volume of the cell
-        dv = (x3_2 - x3_1) * (ctheta1 - ctheta2) * &
-            (zpos_local(pos(3)+1) - zpos_local(pos(3)))
+        dv = (x3_2 - x3_1) * (ry + ry1) * (rz + rz1)
 
         weights(1) = rx1 * ry1 * rz1
         weights(2) = rx * ry1 * rz1
@@ -1574,7 +1620,7 @@ module particle_module
             db_dz = gradf(24)
             ib2 = ib * ib
             ib3 = ib * ib2
-            vdp = pcharge / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2) / 3
+            vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
             if (spherical_coord_flag) then
                 gbr = db_dx
                 gbt = db_dy * ir
@@ -1684,11 +1730,15 @@ module particle_module
         iny = .true.
         inz = .true.
         xnorm = (particle%x - mhd_config%xmin) / mhd_config%lx
-        ynorm = (particle%y - mhd_config%ymin) / mhd_config%ly
-        znorm = (particle%z - mhd_config%zmin) / mhd_config%lz
         inx = (xnorm >= acc_region(1)) .and. ((1.0d0-xnorm) <= acc_region(2))
-        iny = (ynorm >= acc_region(3)) .and. ((1.0d0-ynorm) <= acc_region(4))
-        inz = (znorm >= acc_region(5)) .and. ((1.0d0-znorm) <= acc_region(6))
+        if (ndim_field > 1) then
+            ynorm = (particle%y - mhd_config%ymin) / mhd_config%ly
+            iny = (ynorm >= acc_region(3)) .and. ((1.0d0-ynorm) <= acc_region(4))
+        endif
+        if (ndim_field == 3) then
+            znorm = (particle%z - mhd_config%zmin) / mhd_config%lz
+            inz = (znorm >= acc_region(5)) .and. ((1.0d0-znorm) <= acc_region(6))
+        endif
         ptl_in_region = inx .and. iny .and. inz
     end function particle_in_acceleration_region
 
@@ -1841,6 +1891,7 @@ module particle_module
         real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv, gshear
         real(dp) :: bx, by, bz, b, vx, vy, px, py, pz, rt1, ib
         real(dp) :: bx1, by1, btot1, ib1
+        real(dp) :: dbx_dy, dby_dx, db_dx, db_dy, vdz, vdp, ib2, ib3, gbr, gbt
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym
         reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
         real(dp) :: skperp1, skpara_perp1
@@ -1851,6 +1902,7 @@ module particle_module
         real(dp) :: qtmp1, qtmp2, atmp
         real(dp) :: a1_1, b1_1, c1_1, Qpp_1, Qpm_1, Qmp_1, Qmm_1
         real(dp) :: qtmp1_1, qtmp2_1
+        real(dp) :: deltaz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -1904,6 +1956,29 @@ module particle_module
             Qmm = atmp - (a1 - c1)
             qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
             qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
+        endif
+
+        !< Check particle drift along the out-of-plane direction
+        if (check_drift_2d) then
+            dbx_dy = gradf(14)
+            dby_dx = gradf(16)
+            db_dx = gradf(22)
+            db_dy = gradf(23)
+            ib2 = ib * ib
+            ib3 = ib * ib2
+            vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
+            if (spherical_coord_flag) then
+                gbr = db_dx
+                gbt = db_dy * ir
+                vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
+                             (gbr*by - gbt*bx*ir)*2.0*ib3)
+                deltaz = vdz * istheta * ir * ptl%dt
+            else
+                vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
+                deltaz = vdz * ptl%dt
+            endif
+        else
+            deltaz = 0.0
         endif
 
         if (spherical_coord_flag) then
@@ -2009,6 +2084,7 @@ module particle_module
 
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
         ptl%t = ptl%t + ptl%dt
 
         ! Momentum
@@ -2160,7 +2236,7 @@ module particle_module
         db_dz = gradf(24)
         ib2 = ib * ib
         ib3 = ib * ib2
-        vdp = pcharge / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2) / 3
+        vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
         if (spherical_coord_flag) then
             gbr = db_dx
             gbt = db_dy * ir
@@ -2972,4 +3048,109 @@ module particle_module
         subsizes_fp_local = (/ npp, nx, ny, nz /)
         starts_fp_local = (/ 0, nx * mpi_ix, ny * mpi_iy, nz * mpi_iz /)
     end subroutine set_mpi_io_data_sizes
+
+    !---------------------------------------------------------------------------
+    !< Write one double element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine write_double_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        real(dp), dimension(:), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(1, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_NATIVE_DOUBLE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_double_element
+
+    !---------------------------------------------------------------------------
+    !< Write one integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer, dimension(:), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(1, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_NATIVE_INTEGER, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer_element
+
+    !---------------------------------------------------------------------------
+    !< dump all the particles
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine dump_particles(iframe, file_path)
+        use mpi_module
+        use hdf5_io, only: create_file_h5, close_file_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
+        real(dp) :: nptl_local, nptl_global, nptl_offset
+        character(len=128) :: fname
+        character(len=4) :: ctime
+        integer(hid_t) :: file_id
+        integer :: error
+        logical :: dir_e
+
+        inquire(file='./data/.', exist=dir_e)
+        if (.not. dir_e) then
+            call system('mkdir -p ./data')
+        endif
+
+        CALL h5open_f(error)
+
+        write (ctime,'(i4.4)') iframe
+        fname = trim(file_path)//'particles_'//ctime//'.h5'
+        call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true.)
+
+        nptl_local = nptl_current
+        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, MPI_COMM_WORLD, ierr)
+        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, MPI_COMM_WORLD, ierr)
+        nptl_offset = nptl_offset - nptl_local
+
+        dcount(1) = nptl_local
+        doffset(1) = nptl_offset
+        dset_dims(1) = nptl_global
+
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", ptls%x)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", ptls%y)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", ptls%z)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", ptls%p)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", ptls%weight)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", ptls%t)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", ptls%dt)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "split_times", ptls%split_times)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "count_flag", ptls%count_flag)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag", ptls%tag)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "nsteps_tracking", ptls%nsteps_tracking)
+
+        call close_file_h5(file_id)
+        CALL h5close_f(error)
+    end subroutine dump_particles
+
 end module particle_module

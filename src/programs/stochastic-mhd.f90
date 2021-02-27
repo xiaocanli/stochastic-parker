@@ -19,7 +19,8 @@ program stochastic
         inject_particles_at_shock, set_mpi_io_data_sizes, &
         init_local_particle_distributions, free_local_particle_distributions, &
         inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
-        set_drift_parameters, get_pmax_global
+        set_drift_parameters, get_pmax_global, set_flag_check_drift_2d, &
+        dump_particles
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -56,19 +57,21 @@ program stochastic
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
-    integer :: inject_at_shock  ! Inject particles at shock location
-    integer :: num_fine_steps   ! Number of the fine steps for diagnostics
-    integer :: inject_new_ptl   ! Whether to inject new particles every MHD step
-    integer :: inject_large_jz  ! Whether to inject where jz is large
-    integer :: inject_part_box  ! Whether to inject in part of the box
-    integer :: dpp_wave         ! Whether to include momentum diffusion due to wave scattering
-    integer :: dpp_shear        ! Whether to include momentum diffusion due to flow shear
-    integer :: deltab_flag      ! Whether to include spatially dependent magnetic fluctuation
-    integer :: correlation_flag ! Whether to include turbulence correlation length
-    integer :: ndim_field       ! Number of the dimension of the MHD fields
-    integer :: charge           ! Particle change in the unit of e
-    integer :: spherical_coord  ! Whether MHD simulations are in spherical coordinates
-    integer :: uniform_grid     ! Whether the grid is uniform
+    integer :: inject_at_shock    ! Inject particles at shock location
+    integer :: num_fine_steps     ! Number of the fine steps for diagnostics
+    integer :: inject_new_ptl     ! Whether to inject new particles every MHD step
+    integer :: inject_large_jz    ! Whether to inject where jz is large
+    integer :: inject_part_box    ! Whether to inject in part of the box
+    integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
+    integer :: dpp_shear          ! Whether to include momentum diffusion due to flow shear
+    integer :: deltab_flag        ! Whether to include spatially dependent magnetic fluctuation
+    integer :: correlation_flag   ! Whether to include turbulence correlation length
+    integer :: ndim_field         ! Number of the dimension of the MHD fields
+    integer :: charge             ! Particle change in the unit of e
+    integer :: spherical_coord    ! Whether MHD simulations are in spherical coordinates
+    integer :: uniform_grid       ! Whether the grid is uniform
+    integer :: check_drift_2d     ! Whether to check particle drift in 2D simulations
+    integer :: particle_data_dump ! Whether to dump particle data
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -110,6 +113,9 @@ program stochastic
     call set_flags_params(deltab_flag, correlation_flag, lc0)
     if (ndim_field == 3) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
+    else if (ndim_field == 2 .and. check_drift_2d == 1) then
+        call set_drift_parameters(drift_param1, drift_param2, charge)
+        call set_flag_check_drift_2d(check_drift_2d)
     endif
 
     call init_particles(nptl_max)
@@ -194,6 +200,9 @@ program stochastic
 
     call set_mpi_io_data_sizes
     call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
+    if (particle_data_dump) then
+        call dump_particles(t_start, diagnostics_directory)
+    endif
     call quick_check(t_start, .true., diagnostics_directory)
     call get_pmax_global(t_start, .true., diagnostics_directory)
 
@@ -212,6 +221,9 @@ program stochastic
         call quick_check(tf+1, .false., diagnostics_directory)
         call get_pmax_global(tf+1, .false., diagnostics_directory)
         call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
+        if (particle_data_dump) then
+            call dump_particles(tf+1, diagnostics_directory)
+        endif
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "
         endif
@@ -472,7 +484,9 @@ program stochastic
                         '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
                         '-ds dpp_shear -d0 dpp0_wave -d1 dpp0_shear '//&
                         '-db deltab_flag -co correlation_flag -lc lc0 '//&
-                        '-dp1 drift_param1 -dp2 drift_param2 -ch charge'])
+                        '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
+                        '-sc spherical_coord -ug uniform_grid '//&
+                        '-cd check_drift_2d -pd particle_data_dump'])
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -602,7 +616,7 @@ program stochastic
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
         call cli%add(switch='--correlation', switch_ab='-co', &
-            help='whether to include turbulence correlation lenght', &
+            help='whether to include turbulence correlation length', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
         call cli%add(switch='--lc0', switch_ab='-lc', &
@@ -631,6 +645,14 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--uniform_grid', switch_ab='-ug', &
             help='whether the grid is uniform', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--check_drift_2d', switch_ab='-cd', &
+            help='whether to check drift in 2D simulations', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--particle_data_dump', switch_ab='-pd', &
+            help='whether to dump particle data', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
@@ -713,6 +735,10 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ug', val=uniform_grid, error=error)
         if (error/=0) stop
+        call cli%get(switch='-cd', val=check_drift_2d, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-pd', val=particle_data_dump, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
@@ -779,8 +805,8 @@ program stochastic
                 print '(A,E)', 'Normalization for turbulence correlation length', lc0
             endif
             print '(A,I)', 'MHD field dimension:', ndim_field
-            if (ndim_field == 3) then
-                print '(A,E,E)', 'Parameters for particle drift in 3D simulation', &
+            if (ndim_field == 3 .or. (ndim_field == 2 .and. check_drift_2d == 1)) then
+                print '(A,E,E)', 'Parameters for particle drift', &
                     drift_param1, drift_param2
                 print '(A,I)', 'Particle change in the unit of e:', charge
             endif
@@ -791,6 +817,12 @@ program stochastic
                 print '(A)', 'The grid is uniform'
             else
                 print '(A)', 'The grid is non-uniform'
+            endif
+            if (ndim_field == 2 .and. check_drift_2d == 1) then
+                print '(A)', 'Check particle drift in 2D simulations'
+            endif
+            if (particle_data_dump) then
+                print '(A)', 'Particle data will be dumped'
             endif
         endif
     end subroutine get_cmd_args

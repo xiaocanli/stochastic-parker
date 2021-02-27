@@ -58,10 +58,10 @@ module hdf5_io
             call h5pcreate_f(H5P_FILE_ACCESS_F, plist_id, ierror)
             call h5pset_fapl_mpio_f(plist_id, MPI_COMM_WORLD, fileinfo, ierror)
             call MPI_INFO_FREE(fileinfo, ierror)
-            call h5fcreate_f(filename, access_flag, file_id, ierror, access_prp=plist_id)
+            call h5fcreate_f(trim(filename), access_flag, file_id, ierror, access_prp=plist_id)
             call h5pclose_f(plist_id, ierror)
         else
-            call h5fcreate_f(filename, access_flag, file_id, ierror, &
+            call h5fcreate_f(trim(filename), access_flag, file_id, ierror, &
                 access_prp=h5p_default_f)
         endif
     end subroutine create_file_h5
@@ -97,10 +97,10 @@ module hdf5_io
             call h5pcreate_f(H5P_FILE_ACCESS_F, plist_id, ierror)
             call h5pset_fapl_mpio_f(plist_id, MPI_COMM_WORLD, fileinfo, ierror)
             call MPI_INFO_FREE(fileinfo, ierror)
-            call h5fopen_f(filename, access_flag, file_id, ierror, access_prp=plist_id)
+            call h5fopen_f(trim(filename), access_flag, file_id, ierror, access_prp=plist_id)
             call h5pclose_f(plist_id, ierror)
         else
-            call h5fopen_f(filename, access_flag, file_id, ierror, &
+            call h5fopen_f(trim(filename), access_flag, file_id, ierror, &
                 access_prp=h5p_default_f)
         endif
     end subroutine open_file_h5
