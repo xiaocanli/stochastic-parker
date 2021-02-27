@@ -10,14 +10,16 @@ module simulation_setup_module
     save
 
     public mpi_sizex, mpi_sizey, mpi_sizez, fconfig, mpi_ix, mpi_iy, mpi_iz, &
-        neighbors, ndim_field
+        neighbors, ndim_field, particle_can_escape
     public read_simuation_mpi_topology, set_field_configuration, &
-        read_particle_boundary_conditions, set_neighbors
+        read_particle_boundary_conditions, set_neighbors, &
+        check_particle_can_escape
 
     integer :: mpi_sizex, mpi_sizey, mpi_sizez
     integer :: mpi_ix, mpi_iy, mpi_iz
     integer :: pbcx, pbcy, pbcz
     integer, dimension(6) :: neighbors
+    logical :: particle_can_escape ! Whether particle can escape from global domain
 
     !< Dimensions of v and B in memory
     type field_configuration
@@ -399,4 +401,28 @@ module simulation_setup_module
             endif
         endif
     end subroutine set_neighbors
+
+    !---------------------------------------------------------------------------
+    !< Whether particles can escape from the global domain
+    !< Args:
+    !<  whole_data_flag: whether to load the whole dataset. 0 for no and
+    !<      other numbers for yes
+    !---------------------------------------------------------------------------
+    subroutine check_particle_can_escape(whole_data_flag)
+        implicit none
+        integer, intent(in) :: whole_data_flag
+        logical :: boundx, boundy, boundz
+        particle_can_escape = .false.
+        if ((pbcx == 1) .or. (pbcy == 1) .or. (pbcz == 1)) then
+            if (whole_data_flag) then
+                particle_can_escape = .true.
+            else
+                boundx = (mpi_ix == 0) .and. (mpi_ix == (mpi_sizex - 1))
+                boundy = (mpi_iy == 0) .and. (mpi_iy == (mpi_sizey - 1))
+                boundz = (mpi_iz == 0) .and. (mpi_iz == (mpi_sizez - 1))
+                particle_can_escape = boundx .or. boundy .or. boundz
+            endif
+        endif
+    end subroutine check_particle_can_escape
+
 end module simulation_setup_module

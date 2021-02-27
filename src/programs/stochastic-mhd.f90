@@ -20,7 +20,8 @@ program stochastic
         init_local_particle_distributions, free_local_particle_distributions, &
         inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
         set_drift_parameters, get_pmax_global, set_flag_check_drift_2d, &
-        dump_particles
+        dump_particles, init_escaped_particles, free_escaped_particles, &
+        reset_escaped_particles, dump_escaped_particles
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -38,7 +39,7 @@ program stochastic
         set_local_grid_positions
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
-        set_neighbors
+        set_neighbors, check_particle_can_escape
     use flap, only : command_line_interface !< FLAP package
     use penf
     implicit none
@@ -93,6 +94,7 @@ program stochastic
     call read_particle_boundary_conditions(conf_file)
     call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=ndim_field)
     call set_neighbors(whole_data_flag=whole_mhd_data)
+    call check_particle_can_escape(whole_data_flag=whole_mhd_data)
     call init_grid_positions
     call set_local_grid_positions(dir_mhd_data)
 
@@ -119,6 +121,7 @@ program stochastic
     endif
 
     call init_particles(nptl_max)
+    call init_escaped_particles
     call init_particle_distributions
     if (local_dist) then
         call init_local_particle_distributions
@@ -224,6 +227,8 @@ program stochastic
         if (particle_data_dump) then
             call dump_particles(tf+1, diagnostics_directory)
         endif
+        call dump_escaped_particles(tf+1, diagnostics_directory)
+        call reset_escaped_particles
         if (mpi_rank == master) then
             write(*, "(A)") " Finishing distribution diagnostics "
         endif
@@ -431,6 +436,7 @@ program stochastic
         call free_local_particle_distributions
     endif
     call free_particles
+    call free_escaped_particles
     call free_fields_gradients(interp_flag)
     if (deltab_flag) then
         call free_grad_deltab2(interp_flag)

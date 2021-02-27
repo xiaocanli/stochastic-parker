@@ -5,6 +5,7 @@ module particle_module
     use constants, only: fp, dp
     use simulation_setup_module, only: ndim_field
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
+    use mpi_module
     use hdf5
     implicit none
     private
@@ -21,7 +22,9 @@ module particle_module
         set_mpi_io_data_sizes, init_local_particle_distributions, &
         free_local_particle_distributions, inject_particles_at_large_jz, &
         set_dpp_params, set_flags_params, set_drift_parameters, &
-        get_pmax_global, set_flag_check_drift_2d, dump_particles
+        get_pmax_global, set_flag_check_drift_2d, dump_particles, &
+        init_escaped_particles, free_escaped_particles, &
+        reset_escaped_particles, dump_escaped_particles
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -32,13 +35,17 @@ module particle_module
         integer  :: nsteps_tracking !< Total particle tracking steps
     end type particle_type
 
+    integer, parameter :: COUNT_FLAG_INBOX  = 1  !< For in-box particles
+    integer, parameter :: COUNT_FLAG_ESCAPE = -1 !< For escaped particles
+    integer, parameter :: COUNT_FLAG_OTHERS = 0  !< For other particles
+
     integer :: particle_datatype_mpi
     type(particle_type), allocatable, dimension(:) :: ptls
     type(particle_type), allocatable, dimension(:, :) :: senders
     type(particle_type), allocatable, dimension(:, :) :: recvers
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:64 :: ptls
-    type(particle_type) :: ptl, ptl1
+    type(particle_type) :: ptl
 
     ! Particle tracking
     integer, allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
@@ -101,15 +108,20 @@ module particle_module
     logical :: dpp_wave_flag, dpp_shear_flag
     real(dp) :: dpp0_wave, dpp0_shear
 
-    ! Other flags and parameters
+    !< Other flags and parameters
     logical :: deltab_flag, correlation_flag
     real(dp) :: lc0 ! Normalization for turbulence correlation length
 
-    ! Particle drift
+    !< Particle drift
     real(dp) :: drift1 ! ev_ABL_0/pc
     real(dp) :: drift2 ! mev_ABL_0/p^2
     integer :: pcharge ! Particle charge in the unit of of e
     logical :: check_drift_2d ! Whether to check drift in 2D simulations
+
+    !< Escaped particles
+    type(particle_type), allocatable, dimension(:) :: escaped_ptls
+    integer :: nptl_escaped, nptl_escaped_max
+    !dir$ attributes align:64 :: escaped_ptls
 
     interface push_particle
         module procedure &
@@ -194,6 +206,77 @@ module particle_module
     end subroutine free_particles
 
     !---------------------------------------------------------------------------
+    !< Reset escaped particle data array
+    !---------------------------------------------------------------------------
+    subroutine reset_escaped_particles
+        implicit none
+        escaped_ptls%x = 0.0
+        escaped_ptls%y = 0.0
+        escaped_ptls%z = 0.0
+        escaped_ptls%p = 0.0
+        escaped_ptls%weight = 0.0
+        escaped_ptls%t = 0.0
+        escaped_ptls%dt = 0.0
+        escaped_ptls%split_times = 0
+        escaped_ptls%count_flag = 0
+        escaped_ptls%tag = 0
+        escaped_ptls%nsteps_tracking = 0
+        nptl_escaped = 0
+    end subroutine reset_escaped_particles
+
+    !---------------------------------------------------------------------------
+    !< Initialize escaped particle data
+    !---------------------------------------------------------------------------
+    subroutine init_escaped_particles
+        use simulation_setup_module, only: particle_can_escape
+        implicit none
+        if (particle_can_escape) then
+            nptl_escaped_max = nptl_max
+        else
+            nptl_escaped_max = 1
+        endif
+        allocate(escaped_ptls(nptl_escaped_max))
+        call reset_escaped_particles
+    end subroutine init_escaped_particles
+
+    !---------------------------------------------------------------------------
+    !< Free escaped particle data
+    !---------------------------------------------------------------------------
+    subroutine free_escaped_particles
+        implicit none
+        deallocate(escaped_ptls)
+    end subroutine free_escaped_particles
+
+    !---------------------------------------------------------------------------
+    !< Resize escaped particle array
+    !---------------------------------------------------------------------------
+    subroutine resize_escaped_particles
+        implicit none
+        type(particle_type), allocatable, dimension(:) :: escaped_ptls_tmp
+        integer :: i, nmax
+        allocate(escaped_ptls_tmp(nptl_escaped_max))
+        escaped_ptls_tmp = escaped_ptls
+        ! Reallocate the escaped particle data array
+        nmax = max(int(1.25 * nptl_escaped_max), nptl_escaped_max + nptl_current)
+        nptl_escaped_max = nmax
+        deallocate(escaped_ptls)
+        allocate(escaped_ptls(nptl_escaped_max))
+        escaped_ptls%x = 0.0
+        escaped_ptls%y = 0.0
+        escaped_ptls%z = 0.0
+        escaped_ptls%p = 0.0
+        escaped_ptls%weight = 0.0
+        escaped_ptls%t = 0.0
+        escaped_ptls%dt = 0.0
+        escaped_ptls%split_times = 0
+        escaped_ptls%count_flag = 0
+        escaped_ptls%tag = 0
+        escaped_ptls%nsteps_tracking = 0
+        escaped_ptls_tmp(:nptl_escaped) = escaped_ptls_tmp(:nptl_escaped)
+        deallocate(escaped_ptls_tmp)
+    end subroutine resize_escaped_particles
+
+    !---------------------------------------------------------------------------
     !< Set parameters for momentum diffusion
     !< Args:
     !<  dpp_wave_int(integer): flag for momentum diffusion due to wave scattering
@@ -263,7 +346,6 @@ module particle_module
     !< Set MPI datatype for particle type
     !---------------------------------------------------------------------------
     subroutine set_particle_datatype_mpi
-        use mpi_module
         implicit none
         integer :: oldtypes(0:1), blockcounts(0:1)
         integer :: offsets(0:1), extent
@@ -286,7 +368,6 @@ module particle_module
     !< Free MPI datatype for particle type
     !---------------------------------------------------------------------------
     subroutine free_particle_datatype_mpi
-        use mpi_module
         implicit none
         call MPI_TYPE_FREE(particle_datatype_mpi, ierr)
     end subroutine free_particle_datatype_mpi
@@ -302,7 +383,6 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, part_box)
         use simulation_setup_module, only: fconfig
-        use mpi_module, only: mpi_rank, master
         use mhd_config_module, only: mhd_config
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -337,7 +417,7 @@ module particle_module
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
-            ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
         enddo
 
@@ -356,7 +436,6 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine inject_particles_at_shock(nptl, dt, dist_flag, ct_mhd)
         use simulation_setup_module, only: fconfig
-        use mpi_module, only: mpi_rank, master
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_shock_location
         use random_number_generator, only: unif_01, two_normals
@@ -407,7 +486,7 @@ module particle_module
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
-            ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
         enddo
         if (mpi_rank == master) then
@@ -566,7 +645,6 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, jz_min, part_box)
         use simulation_setup_module, only: fconfig
-        use mpi_module, only: mpi_rank, master
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: gradf, fields, interp_fields
         use random_number_generator, only: unif_01, two_normals
@@ -649,7 +727,7 @@ module particle_module
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
-            ptls(nptl_current)%count_flag = 1
+            ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
         enddo
         if (mpi_rank == master) then
@@ -672,7 +750,6 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, interp_magnetic_fluctuation, &
             interp_correlation_length
-        use mpi_module
         implicit none
         real(dp), intent(in) :: t0
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
@@ -723,14 +800,14 @@ module particle_module
             endif
 
             ! Safe check
-            if (ptl%p < 0.0 .and. ptl%count_flag /= 0) then
-                ptl%count_flag = 0
+            if (ptl%p < 0.0 .and. ptl%count_flag == COUNT_FLAG_INBOX) then
+                ptl%count_flag = COUNT_FLAG_OTHERS
                 leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin1, xmax1, &
                     ymin1, ymax1, zmin1, zmax1)
             endif
-            if (ptl%count_flag == 0) then
+            if (ptl%count_flag /= COUNT_FLAG_INBOX) then
                 ptls(i) = ptl
                 cycle
             endif
@@ -738,19 +815,19 @@ module particle_module
             ! Loop over fine time steps between each MHD time interval
             ! The loop might be terminated early when dt_target is reached.
             do while (dt_target < (dtf + dt_fine*0.1)) ! 0.1 is for safe comparison
-                if (ptl%count_flag == 0) then
+                if (ptl%count_flag /= COUNT_FLAG_INBOX) then
                     exit
                 endif
-                do while ((ptl%t - t0) < dt_target .and. ptl%count_flag /= 0)
+                do while ((ptl%t - t0) < dt_target .and. ptl%count_flag == COUNT_FLAG_INBOX)
                     ! Check if particles are leaked or out of the local domain
                     if (ptl%p < 0.0) then
-                        ptl%count_flag = 0
+                        ptl%count_flag = COUNT_FLAG_OTHERS
                         leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, &
                             ymin1, ymax1, zmin1, zmax1)
                     endif
-                    if (ptl%count_flag == 0) then
+                    if (ptl%count_flag /= COUNT_FLAG_INBOX) then
                         exit
                     endif
 
@@ -796,7 +873,7 @@ module particle_module
                 enddo ! while loop inside a fine time step
 
                 ! Make sure ptl%t reach the targeted time exactly
-                if ((ptl%t - t0) > dt_target .and. ptl%count_flag /= 0) then
+                if ((ptl%t - t0) > dt_target .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                     ptl%x = ptl%x - deltax
                     ptl%y = ptl%y - deltay
                     ptl%z = ptl%z - deltaz
@@ -844,7 +921,7 @@ module particle_module
                         endif
                     endif
                     if (ptl%p < 0.0) then
-                        ptl%count_flag = 0
+                        ptl%count_flag = COUNT_FLAG_OTHERS
                         leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, &
@@ -852,7 +929,7 @@ module particle_module
                     endif
                 endif
 
-                if (ptl%count_flag /= 0) then
+                if (ptl%count_flag == COUNT_FLAG_INBOX) then
                     call energization_dist(t0)
                 endif
                 dt_target = dt_target + dt_fine
@@ -875,7 +952,6 @@ module particle_module
             nsteps_interval, mhd_tframe, num_fine_steps)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
@@ -936,7 +1012,7 @@ module particle_module
         do i = 1, nptl_current
             ptl = ptls(i)
             if (ptl%p < 0.0) then
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_OTHERS
                 leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin, xmax, ymin, ymax, zmin, zmax)
@@ -960,115 +1036,114 @@ module particle_module
         use simulation_setup_module, only: neighbors, mpi_ix, mpi_iy, mpi_iz, &
             mpi_sizex, mpi_sizey, mpi_sizez
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         real(dp), intent(in) :: xmin, xmax, ymin, ymax, zmin, zmax
         type(particle_type), intent(inout) :: ptl
 
-        if (ptl%x < xmin .and. ptl%count_flag /= 0) then
+        if (ptl%x < xmin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
             if (neighbors(1) < 0) then
                 leak = leak + ptl%weight
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_ESCAPE
             else if (neighbors(1) == mpi_rank) then
                 ptl%x = ptl%x - xmin + xmax
             else if (neighbors(1) == mpi_rank + mpi_sizex - 1) then
                 ptl%x = ptl%x - mhd_config%xmin + mhd_config%xmax
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_OTHERS
             else
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_OTHERS
             endif
-        else if (ptl%x > xmax .and. ptl%count_flag /= 0) then
+        else if (ptl%x > xmax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
             if (neighbors(2) < 0) then
                 leak = leak + ptl%weight
-                ptl%count_flag = 0 !< remove particle
+                ptl%count_flag = COUNT_FLAG_ESCAPE
             else if (neighbors(2) == mpi_rank) then
                 ptl%x = ptl%x - xmax + xmin
             else if (neighbors(2) == mpi_rank - mpi_sizex + 1) then !< simulation boundary
                 ptl%x = ptl%x - mhd_config%xmax + mhd_config%xmin
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_OTHERS
             else
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
-                ptl%count_flag = 0
+                ptl%count_flag = COUNT_FLAG_OTHERS
             endif
         endif
 
         if (ndim_field > 1) then
             !< We need to make sure the count_flag is not set to 0.
             !< Otherwise, we met send the particles to two different neighbors.
-            if (ptl%y < ymin .and. ptl%count_flag /= 0) then
+            if (ptl%y < ymin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(3) < 0) then
                     leak = leak + ptl%weight
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(3) == mpi_rank) then
                     ptl%y = ptl%y - ymin + ymax
                 else if (neighbors(3) == mpi_rank + (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymin + mhd_config%ymax
                     nsenders(3) = nsenders(3) + 1
                     senders(nsenders(3), 3) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 else
                     nsenders(3) = nsenders(3) + 1
                     senders(nsenders(3), 3) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
-            else if (ptl%y > ymax .and. ptl%count_flag /= 0) then
+            else if (ptl%y > ymax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(4) < 0) then
                     leak = leak + ptl%weight
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(4) == mpi_rank) then
                     ptl%y = ptl%y - ymax + ymin
                 else if (neighbors(4) == mpi_rank - (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymax + mhd_config%ymin
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 else
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             endif
         endif
 
         if (ndim_field == 3) then
-            if (ptl%z < zmin .and. ptl%count_flag /= 0) then
+            if (ptl%z < zmin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(5) < 0) then
                     leak = leak + ptl%weight
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(5) == mpi_rank) then
                     ptl%z = ptl%z - zmin + zmax
                 else if (neighbors(5) == mpi_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmin + mhd_config%zmax
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 else
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
-            else if (ptl%z > zmax .and. ptl%count_flag /= 0) then
+            else if (ptl%z > zmax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(6) < 0) then
                     leak = leak + ptl%weight
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(6) == mpi_rank) then
                     ptl%z = ptl%z - zmax + zmin
                 else if (neighbors(6) == mpi_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmax + mhd_config%zmin
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 else
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
-                    ptl%count_flag = 0
+                    ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             endif
         endif
@@ -1082,7 +1157,6 @@ module particle_module
     !<  mpi_direc: MPI rank along one direction
     !---------------------------------------------------------------------------
     subroutine send_recv_particle_one_neighbor(send_id, recv_id, mpi_direc)
-        use mpi_module
         use simulation_setup_module, only: neighbors
         implicit none
         integer, intent(in) :: send_id, recv_id, mpi_direc
@@ -1127,7 +1201,6 @@ module particle_module
     !< Send particles to neighbors
     !---------------------------------------------------------------------------
     subroutine send_recv_particles
-        use mpi_module
         use simulation_setup_module, only: mpi_ix, mpi_iy, mpi_iz
         implicit none
         call send_recv_particle_one_neighbor(1, 2, mpi_ix) !< Right -> Left
@@ -1309,7 +1382,6 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use simulation_setup_module, only: mpi_sizex, mpi_sizey
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         character(*), intent(in) :: conf_file
         logical :: condx, condy, condz
@@ -2350,19 +2422,37 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine remove_particles
         implicit none
-        integer :: i
-        i = 1
-        do while (i <= nptl_current)
-            if (ptls(i)%count_flag == 0) then
-                !< Switch current with the last particle
-                ptl1 = ptls(nptl_current)
-                ptls(nptl_current) = ptls(i)
-                ptls(i) = ptl1
-                nptl_current = nptl_current - 1
-            else
-                i = i + 1
-            endif
-        enddo
+        integer :: i, nremoved, ntail
+        type(particle_type) :: ptl1
+
+        ! Resize the escaped particle data array if necessary
+        if ((nptl_escaped + nptl_current) > nptl_escaped_max) then
+            call resize_escaped_particles
+        endif
+
+        if (nptl_current > 0) then
+            nremoved = 0
+            ntail = nptl_current - 1
+            do i = 1, nptl_current
+                if (ntail == (nremoved - 1)) then
+                    exit
+                endif
+                if (ptls(i)%count_flag == COUNT_FLAG_INBOX) then
+                    ntail = ntail - 1
+                else
+                    ! Copy escaped particles
+                    if (ptls(i)%count_flag == COUNT_FLAG_ESCAPE) then
+                        nptl_escaped = nptl_escaped + 1
+                        escaped_ptls(nptl_escaped) = ptls(i)
+                    endif
+                    ptl1 = ptls(nptl_current-nremoved)
+                    ptls(nptl_current-nremoved) = ptls(i)
+                    ptls(i) = ptl1
+                    nremoved = nremoved + 1
+                endif
+            enddo
+            nptl_current = nptl_current - nremoved
+        endif
     end subroutine remove_particles
 
     !---------------------------------------------------------------------------
@@ -2418,7 +2508,6 @@ module particle_module
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine quick_check(iframe, if_create_file, file_path)
-        use mpi_module
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
@@ -2483,7 +2572,6 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine init_particle_distributions
         use mhd_config_module, only: mhd_config
-        use mpi_module, only: mpi_rank, master
         implicit none
         integer :: i
         allocate(fbands(nx, ny, nz, nbands))
@@ -2531,7 +2619,6 @@ module particle_module
     !< Initialize local particle distributions
     !---------------------------------------------------------------------------
     subroutine init_local_particle_distributions
-        use mpi_module, only: mpi_rank, master
         implicit none
         allocate(fp_local(npp, nx, ny, nz))
         if (mpi_rank == master) then
@@ -2544,7 +2631,6 @@ module particle_module
     !< Set particle distributions to be zero
     !---------------------------------------------------------------------------
     subroutine clean_particle_distributions
-        use mpi_module, only: mpi_rank, master
         implicit none
         fbands = 0.0_dp
         fp_global = 0.0_dp
@@ -2560,7 +2646,6 @@ module particle_module
     !< Set local particle distributions to be zero
     !---------------------------------------------------------------------------
     subroutine clean_local_particle_distribution
-        use mpi_module, only: mpi_rank, master
         implicit none
         fp_local = 0.0_dp
         if (mpi_rank == master) then
@@ -2572,7 +2657,6 @@ module particle_module
     !< Free particle distributions
     !---------------------------------------------------------------------------
     subroutine free_particle_distributions
-        use mpi_module, only: mpi_rank, master
         implicit none
         deallocate(fbands, parray_bands)
         deallocate(fp_global, parray)
@@ -2588,7 +2672,6 @@ module particle_module
     !< Free local particle distributions
     !---------------------------------------------------------------------------
     subroutine free_local_particle_distributions
-        use mpi_module, only: mpi_rank, master
         implicit none
         deallocate(fp_local)
         if (mpi_rank == master) then
@@ -2600,7 +2683,6 @@ module particle_module
     !< Accumulate particle energization distributions
     !---------------------------------------------------------------------------
     subroutine energization_dist(t0)
-        use mpi_module
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: gradf, interp_fields
@@ -2640,7 +2722,6 @@ module particle_module
     !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
     subroutine calc_particle_distributions(whole_mhd_data, local_dist)
-        use mpi_module
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         implicit none
@@ -2722,7 +2803,6 @@ module particle_module
             open_data_mpi_io, write_data_mpi_io
         use mhd_config_module, only: mhd_config
         use constants, only: fp, dp
-        use mpi_module
         implicit none
         integer, intent(in) :: iframe, whole_mhd_data, local_dist
         character(*), intent(in) :: file_path
@@ -2822,7 +2902,6 @@ module particle_module
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine get_pmax_global(iframe, if_create_file, file_path)
-        use mpi_module
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
@@ -3014,7 +3093,6 @@ module particle_module
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine save_tracked_particle_points(nptl_selected, file_path)
-        use mpi_module
         implicit none
         integer, intent(in) :: nptl_selected
         character(*), intent(in) :: file_path
@@ -3098,7 +3176,6 @@ module particle_module
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine dump_particles(iframe, file_path)
-        use mpi_module
         use hdf5_io, only: create_file_h5, close_file_h5
         implicit none
         integer, intent(in) :: iframe
@@ -3152,5 +3229,72 @@ module particle_module
         call close_file_h5(file_id)
         CALL h5close_f(error)
     end subroutine dump_particles
+
+    !---------------------------------------------------------------------------
+    !< dump escaped particles
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine dump_escaped_particles(iframe, file_path)
+        use hdf5_io, only: create_file_h5, close_file_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
+        real(dp) :: nptl_local, nptl_global, nptl_offset
+        character(len=128) :: fname
+        character(len=4) :: ctime
+        integer(hid_t) :: file_id
+        integer :: error
+        logical :: dir_e
+
+        inquire(file='./data/.', exist=dir_e)
+        if (.not. dir_e) then
+            call system('mkdir -p ./data')
+        endif
+
+        nptl_local = nptl_escaped
+        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, MPI_COMM_WORLD, ierr)
+        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, MPI_COMM_WORLD, ierr)
+        nptl_offset = nptl_offset - nptl_local
+
+        if (nptl_global > 0) then
+            CALL h5open_f(error)
+
+            write (ctime,'(i4.4)') iframe
+            fname = trim(file_path)//'escaped_particles_'//ctime//'.h5'
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true.)
+
+            dcount(1) = nptl_local
+            doffset(1) = nptl_offset
+            dset_dims(1) = nptl_global
+
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", escaped_ptls%x)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", escaped_ptls%y)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", escaped_ptls%z)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", escaped_ptls%p)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", escaped_ptls%weight)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", escaped_ptls%t)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", escaped_ptls%dt)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "split_times", escaped_ptls%split_times)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "count_flag", escaped_ptls%count_flag)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "tag", escaped_ptls%tag)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "nsteps_tracking", escaped_ptls%nsteps_tracking)
+
+            call close_file_h5(file_id)
+            CALL h5close_f(error)
+        else
+            if (mpi_rank == master) then
+                write(*, "(A)") "No escaped particles during this time interval"
+            endif
+        endif
+    end subroutine dump_escaped_particles
 
 end module particle_module
