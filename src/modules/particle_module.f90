@@ -153,7 +153,7 @@ module particle_module
         ptls%t = 0.0
         ptls%dt = 0.0
         ptls%split_times = 0
-        ptls%count_flag = 0
+        ptls%count_flag = COUNT_FLAG_OTHERS
         ptls%tag = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0     ! No particle initially
@@ -172,7 +172,7 @@ module particle_module
         senders%t = 0.0
         senders%dt = 0.0
         senders%split_times = 0
-        senders%count_flag = 0
+        senders%count_flag = COUNT_FLAG_OTHERS
         senders%tag = 0
         senders%nsteps_tracking = 0
 
@@ -184,7 +184,7 @@ module particle_module
         recvers%t = 0.0
         recvers%dt = 0.0
         recvers%split_times = 0
-        recvers%count_flag = 0
+        recvers%count_flag = COUNT_FLAG_OTHERS
         recvers%tag = 0
         recvers%nsteps_tracking = 0
 
@@ -218,7 +218,7 @@ module particle_module
         escaped_ptls%t = 0.0
         escaped_ptls%dt = 0.0
         escaped_ptls%split_times = 0
-        escaped_ptls%count_flag = 0
+        escaped_ptls%count_flag = COUNT_FLAG_OTHERS
         escaped_ptls%tag = 0
         escaped_ptls%nsteps_tracking = 0
         nptl_escaped = 0
@@ -269,10 +269,10 @@ module particle_module
         escaped_ptls%t = 0.0
         escaped_ptls%dt = 0.0
         escaped_ptls%split_times = 0
-        escaped_ptls%count_flag = 0
+        escaped_ptls%count_flag = COUNT_FLAG_OTHERS
         escaped_ptls%tag = 0
         escaped_ptls%nsteps_tracking = 0
-        escaped_ptls_tmp(:nptl_escaped) = escaped_ptls_tmp(:nptl_escaped)
+        escaped_ptls(:nptl_escaped) = escaped_ptls_tmp(:nptl_escaped)
         deallocate(escaped_ptls_tmp)
     end subroutine resize_escaped_particles
 
@@ -419,6 +419,7 @@ module particle_module
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
+            ptls(nptl_current)%nsteps_tracking = 0
         enddo
 
         if (mpi_rank == master) then
@@ -488,6 +489,7 @@ module particle_module
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
+            ptls(nptl_current)%nsteps_tracking = 0
         enddo
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles at the shock"
@@ -688,15 +690,11 @@ module particle_module
             jz = 0.0_dp
             do while (jz < jz_min)
                 xtmp = unif_01()*(xmax-xmin) + xmin
+                ytmp = unif_01()*(ymax-ymin) + ymin
+                ztmp = unif_01()*(zmax-zmin) + zmin
                 px = (xtmp-xmin_box) / dxm
-                if (ndim_field > 1) then
-                    ytmp = unif_01()*(ymax-ymin) + ymin
-                    py = (ytmp-ymin_box) / dym
-                endif
-                if (ndim_field > 2) then
-                    ztmp = unif_01()*(zmax-zmin) + zmin
-                    pz = (ztmp-zmin_box) / dzm
-                endif
+                py = (ytmp-ymin_box) / dym
+                pz = (ztmp-zmin_box) / dzm
                 rt = 0.0_dp
                 if (spherical_coord_flag) then
                     call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
@@ -729,6 +727,7 @@ module particle_module
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             ptls(nptl_current)%tag = nptl_current
+            ptls(nptl_current)%nsteps_tracking = 0
         enddo
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles where jz is large"
@@ -1256,12 +1255,17 @@ module particle_module
         endif
 
         ! Turbulence correlation length
+        ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
             pnorm = pnorm * (lc/lc0)**(2./3.)
         endif
 
         kpara = kpara0 * pnorm
         kperp = kpara * kret
+
+        if (deltab_flag) then
+            kperp = kperp * db2
+        endif
 
         if (ndim_field == 1) then
             dkdx = 0.0_dp
@@ -1772,7 +1776,8 @@ module particle_module
         !< Make sure the time step is not too large. Adding dt_min to make
         !< sure to exit the while where this routine is called
         if ((ptl%t + ptl%dt - t0) > dtf) then
-            ptl%dt = t0 + dtf - ptl%t + dt_min
+            ! ptl%dt = t0 + dtf - ptl%t + dt_min
+            ptl%dt = t0 + dtf - ptl%t
         endif
 
         !< Make sure the time step is not too small
@@ -2078,7 +2083,7 @@ module particle_module
         ! ran3 = rands(1)
 
         !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
-        !< but ecreasing the time step does not necessarily make the moving distance smaller.
+        !< but decreasing the time step does not necessarily make the moving distance smaller.
         !< Therefore, we switch between first-order and second-order method.
         if (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1) then
             !< First-order method
@@ -2433,12 +2438,14 @@ module particle_module
         if (nptl_current > 0) then
             nremoved = 0
             ntail = nptl_current - 1
-            do i = 1, nptl_current
+            i = 1
+            do while (i < nptl_current)
                 if (ntail == (nremoved - 1)) then
                     exit
                 endif
                 if (ptls(i)%count_flag == COUNT_FLAG_INBOX) then
                     ntail = ntail - 1
+                    i = i + 1
                 else
                     ! Copy escaped particles
                     if (ptls(i)%count_flag == COUNT_FLAG_ESCAPE) then

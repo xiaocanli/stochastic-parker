@@ -224,14 +224,14 @@ program stochastic
         call quick_check(tf+1, .false., diagnostics_directory)
         call get_pmax_global(tf+1, .false., diagnostics_directory)
         call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
+        if (mpi_rank == master) then
+            write(*, "(A)") " Finishing distribution diagnostics "
+        endif
         if (particle_data_dump) then
             call dump_particles(tf+1, diagnostics_directory)
         endif
         call dump_escaped_particles(tf+1, diagnostics_directory)
         call reset_escaped_particles
-        if (mpi_rank == master) then
-            write(*, "(A)") " Finishing distribution diagnostics "
-        endif
         call copy_fields
         if (deltab_flag) then
             call copy_magnetic_fluctuation
