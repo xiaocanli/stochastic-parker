@@ -60,8 +60,9 @@ module particle_module
     real(dp) :: leak                !< Leaking particles from boundary considering weight
     real(dp) :: leak_negp           !< Leaking particles with negative momentum
 
-    real(dp) :: kpara0              !< Normalization for kappa parallel
+    real(dp) :: kpara0              !< kpara for particles with momentum p0
     real(dp) :: kret                !< The ratio of kpara to kperp
+    real(dp) :: knorm0              !< normalization for spatial diffusion coefficient
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
     integer :: acc_region_flag      !< flag for whether to turn on acceleration in certain region
@@ -106,15 +107,18 @@ module particle_module
 
     !< Momentum diffusion
     logical :: dpp_wave_flag, dpp_shear_flag
-    real(dp) :: dpp0_wave, dpp0_shear
+    !< normalization for Dpp due to wave scattering (v_A^2/kappa_0)
+    real(dp) :: dpp0_wave
+    !< normalization for Dpp due to flow shear (\tau_0v_A/L_0)
+    real(dp) :: dpp0_shear
 
     !< Other flags and parameters
     logical :: deltab_flag, correlation_flag
     real(dp) :: lc0 ! Normalization for turbulence correlation length
 
     !< Particle drift
-    real(dp) :: drift1 ! ev_ABL_0/pc
-    real(dp) :: drift2 ! mev_ABL_0/p^2
+    real(dp) :: drift1 ! ev_ABL_0/p_0c
+    real(dp) :: drift2 ! mev_ABL_0/p_0^2
     integer :: pcharge ! Particle charge in the unit of of e
     logical :: check_drift_2d ! Whether to check drift in 2D simulations
 
@@ -282,7 +286,7 @@ module particle_module
     !<  dpp_wave_int(integer): flag for momentum diffusion due to wave scattering
     !<  dpp_shear_int(integer): flag for momentum diffusion due to flow shear
     !<  dpp1: normalization for Dpp due to wave scattering (v_A^2/kappa_0)
-    !<  dpp2: normalization for Dpp due to flow shear (\tau_0p_0^2)
+    !<  dpp2: normalization for Dpp due to flow shear (\tau_0)
     !---------------------------------------------------------------------------
     subroutine set_dpp_params(dpp_wave_int, dpp_shear_int, dpp1, dpp2)
         implicit none
@@ -1220,7 +1224,7 @@ module particle_module
     subroutine calc_spatial_diffusion_coefficients
         use mhd_data_parallel, only: fields, gradf, db2, lc, grad_db, grad_lc
         implicit none
-        real(dp) :: pnorm
+        real(dp) :: knorm
         real(dp) :: bx, by, bz, b, ib1, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbz_dx
         real(dp) :: dbx_dy, dby_dy, dbz_dy
@@ -1241,26 +1245,30 @@ module particle_module
         ib3 = ib1 * ib2
         ib4 = ib2 * ib2
 
-        pnorm = 1.0_dp
+        knorm0 = 1.0_dp
         if (mag_dependency == 1) then
-            pnorm = pnorm * ib1**(1./3.)
-        endif
-        if (momentum_dependency == 1) then
-            pnorm = pnorm * (ptl%p / p0)**pindex
+            knorm0 = knorm0 * ib1**(1./3.)
         endif
 
         ! Magnetic fluctuation dB^2/B^2
         if (deltab_flag) then
-            pnorm = pnorm / db2
+            knorm0 = knorm0 / db2
         endif
 
         ! Turbulence correlation length
         ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
-            pnorm = pnorm * (lc/lc0)**(2./3.)
+            knorm0 = knorm0 * (lc/lc0)**(2./3.)
         endif
 
-        kpara = kpara0 * pnorm
+        ! Momentum-dependent kappa
+        if (momentum_dependency == 1) then
+            knorm = knorm0 * (ptl%p / p0)**pindex
+        else
+            knorm = knorm0
+        endif
+
+        kpara = kpara0 * knorm
         kperp = kpara * kret
 
         if (deltab_flag) then
@@ -1773,12 +1781,12 @@ module particle_module
             ptl%dt = min(dt1, dt2, dt3)
         endif
 
-        !< Make sure the time step is not too large. Adding dt_min to make
-        !< sure to exit the while where this routine is called
-        if ((ptl%t + ptl%dt - t0) > dtf) then
-            ! ptl%dt = t0 + dtf - ptl%t + dt_min
-            ptl%dt = t0 + dtf - ptl%t
-        endif
+        !!< Make sure the time step is not too large. Adding dt_min to make
+        !!< sure to exit the while where this routine is called
+        !if ((ptl%t + ptl%dt - t0) > dtf) then
+        !    ! ptl%dt = t0 + dtf - ptl%t + dt_min
+        !    ptl%dt = t0 + dtf - ptl%t
+        !endif
 
         !< Make sure the time step is not too small
         if (ptl%dt .lt. dt_min) then
@@ -1927,14 +1935,15 @@ module particle_module
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
         endif
 
-        ! Momentum diffusion due to flow shear
-        if (dpp_shear_flag) then
-            dvy_dx = gradf(4)
-            gshear = (2*dvy_dx**2 + 4*dvx_dx**2)/30 - 2*divv**2/45
-            deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
-        endif
+        ! ! Momentum diffusion due to flow shear
+        ! if (dpp_shear_flag) then
+        !     dvy_dx = gradf(4)
+        !     gshear = (2*dvy_dx**2 + 4*dvx_dx**2)/30 - 2*divv**2/45
+        !     deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
+        !         ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
+        !     ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+        !     deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+        ! endif
 
         if (acc_region_flag) then
             if (particle_in_acceleration_region(ptl)) then
@@ -2192,11 +2201,10 @@ module particle_module
             dvy_dx = gradf(4)
             gshear = (2*(dvx_dy+dvy_dx)**2 + 4*(dvx_dx**2+dvy_dy**2))/30 - 2*divv**2/45
             if (gshear > 0) then
-                ! deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
-                deltap = deltap + 4 * gshear * dpp0_shear * ptl%p * ptl%dt
+                deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
+                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
                 ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-                ! deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
-                deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ptl%p * ran1 * sdt
+                deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
         endif
 
@@ -2406,9 +2414,10 @@ module particle_module
             gshear = (2*(dvx_dy+dvy_dx)**2 + 2*(dvx_dz+dvz_dx)**2 + &
                       2*(dvy_dz+dvz_dy)**2 + 4*(dvx_dx**2+dvy_dy**2+dvz_dz**2))/30 - &
                       2*divv**2/45
-            deltap = deltap + 2 * gshear * dpp0_shear * ptl%dt / ptl%p
+            deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
+                ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + dsqrt(2 * gshear * dpp0_shear) * ran1 * sdt
+            deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
 
         if (acc_region_flag) then
