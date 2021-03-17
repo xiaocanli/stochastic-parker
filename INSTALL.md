@@ -11,9 +11,7 @@ This package uses a [Multiple stream Mersenne Twister PRNG](http://theo.phys.sci
 - On a LANL cluster, `source config/module_intel_lanl.sh` to load the above packages.
 - [FoBiS](https://github.com/szaghi/FoBiS)
   * The installation wiki: https://github.com/szaghi/FoBiS/wiki/Install.
-  * It is recommended to use PyPI to install it. Before installation, load a python module on a cluster.
-  For example,`module load python/2.7-anaconda-4.1.1` on a LANL cluster.
-  * Then, `pip install FoBiS.py --user`
+  * It is recommended to use PyPI to install it: `pip install FoBiS.py --user`
 - [Multiple stream Mersenne Twister PRNG](http://theo.phys.sci.hiroshima-u.ac.jp/~ishikawa/PRNG/mt_stream_en.html)
   * Download: http://theo.phys.sci.hiroshima-u.ac.jp/~ishikawa/PRNG/mt_stream_f90.tar.gz
   * Load the same packages as listed above.

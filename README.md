@@ -10,7 +10,6 @@ stochastic method.
 ## Install
 See our note in [INSTALL.md](INSTALL.md)
 
-
 ## License
 
 This software is licenses under the GNU General Public License (GPL)
