@@ -1,6 +1,7 @@
 language: generic
+
 python:
-  - "3.9"
+  - 3.9
 
 sudo: false
 
@@ -11,15 +12,18 @@ cache:
     - $HOME/.cache/pip
     - $HOME/.local
 
+os: linux
+dist: trusty
 addons:
   apt:
     sources:
       - ubuntu-toolchain-r-test
     packages:
-      - gfortran-10
+      - gfortran-9
       - openmpi-bin
       - libopenmpi-dev
       - binutils
+      - python-pip
       - cmake
       - cmake-data
 
@@ -29,11 +33,11 @@ install:
       mkdir "$HOME/.local/bin"
     fi
   - export PATH="$HOME/.local/bin:$PATH"
-  - export FC=/usr/bin/gfortran-10
+  - export FC=/usr/bin/gfortran-9
   - cmake --version
-  - ln -fs /usr/bin/gfortran-10 "$HOME/.local/bin/gfortran" && gfortran --version
-  - ls -l /usr/bin/gfortran-10
-  - ln -fs /usr/bin/gcov-10 "$HOME/.local/bin/gcov" && gcov --version
+  - ln -fs /usr/bin/gfortran-9 "$HOME/.local/bin/gfortran" && gfortran --version
+  - ls -l /usr/bin/gfortran-9
+  - ln -fs /usr/bin/gcov-9 "$HOME/.local/bin/gcov" && gcov --version
   - pip install --user --upgrade FoBiS.py
   - source ./config/install_flap.sh
   - source ./config/install_mt_stream.sh
