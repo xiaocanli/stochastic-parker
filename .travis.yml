@@ -1,7 +1,7 @@
 language: python
 
 python:
-  - 3.6
+  - 3.8
 
 sudo: false
 
@@ -23,7 +23,6 @@ addons:
       - openmpi-bin
       - libopenmpi-dev
       - binutils
-      - python-pip
       - cmake
       - cmake-data
       - libhdf5-openmpi-dev
