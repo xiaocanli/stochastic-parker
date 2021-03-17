@@ -13,7 +13,7 @@ cache:
     - $HOME/.local
 
 os: linux
-dist: trusty
+dist: focal
 addons:
   apt:
     sources:
@@ -26,7 +26,7 @@ addons:
       - python-pip
       - cmake
       - cmake-data
-      - libhdf5-dev
+      - libhdf5-openmpi-dev
 
 install:
   - |
