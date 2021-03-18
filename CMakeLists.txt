@@ -1,5 +1,5 @@
 # States that CMake required version must be greater than 2.6
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.9)
 project("stochastic integration")
 
 enable_language (Fortran)

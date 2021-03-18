@@ -5,9 +5,9 @@ This package uses a [Multiple stream Mersenne Twister PRNG](http://theo.phys.sci
 
 ## Requirments
 - **Git**. The newer the better.
-- **CMake** 3.0.0 or higher
+- **CMake** 3.9.0 or higher
 - **GCC** or **Intel** compilers. Not sure if it works for different versions.
-- **OpenMPI**. Version 1.6.5 works but version 1.10.3 does not work on LANL clusters.
+- **MPI**. OpenMPI or MPICH. Not fully tested.
 - On a LANL cluster, `source config/module_intel_lanl.sh` to load the above packages.
 - [FoBiS](https://github.com/szaghi/FoBiS)
   * The installation wiki: https://github.com/szaghi/FoBiS/wiki/Install.

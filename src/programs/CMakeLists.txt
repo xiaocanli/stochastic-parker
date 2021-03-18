@@ -20,12 +20,10 @@ elseif (Fortran_COMPILER_NAME MATCHES "ftn*")
         $ENV{MT_STREAM_HSW}/f_jump_ahead_coeff/f_get_coeff.o)
 endif()
 
-target_link_libraries(stochastic-mhd.exec stochastic ${MPI_Fortran_LIBRARIES}
-    flap)
+target_link_libraries(stochastic-mhd.exec PRIVATE stochastic MPI::MPI_Fortran flap)
 
 add_executable(organize_mhd_data.exec organize_mhd_data.f90)
-target_link_libraries(organize_mhd_data.exec stochastic ${MPI_Fortran_LIBRARIES} 
-    flap)
+target_link_libraries(organize_mhd_data.exec PRIVATE stochastic MPI::MPI_Fortran flap)
 
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR})
 install (TARGETS stochastic-mhd.exec DESTINATION ${CMAKE_INSTALL_PREFIX})
