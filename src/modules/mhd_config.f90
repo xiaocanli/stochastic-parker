@@ -174,7 +174,7 @@ module mhd_config_module
         integer, intent(in) :: uniform_grid, spherical_coord
         uniform_grid_flag = .false.
         spherical_coord_flag = .false.
-        if (uniform_grid) uniform_grid_flag = .true.
-        if (spherical_coord) spherical_coord_flag = .true.
+        if (uniform_grid == 1) uniform_grid_flag = .true.
+        if (spherical_coord == 1) spherical_coord_flag = .true.
     end subroutine set_mhd_grid_type
 end module mhd_config_module
