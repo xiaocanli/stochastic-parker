@@ -294,8 +294,8 @@ module particle_module
         real(dp), intent(in) :: dpp1, dpp2
         dpp_wave_flag = .false.
         dpp_shear_flag = .false.
-        if (dpp_wave_int) dpp_wave_flag = .true.
-        if (dpp_shear_int) dpp_shear_flag = .true.
+        if (dpp_wave_int == 1) dpp_wave_flag = .true.
+        if (dpp_shear_int == 1) dpp_shear_flag = .true.
         dpp0_wave = dpp1
         dpp0_shear = dpp2
     end subroutine set_dpp_params
@@ -313,8 +313,8 @@ module particle_module
         real(dp), intent(in) :: lc0_in
         deltab_flag = .false.
         correlation_flag = .false.
-        if (deltab_flag_int) deltab_flag = .true.
-        if (correlation_flag_int) correlation_flag = .true.
+        if (deltab_flag_int == 1) deltab_flag = .true.
+        if (correlation_flag_int == 1) correlation_flag = .true.
         lc0 = lc0_in
     end subroutine set_flags_params
 
@@ -343,7 +343,7 @@ module particle_module
         implicit none
         integer, intent(in) :: check_drift_2d_flag
         check_drift_2d = .false.
-        if (check_drift_2d_flag) check_drift_2d = .true.
+        if (check_drift_2d_flag == 1) check_drift_2d = .true.
     end subroutine set_flag_check_drift_2d
 
     !---------------------------------------------------------------------------
@@ -1465,7 +1465,7 @@ module particle_module
             write(*, "(A,I0,A,I0,A,I0)") " Dimensions of spatial distributions = ", &
                 nx, " ", ny, " ", nz
             write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
-            if (acc_region_flag) then
+            if (acc_region_flag == 1) then
                 write(*, "(A)") " Particle can only be accelerated in part of the box"
                 write(*, "(A,F13.6)") " acc_xmin = ", acc_region(1)
                 write(*, "(A,F13.6)") " acc_xmax = ", acc_region(2)
@@ -1496,7 +1496,7 @@ module particle_module
         call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(acc_region_flag, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
 
-        if (acc_region_flag) then
+        if (acc_region_flag == 1) then
             call MPI_BCAST(acc_region, 6, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         else
             acc_region(1) = 0.0
@@ -1945,7 +1945,7 @@ module particle_module
         !     deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         ! endif
 
-        if (acc_region_flag) then
+        if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
                 ptl%p = ptl%p + deltap
             else
@@ -2208,7 +2208,7 @@ module particle_module
             endif
         endif
 
-        if (acc_region_flag) then
+        if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
                 ptl%p = ptl%p + deltap
             else
@@ -2420,7 +2420,7 @@ module particle_module
             deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
 
-        if (acc_region_flag) then
+        if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
                 ptl%p = ptl%p + deltap
             else
@@ -2778,7 +2778,7 @@ module particle_module
             if (p > pmin .and. p <= pmax) then
                 ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
                 fp_global(ip) = fp_global(ip) + weight
-                if (local_dist) then
+                if (local_dist == 1) then
                     if (ix >= 1 .and. ix <= nx .and. &
                         iy >= 1 .and. iy <= ny .and. &
                         iz >= 1 .and. iz <= nz) then
@@ -2798,7 +2798,7 @@ module particle_module
             call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
                 MPI_SUM, master, MPI_COMM_WORLD, ierr)
-            if (local_dist) then
+            if (local_dist == 1) then
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
                     MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
@@ -2870,7 +2870,7 @@ module particle_module
                 write(fh, pos=pos1) fbands_sum
                 close(fh)
 
-                if (local_dist) then
+                if (local_dist == 1) then
                     fh = 19
                     fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
                     open(fh, file=trim(fname), access='stream', status='unknown', &
@@ -2891,7 +2891,7 @@ module particle_module
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands)
             call MPI_FILE_CLOSE(fh, ierror)
 
-            if (local_dist) then
+            if (local_dist == 1) then
                 fh = 19
                 fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
                 disp = 0
@@ -2904,7 +2904,7 @@ module particle_module
         endif
 
         call clean_particle_distributions
-        if (local_dist) then
+        if (local_dist == 1) then
             call clean_local_particle_distribution
         endif
     end subroutine distributions_diagnostics

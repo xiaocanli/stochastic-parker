@@ -414,7 +414,7 @@ module simulation_setup_module
         logical :: boundx, boundy, boundz
         particle_can_escape = .false.
         if ((pbcx == 1) .or. (pbcy == 1) .or. (pbcz == 1)) then
-            if (whole_data_flag) then
+            if (whole_data_flag == 1) then
                 particle_can_escape = .true.
             else
                 boundx = (mpi_ix == 0) .and. (mpi_ix == (mpi_sizex - 1))
