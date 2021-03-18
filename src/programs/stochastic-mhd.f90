@@ -33,7 +33,7 @@ program stochastic
         read_correlation_length, copy_correlation_length, &
         init_grad_deltab2, free_grad_deltab2, &
         calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
-        init_grad_correl_length, & free_grad_correl_length, &
+        init_grad_correl_length, free_grad_correl_length, &
         calc_grad_correl_length, calc_grad_correl_length_nonuniform, &
         init_grid_positions, free_grid_positions, &
         set_local_grid_positions
@@ -748,16 +748,16 @@ program stochastic
 
         if (mpi_rank == master) then
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
-            print '(A,I0)', 'Maximum number of particles: ', nptl_max
-            print '(A,I0)', 'Initial number of particles: ', nptl
+            print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
+            print '(A,I10.3)', 'Initial number of particles: ', nptl
             if (dist_flag == 0) then
                 print '(A)', 'Initial distribution in Maxwellian'
             else
                 print '(A)', 'All particles with the same momentum initially'
             endif
-            print '(A,E13.6E2)', 'Time interval to push particles', dt
-            print '(A,I0)', 'Starting time frame: ', t_start
-            print '(A,I0)', 'The last time frame: ', t_end
+            print '(A,E14.7E2)', 'Time interval to push particles', dt
+            print '(A,I10.3)', 'Starting time frame: ', t_start
+            print '(A,I10.3)', 'The last time frame: ', t_end
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
             endif
@@ -767,11 +767,11 @@ program stochastic
                 print '(A)', 'Each process reads only part of the MHD simulation data'
             endif
             if (track_particle_flag == 1) then
-                print '(A,I0)', 'Number of particles to track: ', nptl_selected
-                print '(A,I0)', 'Steps interval to track particles: ', nsteps_interval
+                print '(A,I10.3)', 'Number of particles to track: ', nptl_selected
+                print '(A,I10.3)', 'Steps interval to track particles: ', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
-            print '(A,I0)', 'Number of fine steps: ', num_fine_steps
+            print '(A,I10.3)', 'Number of fine steps: ', num_fine_steps
             if (inject_at_shock == 1) then
                 print '(A)', 'Inject particles at shock location'
             endif
@@ -780,24 +780,24 @@ program stochastic
             endif
             if (inject_part_box == 1) then
                 print '(A)', 'Inject new particles in part of the simulation box'
-                print '(A,E,E)', 'Minimum and maximum x of the region to inject new particles', &
+                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum x of the region to inject new particles', &
                     ptl_xmin, ptl_xmax
-                print '(A,E,E)', 'Minimum and maximum y of the region to inject new particles', &
+                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum y of the region to inject new particles', &
                     ptl_ymin, ptl_ymax
-                print '(A,E,E)', 'Minimum and maximum z of the region to inject new particles', &
+                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum z of the region to inject new particles', &
                     ptl_zmin, ptl_zmax
             endif
             if (inject_large_jz == 1) then
                 print '(A)', 'Inject new particles where jz is large'
-                print '(A,E)', 'Minumum jz in regions to inject new particles', jz_min
+                print '(A,E14.7E2)', 'Minumum jz in regions to inject new particles', jz_min
             endif
             if (dpp_wave == 1) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'
-                print '(A,E)', 'Normalization for Dpp by wave scattering', dpp0_wave
+                print '(A,E14.7E2)', 'Normalization for Dpp by wave scattering', dpp0_wave
             endif
             if (dpp_shear == 1) then
                 print '(A)', 'Include momentum diffusion due to flow shear'
-                print '(A,E)', 'Normalization for Dpp by wave scattering', dpp0_shear
+                print '(A,E14.7E2)', 'Normalization for Dpp by wave scattering', dpp0_shear
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
             if (local_dist == 1) then
@@ -808,13 +808,13 @@ program stochastic
             endif
             if (correlation_flag == 1) then
                 print '(A)', 'Include spatially dependent turbulence correlation length'
-                print '(A,E)', 'Normalization for turbulence correlation length', lc0
+                print '(A,E14.7E2)', 'Normalization for turbulence correlation length', lc0
             endif
-            print '(A,I)', 'MHD field dimension:', ndim_field
+            print '(A,I10.3)', 'MHD field dimension:', ndim_field
             if (ndim_field == 3 .or. (ndim_field == 2 .and. check_drift_2d == 1)) then
-                print '(A,E,E)', 'Parameters for particle drift', &
+                print '(A,E14.7E2,E14.7E2)', 'Parameters for particle drift', &
                     drift_param1, drift_param2
-                print '(A,I)', 'Particle change in the unit of e:', charge
+                print '(A,I10.3)', 'Particle change in the unit of e:', charge
             endif
             if (spherical_coord == 1) then
                 print '(A)', 'MHD simulations are in spherical coordinates'
