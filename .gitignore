@@ -7,6 +7,7 @@ data_vdist_1d/
 data_vdist_2d/
 img/
 lib/
+.ipynb_checkpoints/
 *.exec
 diffusion[0-9].sh
 outfile
