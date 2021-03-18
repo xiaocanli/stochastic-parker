@@ -20,12 +20,11 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - gfortran-9
-      - openmpi-bin
-      - libopenmpi-dev
+      - libmpich-dev
       - binutils
       - cmake
       - cmake-data
-      - libhdf5-openmpi-dev
+      - libhdf5-mpich-dev
 
 install:
   - |
