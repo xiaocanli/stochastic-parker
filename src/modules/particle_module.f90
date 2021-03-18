@@ -1926,7 +1926,7 @@ module particle_module
         if (dpp_wave_flag) then
             rho = fields(4)
             va = b / dsqrt(rho)
-            if (momentum_dependency) then
+            if (momentum_dependency == 1) then
                 deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
             else
                 deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
@@ -2184,7 +2184,7 @@ module particle_module
         if (dpp_wave_flag) then
             rho = fields(4)
             va = b / dsqrt(rho)
-            if (momentum_dependency) then
+            if (momentum_dependency == 1) then
                 deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
             else
                 deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
@@ -2394,7 +2394,7 @@ module particle_module
         if (dpp_wave_flag) then
             rho = fields(4)
             va = b / dsqrt(rho)
-            if (momentum_dependency) then
+            if (momentum_dependency == 1) then
                 deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
             else
                 deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
@@ -2704,10 +2704,11 @@ module particle_module
         use mhd_data_parallel, only: gradf, interp_fields
         implicit none
         real(dp), intent(in) :: t0
-        real(dp) :: weight, px, py, pz, ip, rt
+        real(dp) :: weight, px, py, pz, rt
         real(dp) :: dvx_dx, dvy_dy, dvz_dz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
+        integer :: ip
 
         if (ptl%p > pmin .and. ptl%p <= pmax) then
             ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
