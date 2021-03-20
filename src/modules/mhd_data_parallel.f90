@@ -23,7 +23,7 @@ module mhd_data_parallel
            free_grad_correl_length, calc_grad_correl_length, &
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
-           set_local_grid_positions
+           set_local_grid_positions, get_ncells_large_jz
     public fields, gradf, db2, lc, grad_db, grad_lc
     public xpos_local, ypos_local, zpos_local
 
@@ -1809,4 +1809,47 @@ module mhd_data_parallel
                 1.0_dp / (3*zpos_global(iz_max) - 4*zpos_global(iz_max-1) + zpos_global(iz_max-2))
         endif
     end subroutine set_local_grid_positions
+
+    !---------------------------------------------------------------------------
+    !< Get the number of cells with current density |jz| > jz_min
+    !< Args:
+    !<  jz_min: the minimum jz
+    !---------------------------------------------------------------------------
+    function get_ncells_large_jz(jz_min, spherical_coord_flag) result (ncells_large_jz)
+        implicit none
+        real(dp), intent(in) :: jz_min
+        logical, intent(in) :: spherical_coord_flag
+        integer :: nx, ny, nz, ix, iy, iz, ncells_large_jz
+        real(dp), allocatable, dimension(:, :, :) :: abs_jz
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        ncells_large_jz = 0
+        allocate(abs_jz(nx, ny, nz))
+        if (spherical_coord_flag) then
+            do iz = 1, nz
+                do iy = 1, ny
+                    abs_jz(:, iy, iz) = &
+                        abs(fgrad_array1(16, 1:nx, iy, iz) + &
+                            (f_array1(6, 1:nx, iy, iz) - &
+                             fgrad_array1(14, 1:nx, iy, iz)) / xpos_local(1:nx))
+                enddo
+            enddo
+        else
+            abs_jz = abs(fgrad_array1(16, 1:nx, 1:ny, 1:nz) - &
+                         fgrad_array1(14, 1:nx, 1:ny, 1:nz))
+        endif
+        do iz = 1, nz
+        do iy = 1, ny
+        do ix = 1, nx
+            if (abs_jz(ix, iy, iz) > jz_min) then
+                ncells_large_jz = ncells_large_jz + 1
+            endif
+        enddo
+        enddo
+        enddo
+        deallocate(abs_jz)
+    end function get_ncells_large_jz
 end module mhd_data_parallel

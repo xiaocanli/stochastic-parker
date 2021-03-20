@@ -114,7 +114,6 @@ module particle_module
 
     !< Other flags and parameters
     logical :: deltab_flag, correlation_flag
-    real(dp) :: lc0 ! Normalization for turbulence correlation length
 
     !< Particle drift
     real(dp) :: drift1 ! ev_ABL_0/p_0c
@@ -305,17 +304,14 @@ module particle_module
     !< Args:
     !<  deltab_flag_int(integer): flag for magnetic fluctuation
     !<  correlation_flag_int(integer): flag for turbulence correlation length
-    !<  lc0_in(real8): normalization for turbulence correlation length
     !---------------------------------------------------------------------------
-    subroutine set_flags_params(deltab_flag_int, correlation_flag_int, lc0_in)
+    subroutine set_flags_params(deltab_flag_int, correlation_flag_int)
         implicit none
         integer, intent(in) :: deltab_flag_int, correlation_flag_int
-        real(dp), intent(in) :: lc0_in
         deltab_flag = .false.
         correlation_flag = .false.
         if (deltab_flag_int == 1) deltab_flag = .true.
         if (correlation_flag_int == 1) correlation_flag = .true.
-        lc0 = lc0_in
     end subroutine set_flags_params
 
     !---------------------------------------------------------------------------
@@ -653,12 +649,12 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: gradf, fields, interp_fields
+        use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt, jz_min
         real(dp), intent(in), dimension(6) :: part_box
-        integer :: i, imod2
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xtmp, ytmp, ztmp, px, py, pz
@@ -667,6 +663,8 @@ module particle_module
         real(dp), dimension(2) :: rands
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
+        integer :: i, imod2
+        integer :: nptl_inject, ncells_large_jz, ncells_large_jz_g
 
         xmin = part_box(1)
         ymin = part_box(2)
@@ -688,7 +686,15 @@ module particle_module
         py = 0.0_dp
         pz = 0.0_dp
 
-        do i = 1, nptl
+        ! When whole_data_flag is 0, the number of cells with larger jz
+        ! in the local domain will be different from mpi_rank to mpi_rank.
+        ! That's why we need to redistribute the number of particles to inject.
+        ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag)
+        call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
+            MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+        nptl_inject = int(nptl * mpi_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+
+        do i = 1, nptl_inject
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
             jz = 0.0_dp
@@ -1258,7 +1264,7 @@ module particle_module
         ! Turbulence correlation length
         ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
-            knorm0 = knorm0 * (lc/lc0)**(2./3.)
+            knorm0 = knorm0 * lc**(2./3.)
         endif
 
         ! Momentum-dependent kappa
@@ -2204,7 +2210,8 @@ module particle_module
                 deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
                 ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-                deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+                deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * &
+                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
         endif
 

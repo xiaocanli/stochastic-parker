@@ -52,7 +52,6 @@ program stochastic
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: dpp0_wave     ! Normalization for Dpp by wave scattering
     real(dp) :: dpp0_shear    ! Normalization for Dpp by flow shear
-    real(dp) :: lc0           ! Normalization for turbulence correlation length
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
@@ -112,7 +111,7 @@ program stochastic
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
-    call set_flags_params(deltab_flag, correlation_flag, lc0)
+    call set_flags_params(deltab_flag, correlation_flag)
     if (ndim_field == 3) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
     else if (ndim_field == 2 .and. check_drift_2d == 1) then
@@ -489,7 +488,7 @@ program stochastic
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
                         '-ds dpp_shear -d0 dpp0_wave -d1 dpp0_shear '//&
-                        '-db deltab_flag -co correlation_flag -lc lc0 '//&
+                        '-db deltab_flag -co correlation_flag '//&
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
                         '-cd check_drift_2d -pd particle_data_dump'])
@@ -625,10 +624,6 @@ program stochastic
             help='whether to include turbulence correlation length', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
-        call cli%add(switch='--lc0', switch_ab='-lc', &
-            help='Normalization for turbulence correlation length (km)', &
-            required=.false., def='5E3', act='store', error=error)
-        if (error/=0) stop
         call cli%add(switch='--ndim_field', switch_ab='-nd', &
             help='the number of dimensions of the MHD field', &
             required=.false., act='store', def='2', error=error)
@@ -727,8 +722,6 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-co', val=correlation_flag, error=error)
         if (error/=0) stop
-        call cli%get(switch='-lc', val=lc0, error=error)
-        if (error/=0) stop
         call cli%get(switch='-nd', val=ndim_field, error=error)
         if (error/=0) stop
         call cli%get(switch='-dp1', val=drift_param1, error=error)
@@ -808,7 +801,6 @@ program stochastic
             endif
             if (correlation_flag == 1) then
                 print '(A)', 'Include spatially dependent turbulence correlation length'
-                print '(A,E14.7E2)', 'Normalization for turbulence correlation length', lc0
             endif
             print '(A,I10.3)', 'MHD field dimension:', ndim_field
             if (ndim_field == 3 .or. (ndim_field == 2 .and. check_drift_2d == 1)) then
