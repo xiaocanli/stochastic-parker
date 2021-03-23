@@ -24,7 +24,8 @@ module particle_module
         set_dpp_params, set_flags_params, set_drift_parameters, &
         get_pmax_global, set_flag_check_drift_2d, dump_particles, &
         init_escaped_particles, free_escaped_particles, &
-        reset_escaped_particles, dump_escaped_particles
+        reset_escaped_particles, dump_escaped_particles, &
+        record_tracked_particle_init
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -107,10 +108,10 @@ module particle_module
 
     !< Momentum diffusion
     logical :: dpp_wave_flag, dpp_shear_flag
-    !< normalization for Dpp due to wave scattering (v_A^2/kappa_0)
-    real(dp) :: dpp0_wave
-    !< normalization for Dpp due to flow shear (\tau_0v_A/L_0)
-    real(dp) :: dpp0_shear
+    !< Whether particle scattering is weak (tau*Omega >> 1)
+    logical :: weak_scattering
+    !< The scattering time for initial particles (kpara = v^2\tau/3)
+    real(dp) :: tau0
 
     !< Other flags and parameters
     logical :: deltab_flag, correlation_flag
@@ -284,19 +285,20 @@ module particle_module
     !< Args:
     !<  dpp_wave_int(integer): flag for momentum diffusion due to wave scattering
     !<  dpp_shear_int(integer): flag for momentum diffusion due to flow shear
-    !<  dpp1: normalization for Dpp due to wave scattering (v_A^2/kappa_0)
-    !<  dpp2: normalization for Dpp due to flow shear (\tau_0)
+    !<  weak_scattering_flag(integer): flag for weak-scattering regime
+    !<  tau0_scattering: the scattering time for initial particles
     !---------------------------------------------------------------------------
-    subroutine set_dpp_params(dpp_wave_int, dpp_shear_int, dpp1, dpp2)
+    subroutine set_dpp_params(dpp_wave_int, dpp_shear_int, weak_scattering_flag, tau0_scattering)
         implicit none
-        integer, intent(in) :: dpp_wave_int, dpp_shear_int
-        real(dp), intent(in) :: dpp1, dpp2
+        integer, intent(in) :: dpp_wave_int, dpp_shear_int, weak_scattering_flag
+        real(dp), intent(in) :: tau0_scattering
         dpp_wave_flag = .false.
         dpp_shear_flag = .false.
+        weak_scattering = .false.
         if (dpp_wave_int == 1) dpp_wave_flag = .true.
         if (dpp_shear_int == 1) dpp_shear_flag = .true.
-        dpp0_wave = dpp1
-        dpp0_shear = dpp2
+        if (weak_scattering_flag == 1) weak_scattering = .true.
+        tau0 = tau0_scattering
     end subroutine set_dpp_params
 
     !---------------------------------------------------------------------------
@@ -1850,14 +1852,16 @@ module particle_module
         real(dp), intent(in) :: rt
         real(dp), intent(out) :: deltax, deltap
         real(dp) :: xtmp
-        real(dp) :: sdt, dvx_dx, dvy_dx, dvz_dx, divv, gshear
-        real(dp) :: b, vx, px, rt1
+        real(dp) :: sdt, dvx_dx, divv, gshear
+        real(dp) :: b, ib, bx, by, bz, vx, px, rt1
         real(dp) :: xmin, xmax, dxm
         reaL(dp) :: xmin1, xmax1, dxmh
         real(dp) :: skpara1
         real(dp) :: ran1, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
+        real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
+        real(dp) :: bbsigma ! b_ib_jsigma_ij
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -1933,23 +1937,43 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
             endif
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
         endif
 
-        ! ! Momentum diffusion due to flow shear
-        ! if (dpp_shear_flag) then
-        !     dvy_dx = gradf(4)
-        !     gshear = (2*dvy_dx**2 + 4*dvx_dx**2)/30 - 2*divv**2/45
-        !     deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
-        !         ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-        !     ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-        !     deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-        ! endif
+        ! Momentum diffusion due to flow shear
+        if (dpp_shear_flag) then
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = -divv / 3
+            sigmazz = -divv / 3
+            if (weak_scattering) then
+                bx = fields(5)
+                by = fields(6)
+                bz = fields(7)
+                b = dsqrt(bx**2 + by**2 + bz**2)
+                if (b == 0) then
+                    ib = 0.0
+                else
+                    ib = 1.0 / b
+                endif
+                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2
+                bbsigma = bbsigma * ib * ib
+                gshear = bbsigma**2 / 5
+            else
+                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2) / 15
+            endif
+            if (gshear > 0) then
+                deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
+                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
+                ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+                deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
+                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+            endif
+        endif
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -1995,6 +2019,8 @@ module particle_module
         real(dp) :: a1_1, b1_1, c1_1, Qpp_1, Qpm_1, Qmp_1, Qmm_1
         real(dp) :: qtmp1_1, qtmp2_1
         real(dp) :: deltaz
+        real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy ! shear tensor
+        real(dp) :: bbsigma ! b_ib_jsigma_ij
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -2191,26 +2217,37 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
             endif
             ! ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
             rands = two_normals()
             ran1 = rands(1)
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             dvx_dy = gradf(2)
             dvy_dx = gradf(4)
-            gshear = (2*(dvx_dy+dvy_dx)**2 + 4*(dvx_dx**2+dvy_dy**2))/30 - 2*divv**2/45
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = dvy_dy - divv / 3
+            sigmazz = -divv / 3
+            sigmaxy = (dvx_dy + dvy_dx) / 2
+            if (weak_scattering) then
+                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + &
+                    sigmazz * bz**2 + 2.0 * sigmaxy * bx * by
+                bbsigma = bbsigma * ib * ib
+                gshear = bbsigma**2 / 5
+            else
+                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + 2 * sigmaxy**2) / 15
+            endif
             if (gshear > 0) then
-                deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
+                deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
                 ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-                deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * &
+                deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
         endif
@@ -2262,6 +2299,8 @@ module particle_module
         real(dp) :: rands(2)
         real(dp) :: ctheta, istheta, ir, ir2
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
+        real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
+        real(dp) :: bbsigma ! b_ib_jsigma_ij
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -2402,12 +2441,12 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * dpp0_wave * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
             endif
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2*dpp0_wave/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
@@ -2418,13 +2457,26 @@ module particle_module
             dvy_dz = gradf(6)
             dvz_dx = gradf(7)
             dvz_dy = gradf(8)
-            gshear = (2*(dvx_dy+dvy_dx)**2 + 2*(dvx_dz+dvz_dx)**2 + &
-                      2*(dvy_dz+dvz_dy)**2 + 4*(dvx_dx**2+dvy_dy**2+dvz_dz**2))/30 - &
-                      2*divv**2/45
-            deltap = deltap + (2 + pindex) * gshear * dpp0_shear * knorm0 * &
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = dvy_dy - divv / 3
+            sigmazz = dvz_dz - -divv / 3
+            sigmaxy = (dvx_dy + dvy_dx) / 2
+            sigmaxz = (dvx_dz + dvz_dx) / 2
+            sigmayz = (dvy_dz + dvz_dy) / 2
+            if (weak_scattering) then
+                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
+                    2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
+                bbsigma = bbsigma * ib * ib
+                gshear = bbsigma**2 / 5
+            else
+                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
+                    2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
+            endif
+            deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
                 ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + dsqrt(2*gshear*dpp0_shear * knorm0 * ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+            deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
+                ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
 
         if (acc_region_flag == 1) then
@@ -3044,10 +3096,10 @@ module particle_module
         nsteps_tracked_tot = noffsets_tracked_ptls(nptl_selected) + &
                              nsteps_tracked_ptls(nptl_selected)
 
-        !< Set particles to their initial values, but switch the tags for
-        !< for high-energy particles
+        !< Set particles to their initial values and set nptl_current to 0
         ptls%x = 0.0
         ptls%y = 0.0
+        ptls%z = 0.0
         ptls%p = 0.0
         ptls%weight = 0.0
         ptls%t = 0.0
@@ -3056,7 +3108,30 @@ module particle_module
         ptls%count_flag = 0
         ptls%tag = 0
         ptls%nsteps_tracking = 0
+        nptl_current = 0
     end subroutine select_particles_tracking
+
+    !---------------------------------------------------------------------------
+    !< Initialize tracked particle points
+    !< Args:
+    !<  nptl_selected: number of selected particles
+    !---------------------------------------------------------------------------
+    subroutine init_tracked_particle_points(nptl_selected)
+        implicit none
+        integer, intent(in) :: nptl_selected
+        allocate(ptl_traj_points(nsteps_tracked_tot))
+        ptl_traj_points%x = 0.0
+        ptl_traj_points%y = 0.0
+        ptl_traj_points%z = 0.0
+        ptl_traj_points%p = 0.0
+        ptl_traj_points%weight = 0.0
+        ptl_traj_points%t = 0.0
+        ptl_traj_points%dt = 0.0
+        ptl_traj_points%split_times = 0
+        ptl_traj_points%count_flag = 0
+        ptl_traj_points%tag = 0
+        ptl_traj_points%nsteps_tracking = 0
+    end subroutine init_tracked_particle_points
 
     !---------------------------------------------------------------------------
     !< Make the flags of tracked particles negative, so they can be easily
@@ -3074,33 +3149,20 @@ module particle_module
     end subroutine negative_particle_tags
 
     !---------------------------------------------------------------------------
-    !< Initialize tracked particle points
+    !< Save the initial information of tracked particles
     !< Args:
     !<  nptl_selected: number of selected particles
     !---------------------------------------------------------------------------
-    subroutine init_tracked_particle_points(nptl_selected)
+    subroutine record_tracked_particle_init(nptl_selected)
         implicit none
         integer, intent(in) :: nptl_selected
-        integer :: i, offset, tag
-        allocate(ptl_traj_points(nsteps_tracked_tot))
-        ptl_traj_points%x = 0.0
-        ptl_traj_points%y = 0.0
-        ptl_traj_points%p = 0.0
-        ptl_traj_points%weight = 0.0
-        ptl_traj_points%t = 0.0
-        ptl_traj_points%dt = 0.0
-        ptl_traj_points%split_times = 0
-        ptl_traj_points%count_flag = 0
-        ptl_traj_points%tag = 0
-        ptl_traj_points%nsteps_tracking = 0
-
-        !< Save the initial information of tracked particles
+        integer :: i, tag, offset
         do i = 1, nptl_selected
             offset = noffsets_tracked_ptls(i)
             tag = tags_selected_ptls(i)
             ptl_traj_points(offset + 1) = ptls(tag)
         enddo
-    end subroutine init_tracked_particle_points
+    end subroutine record_tracked_particle_init
 
     !---------------------------------------------------------------------------
     !< Free tracked particle points

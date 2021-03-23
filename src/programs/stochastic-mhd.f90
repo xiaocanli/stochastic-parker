@@ -21,7 +21,8 @@ program stochastic
         inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
         set_drift_parameters, get_pmax_global, set_flag_check_drift_2d, &
         dump_particles, init_escaped_particles, free_escaped_particles, &
-        reset_escaped_particles, dump_escaped_particles
+        reset_escaped_particles, dump_escaped_particles, &
+        record_tracked_particle_init
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
@@ -50,8 +51,7 @@ program stochastic
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
-    real(dp) :: dpp0_wave     ! Normalization for Dpp by wave scattering
-    real(dp) :: dpp0_shear    ! Normalization for Dpp by flow shear
+    real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
@@ -64,6 +64,7 @@ program stochastic
     integer :: inject_part_box    ! Whether to inject in part of the box
     integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
     integer :: dpp_shear          ! Whether to include momentum diffusion due to flow shear
+    integer :: weak_scattering    ! Whether particle scattering is weak (tau*Omega >> 1)
     integer :: deltab_flag        ! Whether to include spatially dependent magnetic fluctuation
     integer :: correlation_flag   ! Whether to include turbulence correlation length
     integer :: ndim_field         ! Number of the dimension of the MHD fields
@@ -110,7 +111,7 @@ program stochastic
         call init_grad_correl_length(interp_flag)
     endif
     call read_particle_params(conf_file)
-    call set_dpp_params(dpp_wave, dpp_shear, dpp0_wave, dpp0_shear)
+    call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
     call set_flags_params(deltab_flag, correlation_flag)
     if (ndim_field == 3) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
@@ -127,170 +128,7 @@ program stochastic
     endif
     call set_particle_datatype_mpi
 
-    write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
-    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
-    call read_field_data_parallel(fname1, var_flag=0)
-    call read_field_data_parallel(fname2, var_flag=1)
-    if (deltab_flag == 1) then
-        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
-        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
-        call read_magnetic_fluctuation(fname1, var_flag=0)
-        call read_magnetic_fluctuation(fname2, var_flag=1)
-    endif
-    if (correlation_flag == 1) then
-        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
-        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
-        call read_correlation_length(fname1, var_flag=0)
-        call read_correlation_length(fname2, var_flag=1)
-    endif
-
-    if (uniform_grid == 1) then
-        call calc_fields_gradients(var_flag=0)
-        call calc_fields_gradients(var_flag=1)
-    else
-        call calc_fields_gradients_nonuniform(var_flag=0)
-        call calc_fields_gradients_nonuniform(var_flag=1)
-    endif
-    if (deltab_flag == 1) then
-        if (uniform_grid == 1) then
-            call calc_grad_deltab2(var_flag=0)
-            call calc_grad_deltab2(var_flag=1)
-        else
-            call calc_grad_deltab2_nonuniform(var_flag=0)
-            call calc_grad_deltab2_nonuniform(var_flag=1)
-        endif
-    endif
-    if (correlation_flag == 1) then
-        if (uniform_grid == 1) then
-            call calc_grad_correl_length(var_flag=0)
-            call calc_grad_correl_length(var_flag=1)
-        else
-            call calc_grad_correl_length_nonuniform(var_flag=0)
-            call calc_grad_correl_length_nonuniform(var_flag=1)
-        endif
-    endif
-
-    if (inject_at_shock == 1) then ! Whether it is a shock problem
-        call init_shock_xpos(interp_flag)
-        call locate_shock_xpos(interp_flag)
-        call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
-    else
-        if (inject_part_box == 1) then
-            part_box(1) = ptl_xmin
-            part_box(2) = ptl_ymin
-            part_box(3) = ptl_zmin
-            part_box(4) = ptl_xmax
-            part_box(5) = ptl_ymax
-            part_box(6) = ptl_zmax
-        else
-            part_box(1) = fconfig%xmin
-            part_box(2) = fconfig%ymin
-            part_box(3) = fconfig%zmin
-            part_box(4) = fconfig%xmax
-            part_box(5) = fconfig%ymax
-            part_box(6) = fconfig%zmax
-        endif
-        if (inject_large_jz == 1) then
-            call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
-                jz_min, part_box)
-        else
-            call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
-        endif
-    endif
-
-    call cpu_time(step1)
-
-    call set_mpi_io_data_sizes
-    call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
-    if (particle_data_dump == 1) then
-        call dump_particles(t_start, diagnostics_directory)
-    endif
-    call quick_check(t_start, .true., diagnostics_directory)
-    call get_pmax_global(t_start, .true., diagnostics_directory)
-
-    !< Time loop
-    do tf = t_start, t_end
-        if (mpi_rank == master) then
-            write(*, "(A,I0)") " Starting step ", tf
-        endif
-        call particle_mover(0, nptl_selected, nsteps_interval, tf, num_fine_steps)
-        if (mpi_rank == master) then
-            write(*, "(A)") " Finishing moving particles "
-        endif
-        if (split_flag == 1) then
-            call split_particle
-        endif
-        call quick_check(tf+1, .false., diagnostics_directory)
-        call get_pmax_global(tf+1, .false., diagnostics_directory)
-        call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
-        if (mpi_rank == master) then
-            write(*, "(A)") " Finishing distribution diagnostics "
-        endif
-        if (particle_data_dump == 1) then
-            call dump_particles(tf+1, diagnostics_directory)
-        endif
-        call dump_escaped_particles(tf+1, diagnostics_directory)
-        call reset_escaped_particles
-        call copy_fields
-        if (deltab_flag == 1) then
-            call copy_magnetic_fluctuation
-        endif
-        if (correlation_flag == 1) then
-            call copy_correlation_length
-        endif
-        if (mpi_rank == master) then
-            write(*, "(A)") " Finishing copying fields "
-        endif
-        if (tf < t_end) then
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
-            call read_field_data_parallel(fname2, var_flag=1)
-            if (deltab_flag == 1) then
-                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
-                call read_magnetic_fluctuation(fname2, var_flag=1)
-            endif
-            if (correlation_flag == 1) then
-                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
-                call read_correlation_length(fname2, var_flag=1)
-            endif
-            if (uniform_grid == 1) then
-                call calc_fields_gradients(var_flag=1)
-            else
-                call calc_fields_gradients_nonuniform(var_flag=1)
-            endif
-            if (deltab_flag == 1) then
-                if (uniform_grid == 1) then
-                    call calc_grad_deltab2(var_flag=1)
-                else
-                    call calc_grad_deltab2_nonuniform(var_flag=1)
-                endif
-            endif
-            if (correlation_flag == 1) then
-                if (uniform_grid == 1) then
-                    call calc_grad_correl_length(var_flag=1)
-                else
-                    call calc_grad_correl_length_nonuniform(var_flag=1)
-                endif
-            endif
-        endif
-        if (inject_at_shock == 1) then
-            call locate_shock_xpos(interp_flag)
-            call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
-        else
-            if (inject_new_ptl == 1) then
-                if (inject_large_jz == 1) then
-                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
-                        jz_min, part_box)
-                else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
-                endif
-            endif
-        endif
-        call cpu_time(step2)
-        if (mpi_rank == master) then
-            print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
-        endif
-        step1 = step2
-    enddo
+    call solve_transport_equation(.false.)
 
     if (track_particle_flag == 1) then
         !< We need to reset the random number generator
@@ -299,126 +137,10 @@ program stochastic
 
         call init_particle_tracking(nptl_selected)
         call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
-
-        ! It uses the initial part of the random number series
-        if (inject_at_shock == 1) then
-            call locate_shock_xpos(interp_flag)
-            call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
-        else
-            if (inject_large_jz == 1) then
-                call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
-                    jz_min, part_box)
-            else
-                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
-            endif
-        endif
-
         call init_tracked_particle_points(nptl_selected)
-        call negative_particle_tags(nptl_selected)
 
-        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
-        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
-        call read_field_data_parallel(fname1, var_flag=0)
-        call read_field_data_parallel(fname2, var_flag=1)
-        if (deltab_flag == 1) then
-            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
-            call read_magnetic_fluctuation(fname1, var_flag=0)
-            call read_magnetic_fluctuation(fname2, var_flag=1)
-        endif
-        if (correlation_flag == 1) then
-            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
-            call read_correlation_length(fname1, var_flag=0)
-            call read_correlation_length(fname2, var_flag=1)
-        endif
+        call solve_transport_equation(.true.)
 
-        if (uniform_grid == 1) then
-            call calc_fields_gradients(var_flag=0)
-            call calc_fields_gradients(var_flag=1)
-        else
-            call calc_fields_gradients_nonuniform(var_flag=0)
-            call calc_fields_gradients_nonuniform(var_flag=1)
-        endif
-        if (deltab_flag == 1) then
-            if (uniform_grid == 1) then
-                call calc_grad_deltab2(var_flag=0)
-                call calc_grad_deltab2(var_flag=1)
-            else
-                call calc_grad_deltab2_nonuniform(var_flag=0)
-                call calc_grad_deltab2_nonuniform(var_flag=1)
-            endif
-        endif
-        if (correlation_flag == 1) then
-            if (uniform_grid == 1) then
-                call calc_grad_correl_length(var_flag=0)
-                call calc_grad_correl_length(var_flag=1)
-            else
-                call calc_grad_correl_length_nonuniform(var_flag=0)
-                call calc_grad_correl_length_nonuniform(var_flag=1)
-            endif
-        endif
-        !< Time loop
-        do tf = t_start, t_end
-            call particle_mover(1, nptl_selected, nsteps_interval, tf, 1)
-            if (split_flag == 1) then
-                call split_particle
-            endif
-            call copy_fields
-            if (deltab_flag == 1) then
-                call copy_magnetic_fluctuation
-            endif
-            if (correlation_flag == 1) then
-                call copy_correlation_length
-            endif
-            if (tf < t_end) then
-                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
-                call read_field_data_parallel(fname2, var_flag=1)
-                if (uniform_grid == 1) then
-                    call calc_fields_gradients(var_flag=1)
-                else
-                    call calc_fields_gradients_nonuniform(var_flag=1)
-                endif
-                if (deltab_flag == 1) then
-                    if (uniform_grid == 1) then
-                        call calc_grad_deltab2(var_flag=1)
-                    else
-                        call calc_grad_deltab2_nonuniform(var_flag=1)
-                    endif
-                endif
-                if (correlation_flag == 1) then
-                    if (uniform_grid == 1) then
-                        call calc_grad_correl_length(var_flag=1)
-                    else
-                        call calc_grad_correl_length_nonuniform(var_flag=1)
-                    endif
-                endif
-                if (deltab_flag == 1) then
-                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
-                    call read_magnetic_fluctuation(fname2, var_flag=1)
-                endif
-                if (correlation_flag == 1) then
-                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
-                    call read_correlation_length(fname2, var_flag=1)
-                endif
-            endif
-            if (inject_at_shock == 1) then
-                call locate_shock_xpos(interp_flag)
-                call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
-            else
-                if (inject_large_jz == 1) then
-                    call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
-                        jz_min, part_box)
-                else
-                    call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
-                endif
-            endif
-            call cpu_time(step2)
-            if (mpi_rank == master) then
-                print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
-            endif
-            step1 = step2
-        enddo
         call save_tracked_particle_points(nptl_selected, diagnostics_directory)
         call free_tracked_particle_points
         call free_particle_tracking
@@ -465,6 +187,191 @@ program stochastic
     contains
 
     !---------------------------------------------------------------------------
+    !< Loop over all time steps and solve the transport equation
+    !---------------------------------------------------------------------------
+    subroutine solve_transport_equation(track_particles)
+        implicit none
+        logical, intent(in) :: track_particles
+        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
+        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
+        call read_field_data_parallel(fname1, var_flag=0)
+        call read_field_data_parallel(fname2, var_flag=1)
+        if (deltab_flag == 1) then
+            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
+            call read_magnetic_fluctuation(fname1, var_flag=0)
+            call read_magnetic_fluctuation(fname2, var_flag=1)
+        endif
+        if (correlation_flag == 1) then
+            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
+            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
+            call read_correlation_length(fname1, var_flag=0)
+            call read_correlation_length(fname2, var_flag=1)
+        endif
+
+        if (uniform_grid == 1) then
+            call calc_fields_gradients(var_flag=0)
+            call calc_fields_gradients(var_flag=1)
+        else
+            call calc_fields_gradients_nonuniform(var_flag=0)
+            call calc_fields_gradients_nonuniform(var_flag=1)
+        endif
+        if (deltab_flag == 1) then
+            if (uniform_grid == 1) then
+                call calc_grad_deltab2(var_flag=0)
+                call calc_grad_deltab2(var_flag=1)
+            else
+                call calc_grad_deltab2_nonuniform(var_flag=0)
+                call calc_grad_deltab2_nonuniform(var_flag=1)
+            endif
+        endif
+        if (correlation_flag == 1) then
+            if (uniform_grid == 1) then
+                call calc_grad_correl_length(var_flag=0)
+                call calc_grad_correl_length(var_flag=1)
+            else
+                call calc_grad_correl_length_nonuniform(var_flag=0)
+                call calc_grad_correl_length_nonuniform(var_flag=1)
+            endif
+        endif
+
+        if (inject_at_shock == 1) then ! Whether it is a shock problem
+            call init_shock_xpos(interp_flag)
+            call locate_shock_xpos(interp_flag)
+            call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
+        else
+            if (inject_part_box == 1) then
+                part_box(1) = ptl_xmin
+                part_box(2) = ptl_ymin
+                part_box(3) = ptl_zmin
+                part_box(4) = ptl_xmax
+                part_box(5) = ptl_ymax
+                part_box(6) = ptl_zmax
+            else
+                part_box(1) = fconfig%xmin
+                part_box(2) = fconfig%ymin
+                part_box(3) = fconfig%zmin
+                part_box(4) = fconfig%xmax
+                part_box(5) = fconfig%ymax
+                part_box(6) = fconfig%zmax
+            endif
+            if (inject_large_jz == 1) then
+                call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
+                    jz_min, part_box)
+            else
+                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
+            endif
+        endif
+
+        if (track_particles) then
+            call negative_particle_tags(nptl_selected)
+            call record_tracked_particle_init(nptl_selected)
+        endif
+
+        call cpu_time(step1)
+
+        if (.not. track_particles) then
+            call set_mpi_io_data_sizes
+            call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
+            if (particle_data_dump == 1) then
+                call dump_particles(t_start, diagnostics_directory)
+            endif
+            call quick_check(t_start, .true., diagnostics_directory)
+            call get_pmax_global(t_start, .true., diagnostics_directory)
+        endif
+
+        !< Time loop
+        do tf = t_start, t_end
+            if (mpi_rank == master) then
+                write(*, "(A,I0)") " Starting step ", tf
+            endif
+            if (track_particles) then
+                call particle_mover(1, nptl_selected, nsteps_interval, tf, 1)
+            else
+                call particle_mover(0, nptl_selected, nsteps_interval, tf, num_fine_steps)
+            endif
+            if (mpi_rank == master) then
+                write(*, "(A)") " Finishing moving particles "
+            endif
+            if (split_flag == 1) then
+                call split_particle
+            endif
+            if (.not. track_particles) then
+                call quick_check(tf+1, .false., diagnostics_directory)
+                call get_pmax_global(tf+1, .false., diagnostics_directory)
+                call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
+                if (mpi_rank == master) then
+                    write(*, "(A)") " Finishing distribution diagnostics "
+                endif
+                if (particle_data_dump == 1) then
+                    call dump_particles(tf+1, diagnostics_directory)
+                endif
+                call dump_escaped_particles(tf+1, diagnostics_directory)
+                call reset_escaped_particles
+            endif
+            call copy_fields
+            if (deltab_flag == 1) then
+                call copy_magnetic_fluctuation
+            endif
+            if (correlation_flag == 1) then
+                call copy_correlation_length
+            endif
+            if (mpi_rank == master) then
+                write(*, "(A)") " Finishing copying fields "
+            endif
+            if (tf < t_end) then
+                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
+                call read_field_data_parallel(fname2, var_flag=1)
+                if (deltab_flag == 1) then
+                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
+                    call read_magnetic_fluctuation(fname2, var_flag=1)
+                endif
+                if (correlation_flag == 1) then
+                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
+                    call read_correlation_length(fname2, var_flag=1)
+                endif
+                if (uniform_grid == 1) then
+                    call calc_fields_gradients(var_flag=1)
+                else
+                    call calc_fields_gradients_nonuniform(var_flag=1)
+                endif
+                if (deltab_flag == 1) then
+                    if (uniform_grid == 1) then
+                        call calc_grad_deltab2(var_flag=1)
+                    else
+                        call calc_grad_deltab2_nonuniform(var_flag=1)
+                    endif
+                endif
+                if (correlation_flag == 1) then
+                    if (uniform_grid == 1) then
+                        call calc_grad_correl_length(var_flag=1)
+                    else
+                        call calc_grad_correl_length_nonuniform(var_flag=1)
+                    endif
+                endif
+            endif
+            if (inject_at_shock == 1) then
+                call locate_shock_xpos(interp_flag)
+                call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
+            else
+                if (inject_new_ptl == 1) then
+                    if (inject_large_jz == 1) then
+                        call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
+                            jz_min, part_box)
+                    else
+                        call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
+                    endif
+                endif
+            endif
+            call cpu_time(step2)
+            if (mpi_rank == master) then
+                print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
+            endif
+            step1 = step2
+        enddo  ! Time loop
+    end subroutine solve_transport_equation
+
+    !---------------------------------------------------------------------------
     !< Get commandline arguments
     !---------------------------------------------------------------------------
     subroutine get_cmd_args
@@ -487,7 +394,7 @@ program stochastic
                         '-ip inject_part_box -xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
-                        '-ds dpp_shear -d0 dpp0_wave -d1 dpp0_shear '//&
+                        '-ds dpp_shear -t0 tau0_scattering '//&
                         '-db deltab_flag -co correlation_flag '//&
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
@@ -608,12 +515,12 @@ program stochastic
             help='whether to include momentum diffusion due to flow shear', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
-        call cli%add(switch='--dpp0_wave', switch_ab='-d0', &
-            help='Normalization for Dpp by wave scattering', &
-            required=.false., def='1E-2', act='store', error=error)
+        call cli%add(switch='--weak_scattering', switch_ab='-ws', &
+            help='whether particle scattering is weak (tau*Omega >> 1)', &
+            required=.false., act='store', def='0', error=error)
         if (error/=0) stop
-        call cli%add(switch='--dpp0_shear', switch_ab='-d1', &
-            help='Normalization for Dpp by flow shear', &
+        call cli%add(switch='--tau0_scattering', switch_ab='-t0', &
+            help='The scattering time for initial particles', &
             required=.false., def='1.0', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--deltab_flag', switch_ab='-db', &
@@ -714,9 +621,9 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ds', val=dpp_shear, error=error)
         if (error/=0) stop
-        call cli%get(switch='-d0', val=dpp0_wave, error=error)
+        call cli%get(switch='-ws', val=weak_scattering, error=error)
         if (error/=0) stop
-        call cli%get(switch='-d1', val=dpp0_shear, error=error)
+        call cli%get(switch='-t0', val=tau0_scattering, error=error)
         if (error/=0) stop
         call cli%get(switch='-db', val=deltab_flag, error=error)
         if (error/=0) stop
@@ -786,11 +693,15 @@ program stochastic
             endif
             if (dpp_wave == 1) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'
-                print '(A,E14.7E2)', 'Normalization for Dpp by wave scattering', dpp0_wave
             endif
             if (dpp_shear == 1) then
                 print '(A)', 'Include momentum diffusion due to flow shear'
-                print '(A,E14.7E2)', 'Normalization for Dpp by wave scattering', dpp0_shear
+                print '(A,E14.7E2)', 'The scattering time for initial particles', tau0_scattering
+            endif
+            if (weak_scattering == 1) then
+                print '(A)', 'Particle transport is in the weak-scattering regime (tau\Omega >> 1)'
+            else
+                print '(A)', 'Particle transport is in the strong-scattering regime (tau\Omega << 1)'
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
             if (local_dist == 1) then
