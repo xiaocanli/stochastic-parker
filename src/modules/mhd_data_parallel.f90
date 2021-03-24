@@ -1814,13 +1814,16 @@ module mhd_data_parallel
     !< Get the number of cells with current density |jz| > jz_min
     !< Args:
     !<  jz_min: the minimum jz
+    !<  part_box: box to inject particles
     !---------------------------------------------------------------------------
-    function get_ncells_large_jz(jz_min, spherical_coord_flag) result (ncells_large_jz)
+    function get_ncells_large_jz(jz_min, spherical_coord_flag, part_box) result (ncells_large_jz)
         implicit none
         real(dp), intent(in) :: jz_min
         logical, intent(in) :: spherical_coord_flag
+        real(dp), intent(in), dimension(6) :: part_box
         integer :: nx, ny, nz, ix, iy, iz, ncells_large_jz
         real(dp), allocatable, dimension(:, :, :) :: abs_jz
+        logical :: inbox_x, inbox_y, inbox_z, inbox
 
         nx = fconfig%nx
         ny = fconfig%ny
@@ -1842,13 +1845,25 @@ module mhd_data_parallel
                          fgrad_array1(14, 1:nx, 1:ny, 1:nz))
         endif
         do iz = 1, nz
-        do iy = 1, ny
-        do ix = 1, nx
-            if (abs_jz(ix, iy, iz) > jz_min) then
-                ncells_large_jz = ncells_large_jz + 1
+            if (ndim_field > 2) then
+                inbox_z = zpos_local(iz) > part_box(3) .and. zpos_local(iz) < part_box(6)
+            else
+                inbox_z = .true.
             endif
-        enddo
-        enddo
+            do iy = 1, ny
+                if (ndim_field > 1) then
+                    inbox_y = ypos_local(iy) > part_box(2) .and. ypos_local(iy) < part_box(5)
+                else
+                    inbox_y = .true.
+                endif
+                do ix = 1, nx
+                    inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
+                    inbox = inbox_z .and. inbox_y .and. inbox_x
+                    if (inbox .and. abs_jz(ix, iy, iz) > jz_min) then
+                        ncells_large_jz = ncells_large_jz + 1
+                    endif
+                enddo
+            enddo
         enddo
         deallocate(abs_jz)
     end function get_ncells_large_jz

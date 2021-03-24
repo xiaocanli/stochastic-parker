@@ -386,28 +386,56 @@ module particle_module
     subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, part_box)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt
         real(dp), intent(in), dimension(6) :: part_box
         integer :: i, imod2
-        real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
+        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
+        real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
         real(dp) :: rands(2)
+        real(dp) :: jz_min, xtmp, ytmp, ztmp
+        integer :: nptl_inject, ncells_large_jz, ncells_large_jz_g
+        logical :: inbox
 
-        xmin = part_box(1)
-        ymin = part_box(2)
-        zmin = part_box(3)
-        xmax = part_box(4)
-        ymax = part_box(5)
-        zmax = part_box(6)
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
 
-        do i = 1, nptl
+        jz_min = -1.0 ! set negative so all cells with counted if the part_box
+        ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
+        call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
+            MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+        nptl_inject = int(nptl * mpi_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+
+        do i = 1, nptl_inject
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
-            ptls(nptl_current)%x = unif_01()*(xmax-xmin) + xmin
-            ptls(nptl_current)%y = unif_01()*(ymax-ymin) + ymin
-            ptls(nptl_current)%z = unif_01()*(zmax-zmin) + zmin
+            inbox = .false.
+            do while (.not. inbox)
+                xtmp = unif_01() * (xmax - xmin) + xmin
+                ytmp = unif_01() * (ymax - ymin) + ymin
+                ztmp = unif_01() * (zmax - zmin) + zmin
+                inbox = xtmp > xmin_box .and. xtmp < xmax_box .and. &
+                        ytmp > ymin_box .and. ytmp < ymax_box .and. &
+                        ztmp > zmin_box .and. ztmp < zmax_box
+            enddo
+            ptls(nptl_current)%x = xtmp
+            ptls(nptl_current)%y = ytmp
+            ptls(nptl_current)%z = ztmp
             if (dist_flag == 0) then
                 imod2 = mod(i, 2)
                 if (imod2 == 1) rands = two_normals()
@@ -659,6 +687,7 @@ module particle_module
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
         real(dp) :: xtmp, ytmp, ztmp, px, py, pz
         real(dp) :: dxm, dym, dzm, dby_dx, dbx_dy
         real(dp) :: rt, jz, by
@@ -668,15 +697,18 @@ module particle_module
         integer :: i, imod2
         integer :: nptl_inject, ncells_large_jz, ncells_large_jz_g
 
-        xmin = part_box(1)
-        ymin = part_box(2)
-        zmin = part_box(3)
-        xmax = part_box(4)
-        ymax = part_box(5)
-        zmax = part_box(6)
-        xmin_box = fconfig%xmin
-        ymin_box = fconfig%ymin
-        zmin_box = fconfig%zmin
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
         dxm = mhd_config%dx
         dym = mhd_config%dy
         dzm = mhd_config%dz
@@ -691,7 +723,7 @@ module particle_module
         ! When whole_data_flag is 0, the number of cells with larger jz
         ! in the local domain will be different from mpi_rank to mpi_rank.
         ! That's why we need to redistribute the number of particles to inject.
-        ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag)
+        ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
         call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
             MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
         nptl_inject = int(nptl * mpi_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
@@ -699,28 +731,34 @@ module particle_module
         do i = 1, nptl_inject
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
-            jz = 0.0_dp
+            jz = -2.0_dp
             do while (jz < jz_min)
-                xtmp = unif_01()*(xmax-xmin) + xmin
-                ytmp = unif_01()*(ymax-ymin) + ymin
-                ztmp = unif_01()*(zmax-zmin) + zmin
-                px = (xtmp-xmin_box) / dxm
-                py = (ytmp-ymin_box) / dym
-                pz = (ztmp-zmin_box) / dzm
-                rt = 0.0_dp
-                if (spherical_coord_flag) then
-                    call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
-                else
-                    call get_interp_paramters(px, py, pz, pos, weights)
-                endif
-                call interp_fields(pos, weights, rt)
-                dbx_dy = gradf(14)
-                dby_dx = gradf(16)
-                if (spherical_coord_flag) then
-                    by = fields(6)
-                    jz = abs(dby_dx + (by - dbx_dy) / xtmp)
-                else
-                    jz = abs(dby_dx - dbx_dy)
+                xtmp = unif_01() * (xmax - xmin) + xmin
+                ytmp = unif_01() * (ymax - ymin) + ymin
+                ztmp = unif_01() * (zmax - zmin) + zmin
+                if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
+                    ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
+                    ztmp >= zmin_box .and. ztmp <= zmax_box) then
+                    px = (xtmp - xmin) / dxm
+                    py = (ytmp - ymin) / dym
+                    pz = (ztmp - zmin) / dzm
+                    rt = 0.0_dp
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
+                    call interp_fields(pos, weights, rt)
+                    dbx_dy = gradf(14)
+                    dby_dx = gradf(16)
+                    if (spherical_coord_flag) then
+                        by = fields(6)
+                        jz = abs(dby_dx + (by - dbx_dy) / xtmp)
+                    else
+                        jz = abs(dby_dx - dbx_dy)
+                    endif
+                else ! not in part_box
+                    jz = -3.0_dp
                 endif
             enddo
             ptls(nptl_current)%x = xtmp
@@ -2944,10 +2982,19 @@ module particle_module
             ! fxy for different energy band
             fh = 18
             fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
-            disp = 0
+            if (mpi_rank == master) then
+                fh = 18
+                open(fh, file=trim(fname), access='stream', status='unknown', &
+                     form='unformatted', action='write')
+                write(fh, pos=1) (nbands + 0.0_dp)
+                pos1 = sizeof(1.0_dp) + 1
+                write(fh, pos=pos1) parray_bands
+                close(fh)
+            endif
+            disp = (nbands + 2) * sizeof(1.0_dp)
             offset = 0
             mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
-            call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
+            call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, fileinfo, fh)
             call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands)
             call MPI_FILE_CLOSE(fh, ierror)
 
