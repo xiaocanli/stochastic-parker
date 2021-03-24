@@ -2497,7 +2497,7 @@ module particle_module
             dvz_dy = gradf(8)
             sigmaxx = dvx_dx - divv / 3
             sigmayy = dvy_dy - divv / 3
-            sigmazz = dvz_dz - -divv / 3
+            sigmazz = dvz_dz - divv / 3
             sigmaxy = (dvx_dy + dvy_dx) / 2
             sigmaxz = (dvx_dz + dvz_dx) / 2
             sigmayz = (dvy_dz + dvz_dy) / 2
