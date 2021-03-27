@@ -55,7 +55,7 @@ program stochastic
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
     integer :: color
-    integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
+    integer :: t_start, t_end, tf, dist_flag, split_flag
     integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: inject_at_shock    ! Inject particles at shock location
@@ -113,9 +113,9 @@ program stochastic
     call set_mhd_grid_type(uniform_grid, spherical_coord)
     call read_simuation_mpi_topology(conf_file)
     call read_particle_boundary_conditions(conf_file)
-    call set_field_configuration(whole_data_flag=whole_mhd_data, ndim=ndim_field)
-    call set_neighbors(whole_data_flag=whole_mhd_data)
-    call check_particle_can_escape(whole_data_flag=whole_mhd_data)
+    call set_field_configuration(ndim=ndim_field)
+    call set_neighbors
+    call check_particle_can_escape
     call init_grid_positions
     call set_local_grid_positions(dir_mhd_data)
 
@@ -293,7 +293,7 @@ program stochastic
 
         if (.not. track_particles) then
             call set_mpi_io_data_sizes
-            call distributions_diagnostics(t_start, diagnostics_directory, whole_mhd_data, local_dist)
+            call distributions_diagnostics(t_start, diagnostics_directory, local_dist)
             if (particle_data_dump == 1) then
                 call dump_particles(t_start, diagnostics_directory)
             endif
@@ -320,7 +320,7 @@ program stochastic
             if (.not. track_particles) then
                 call quick_check(tf+1, .false., diagnostics_directory)
                 call get_pmax_global(tf+1, .false., diagnostics_directory)
-                call distributions_diagnostics(tf+1, diagnostics_directory, whole_mhd_data, local_dist)
+                call distributions_diagnostics(tf+1, diagnostics_directory, local_dist)
                 if (mpi_rank == master) then
                     write(*, "(A)") " Finishing distribution diagnostics "
                 endif
@@ -409,7 +409,7 @@ program stochastic
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
                         '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
-                        '-df dist_flag -wm whole_mhd_data -tf track_particle_flag '//&
+                        '-df dist_flag -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_at_shock '//&
@@ -455,10 +455,6 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--split_flag', switch_ab='-sf', &
             help='Flag to split the particles', required=.false., &
-            act='store', def='1', error=error)
-        if (error/=0) stop
-        call cli%add(switch='--whole_mhd_data', switch_ab='-wm', &
-            help='whether to read the whole MHD data', required=.false., &
             act='store', def='1', error=error)
         if (error/=0) stop
         call cli%add(switch='--track_particle_flag', switch_ab='-tf', &
@@ -607,8 +603,6 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-sf', val=split_flag, error=error)
         if (error/=0) stop
-        call cli%get(switch='-wm', val=whole_mhd_data, error=error)
-        if (error/=0) stop
         call cli%get(switch='-tf', val=track_particle_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-ns', val=nptl_selected, error=error)
@@ -689,11 +683,6 @@ program stochastic
             print '(A,I10.3)', 'The last time frame: ', t_end
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
-            endif
-            if (whole_mhd_data == 1) then
-                print '(A)', 'Each process reads the whole MHD simulation data'
-            else
-                print '(A)', 'Each process reads only part of the MHD simulation data'
             endif
             if (track_particle_flag == 1) then
                 print '(A,I10.3)', 'Number of particles to track: ', nptl_selected

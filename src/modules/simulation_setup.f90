@@ -166,13 +166,11 @@ module simulation_setup_module
     !---------------------------------------------------------------------------
     !< Set field configuration for reading MHD data
     !< Args:
-    !<  whole_data_flag: whether to load the whole dataset. 0 for no and
-    !<      other numbers for yes
     !<  ndim: the number of dimensions. 1, 2 or 3
     !---------------------------------------------------------------------------
-    subroutine set_field_configuration(whole_data_flag, ndim)
+    subroutine set_field_configuration(ndim)
         implicit none
-        integer, intent(in) :: whole_data_flag, ndim
+        integer, intent(in) :: ndim
         integer :: ix, iy, iz, nx, ny, nz
 
         fconfig%nxg = mhd_config%nx + 4
@@ -189,85 +187,48 @@ module simulation_setup_module
             fconfig%nzg = mhd_config%nz
         endif
 
-        if (whole_data_flag == 0) then
-            iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
-            iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
-            ix = mod(mpi_sub_rank, mpi_sizex)
+        iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
+        iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+        ix = mod(mpi_sub_rank, mpi_sizex)
 
-            nx = mhd_config%nx / mpi_sizex
-            ny = mhd_config%ny / mpi_sizey
-            nz = mhd_config%nz / mpi_sizez
+        nx = mhd_config%nx / mpi_sizex
+        ny = mhd_config%ny / mpi_sizey
+        nz = mhd_config%nz / mpi_sizez
 
-            call set_data_boundaries(ix, nx, fconfig%ix_min, fconfig%ix_max)
-            fconfig%xmin = ix * nx * mhd_config%dx + mhd_config%xmin
-            fconfig%xmax = fconfig%xmin + nx * mhd_config%dx
-            if (ndim_field > 1) then
-                call set_data_boundaries(iy, ny, fconfig%iy_min, fconfig%iy_max)
-                fconfig%ymin = iy * ny * mhd_config%dy + mhd_config%ymin
-                fconfig%ymax = fconfig%ymin + ny * mhd_config%dy
-                if (ndim_field > 2) then
-                    call set_data_boundaries(iz, nz, fconfig%iz_min, fconfig%iz_max)
-                    fconfig%zmin = iz * nz * mhd_config%dz + mhd_config%zmin
-                    fconfig%zmax = fconfig%zmin + nz * mhd_config%dz
-                else
-                    fconfig%iz_min = 1
-                    fconfig%iz_max = 1
-                    fconfig%zmin = mhd_config%zmin
-                    fconfig%zmax = mhd_config%zmax
-                endif
+        call set_data_boundaries(ix, nx, fconfig%ix_min, fconfig%ix_max)
+        fconfig%xmin = ix * nx * mhd_config%dx + mhd_config%xmin
+        fconfig%xmax = fconfig%xmin + nx * mhd_config%dx
+        if (ndim_field > 1) then
+            call set_data_boundaries(iy, ny, fconfig%iy_min, fconfig%iy_max)
+            fconfig%ymin = iy * ny * mhd_config%dy + mhd_config%ymin
+            fconfig%ymax = fconfig%ymin + ny * mhd_config%dy
+            if (ndim_field > 2) then
+                call set_data_boundaries(iz, nz, fconfig%iz_min, fconfig%iz_max)
+                fconfig%zmin = iz * nz * mhd_config%dz + mhd_config%zmin
+                fconfig%zmax = fconfig%zmin + nz * mhd_config%dz
             else
-                fconfig%iy_min = 1
-                fconfig%iy_max = 1
                 fconfig%iz_min = 1
                 fconfig%iz_max = 1
-                fconfig%ymin = mhd_config%ymin
-                fconfig%ymax = mhd_config%ymax
                 fconfig%zmin = mhd_config%zmin
                 fconfig%zmax = mhd_config%zmax
             endif
-
-            fconfig%nxf = fconfig%ix_max - fconfig%ix_min + 1
-            fconfig%nyf = fconfig%iy_max - fconfig%iy_min + 1
-            fconfig%nzf = fconfig%iz_max - fconfig%iz_min + 1
-            fconfig%nx = nx
-            fconfig%ny = ny
-            fconfig%nz = nz
         else
-            fconfig%ix_min = 1
             fconfig%iy_min = 1
+            fconfig%iy_max = 1
             fconfig%iz_min = 1
-            fconfig%ix_max = mhd_config%nx + 4
-            fconfig%nxf = mhd_config%nx + 4
-
-            if (ndim_field > 1) then
-                fconfig%iy_max = mhd_config%ny + 4
-                fconfig%nyf = mhd_config%ny + 4
-                if (ndim_field > 2) then
-                    fconfig%iz_max = mhd_config%nz + 4
-                    fconfig%nzf = mhd_config%nz + 4
-                else
-                    fconfig%iz_max = mhd_config%nz
-                    fconfig%nzf = mhd_config%nz
-                endif
-            else
-                fconfig%iy_max = mhd_config%ny
-                fconfig%nyf = mhd_config%ny
-                fconfig%iz_max = mhd_config%nz
-                fconfig%nzf = mhd_config%nz
-            endif
-
-            fconfig%xmin = mhd_config%xmin
+            fconfig%iz_max = 1
             fconfig%ymin = mhd_config%ymin
-            fconfig%zmin = mhd_config%zmin
-
-            fconfig%xmax = mhd_config%xmax
             fconfig%ymax = mhd_config%ymax
+            fconfig%zmin = mhd_config%zmin
             fconfig%zmax = mhd_config%zmax
-
-            fconfig%nx = mhd_config%nx
-            fconfig%ny = mhd_config%ny
-            fconfig%nz = mhd_config%nz
         endif
+
+        fconfig%nxf = fconfig%ix_max - fconfig%ix_min + 1
+        fconfig%nyf = fconfig%iy_max - fconfig%iy_min + 1
+        fconfig%nzf = fconfig%iz_max - fconfig%iz_min + 1
+        fconfig%nx = nx
+        fconfig%ny = ny
+        fconfig%nz = nz
 
         if (mpi_rank == master) then
             !< echo the configuration information
@@ -334,94 +295,64 @@ module simulation_setup_module
 
     !---------------------------------------------------------------------------
     !< Set neighbors for each mpi_rank
-    !< Args:
-    !<  whole_data_flag: whether to load the whole dataset. 0 for no and
-    !<      other numbers for yes
     !---------------------------------------------------------------------------
-    subroutine set_neighbors(whole_data_flag)
+    subroutine set_neighbors
         implicit none
-        integer, intent(in) :: whole_data_flag
         integer :: ix, iy, iz, size_xy
         integer, dimension(2) :: ne(2)
         iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
         iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
         ix = mod(mpi_sub_rank, mpi_sizex)
         size_xy = mpi_sizex * mpi_sizey
-        if (whole_data_flag == 0) then
-            call set_neighbor_one_direction(ix, mpi_sizex, ne, pbcx)
-            if (ne(1) < 0) then
-                neighbors(1) = -1
-            else
-                neighbors(1) = ne(1) + iy * mpi_sizex + iz * size_xy
-            endif
-            if (ne(2) < 0) then
-                neighbors(2) = -1
-            else
-                neighbors(2) = ne(2) + iy * mpi_sizex + iz * size_xy
-            endif
-
-            call set_neighbor_one_direction(iy, mpi_sizey, ne, pbcy)
-            if (ne(1) < 0) then
-                neighbors(3) = -1
-            else
-                neighbors(3) = ix + ne(1) * mpi_sizex + iz * size_xy
-            endif
-            if (ne(2) < 0) then
-                neighbors(4) = -1
-            else
-                neighbors(4) = ix + ne(2) * mpi_sizex + iz * size_xy
-            endif
-
-            call set_neighbor_one_direction(iz, mpi_sizez, ne, pbcz)
-            if (ne(1) < 0) then
-                neighbors(5) = -1
-            else
-                neighbors(5) = ix + iy * mpi_sizex + ne(1) * size_xy
-            endif
-            if (ne(2) < 0) then
-                neighbors(6) = -1
-            else
-                neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
-            endif
+        call set_neighbor_one_direction(ix, mpi_sizex, ne, pbcx)
+        if (ne(1) < 0) then
+            neighbors(1) = -1
         else
-            if (pbcx == 1) then
-                neighbors(1:2) = -1
-            else
-                neighbors(1:2) = mpi_sub_rank
-            endif
-            if (pbcy == 1) then
-                neighbors(3:4) = -1
-            else
-                neighbors(3:4) = mpi_sub_rank
-            endif
-            if (pbcz == 1) then
-                neighbors(5:6) = -1
-            else
-                neighbors(5:6) = mpi_sub_rank
-            endif
+            neighbors(1) = ne(1) + iy * mpi_sizex + iz * size_xy
+        endif
+        if (ne(2) < 0) then
+            neighbors(2) = -1
+        else
+            neighbors(2) = ne(2) + iy * mpi_sizex + iz * size_xy
+        endif
+
+        call set_neighbor_one_direction(iy, mpi_sizey, ne, pbcy)
+        if (ne(1) < 0) then
+            neighbors(3) = -1
+        else
+            neighbors(3) = ix + ne(1) * mpi_sizex + iz * size_xy
+        endif
+        if (ne(2) < 0) then
+            neighbors(4) = -1
+        else
+            neighbors(4) = ix + ne(2) * mpi_sizex + iz * size_xy
+        endif
+
+        call set_neighbor_one_direction(iz, mpi_sizez, ne, pbcz)
+        if (ne(1) < 0) then
+            neighbors(5) = -1
+        else
+            neighbors(5) = ix + iy * mpi_sizex + ne(1) * size_xy
+        endif
+        if (ne(2) < 0) then
+            neighbors(6) = -1
+        else
+            neighbors(6) = ix + iy * mpi_sizex + ne(2) * size_xy
         endif
     end subroutine set_neighbors
 
     !---------------------------------------------------------------------------
     !< Whether particles can escape from the global domain
-    !< Args:
-    !<  whole_data_flag: whether to load the whole dataset. 0 for no and
-    !<      other numbers for yes
     !---------------------------------------------------------------------------
-    subroutine check_particle_can_escape(whole_data_flag)
+    subroutine check_particle_can_escape
         implicit none
-        integer, intent(in) :: whole_data_flag
         logical :: boundx, boundy, boundz
         particle_can_escape = .false.
         if ((pbcx == 1) .or. (pbcy == 1) .or. (pbcz == 1)) then
-            if (whole_data_flag == 1) then
-                particle_can_escape = .true.
-            else
-                boundx = (mpi_ix == 0) .and. (mpi_ix == (mpi_sizex - 1))
-                boundy = (mpi_iy == 0) .and. (mpi_iy == (mpi_sizey - 1))
-                boundz = (mpi_iz == 0) .and. (mpi_iz == (mpi_sizez - 1))
-                particle_can_escape = boundx .or. boundy .or. boundz
-            endif
+            boundx = (mpi_ix == 0) .and. (mpi_ix == (mpi_sizex - 1))
+            boundy = (mpi_iy == 0) .and. (mpi_iy == (mpi_sizey - 1))
+            boundz = (mpi_iz == 0) .and. (mpi_iz == (mpi_sizez - 1))
+            particle_can_escape = boundx .or. boundy .or. boundz
         endif
     end subroutine check_particle_can_escape
 

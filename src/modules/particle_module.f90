@@ -720,9 +720,10 @@ module particle_module
         py = 0.0_dp
         pz = 0.0_dp
 
-        ! When whole_data_flag is 0, the number of cells with larger jz
-        ! in the local domain will be different from mpi_rank to mpi_rank.
-        ! That's why we need to redistribute the number of particles to inject.
+        !< When each MPI only reads part of the MHD data, the number of cells
+        !< with larger jz in the local domain will be different from mpi_rank
+        !< to mpi_rank. That's why we need to redistribute the number of particles
+        !< to inject.
         ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
         call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
             MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
@@ -2832,14 +2833,13 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Accumulate particle distributions
     !< Args:
-    !<  whole_mhd_data: whether each MPI process holds the whole MHD data
     !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine calc_particle_distributions(whole_mhd_data, local_dist)
+    subroutine calc_particle_distributions(local_dist)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         implicit none
-        integer, intent(in) :: whole_mhd_data, local_dist
+        integer, intent(in) :: local_dist
         integer :: i, ix, iy, iz, ip
         real(dp) :: weight, p, xmin, xmax, ymin, ymax, zmin, zmax
         real(dp) :: px, py, pz, rx, ry, rz, rt
@@ -2893,22 +2893,12 @@ module particle_module
         call MPI_REDUCE(fdpdt, fdpdt_sum, npp*2, MPI_DOUBLE_PRECISION, &
             MPI_SUM, master, MPI_COMM_WORLD, ierr)
         call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        if (whole_mhd_data == 1) then
-            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
-                MPI_SUM, master, MPI_COMM_WORLD, ierr)
-            if (local_dist == 1) then
-                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
-                    MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
-            endif
-        else
-            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
-                MPI_SUM, master, mpi_cross_comm, ierr)
-            if (local_dist == 1) then
-                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
-                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
-            endif
+        call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
+            MPI_SUM, master, mpi_cross_comm, ierr)
+        if (local_dist == 1) then
+            call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
+                MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
         endif
     end subroutine calc_particle_distributions
 
@@ -2917,16 +2907,15 @@ module particle_module
     !< Args:
     !<  iframe: time frame index
     !<  file_path: save data files to this path
-    !<  whole_mhd_data: whether each MPI process holds the whole MHD data
     !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe, file_path, whole_mhd_data, local_dist)
+    subroutine distributions_diagnostics(iframe, file_path, local_dist)
         use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, fileinfo, &
             open_data_mpi_io, write_data_mpi_io
         use mhd_config_module, only: mhd_config
         use constants, only: fp, dp
         implicit none
-        integer, intent(in) :: iframe, whole_mhd_data, local_dist
+        integer, intent(in) :: iframe, local_dist
         character(*), intent(in) :: file_path
         integer :: fh, pos1
         character(len=4) :: ctime
@@ -2940,7 +2929,7 @@ module particle_module
             call system('mkdir -p ./data')
         endif
 
-        call calc_particle_distributions(whole_mhd_data, local_dist)
+        call calc_particle_distributions(local_dist)
 
         write (ctime,'(i4.4)') iframe
         if (mpi_rank .eq. master) then
@@ -2962,62 +2951,38 @@ module particle_module
             close(fh)
         endif
 
-        if (whole_mhd_data == 1) then
-            if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
+            call set_mpi_info
+            ! fxy for different energy band
+            fh = 18
+            fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
+            if (mpi_sub_rank == master) then
                 fh = 18
-                fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
                 open(fh, file=trim(fname), access='stream', status='unknown', &
                      form='unformatted', action='write')
                 write(fh, pos=1) (nbands + 0.0_dp)
                 pos1 = sizeof(1.0_dp) + 1
                 write(fh, pos=pos1) parray_bands
-                pos1 = pos1 + (nbands + 1) * sizeof(1.0_dp)
-                write(fh, pos=pos1) fbands_sum
                 close(fh)
-
-                if (local_dist == 1) then
-                    fh = 19
-                    fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
-                    open(fh, file=trim(fname), access='stream', status='unknown', &
-                         form='unformatted', action='write')
-                    write(fh, pos=1) fp_local_sum
-                    close(fh)
-                endif
             endif
-        else
-            if (mpi_cross_rank == master) then
-                call set_mpi_info
-                ! fxy for different energy band
-                fh = 18
-                fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
-                if (mpi_sub_rank == master) then
-                    fh = 18
-                    open(fh, file=trim(fname), access='stream', status='unknown', &
-                         form='unformatted', action='write')
-                    write(fh, pos=1) (nbands + 0.0_dp)
-                    pos1 = sizeof(1.0_dp) + 1
-                    write(fh, pos=pos1) parray_bands
-                    close(fh)
-                endif
-                disp = (nbands + 2) * sizeof(1.0_dp)
-                offset = 0
-                mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
-                call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, &
-                    fileinfo, mpi_sub_comm, fh)
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
-                call MPI_FILE_CLOSE(fh, ierror)
+            disp = (nbands + 2) * sizeof(1.0_dp)
+            offset = 0
+            mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
+            call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, &
+                fileinfo, mpi_sub_comm, fh)
+            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
+            call MPI_FILE_CLOSE(fh, ierror)
 
-                if (local_dist == 1) then
-                    fh = 19
-                    fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
-                    disp = 0
-                    offset = 0
-                    mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
-                    call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, &
-                        fileinfo, mpi_sub_comm, fh)
-                    call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local_sum)
-                    call MPI_FILE_CLOSE(fh, ierror)
-                endif
+            if (local_dist == 1) then
+                fh = 19
+                fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
+                disp = 0
+                offset = 0
+                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
+                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, &
+                    fileinfo, mpi_sub_comm, fh)
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local_sum)
+                call MPI_FILE_CLOSE(fh, ierror)
             endif
         endif
 
