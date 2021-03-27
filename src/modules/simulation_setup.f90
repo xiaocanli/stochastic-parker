@@ -70,17 +70,17 @@ module simulation_setup_module
         ny = mhd_config%ny
         nz = mhd_config%nz
 
-        mpi_iz = mpi_rank / (mpi_sizex * mpi_sizey)
-        mpi_iy = mod(mpi_rank, mpi_sizex * mpi_sizey) / mpi_sizex
-        mpi_ix = mod(mpi_rank, mpi_sizex)
+        mpi_iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
+        mpi_iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+        mpi_ix = mod(mpi_sub_rank, mpi_sizex)
 
         !< check the topology for consistency
-        if (mpi_sizex*mpi_sizey*mpi_sizez /= mpi_size .or. &
+        if (mpi_sizex*mpi_sizey*mpi_sizez /= mpi_sub_size .or. &
             nx/mpi_sizex*mpi_sizex /= nx .or. &
             ny/mpi_sizey*mpi_sizey /= ny .or. &
             nz/mpi_sizez*mpi_sizez /= nz) then
 
-           if (mpi_rank == master) print *, "invalid converter topology"
+           if (mpi_rank == master) print *, "invalid MPI topology"
            call MPI_FINALIZE(ierr)
            stop
 
@@ -190,9 +190,9 @@ module simulation_setup_module
         endif
 
         if (whole_data_flag == 0) then
-            iz = mpi_rank / (mpi_sizex * mpi_sizey)
-            iy = mod(mpi_rank, mpi_sizex * mpi_sizey) / mpi_sizex
-            ix = mod(mpi_rank, mpi_sizex)
+            iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
+            iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+            ix = mod(mpi_sub_rank, mpi_sizex)
 
             nx = mhd_config%nx / mpi_sizex
             ny = mhd_config%ny / mpi_sizey
@@ -343,9 +343,9 @@ module simulation_setup_module
         integer, intent(in) :: whole_data_flag
         integer :: ix, iy, iz, size_xy
         integer, dimension(2) :: ne(2)
-        iz = mpi_rank / (mpi_sizex * mpi_sizey)
-        iy = mod(mpi_rank, mpi_sizex * mpi_sizey) / mpi_sizex
-        ix = mod(mpi_rank, mpi_sizex)
+        iz = mpi_sub_rank / (mpi_sizex * mpi_sizey)
+        iy = mod(mpi_sub_rank, mpi_sizex * mpi_sizey) / mpi_sizex
+        ix = mod(mpi_sub_rank, mpi_sizex)
         size_xy = mpi_sizex * mpi_sizey
         if (whole_data_flag == 0) then
             call set_neighbor_one_direction(ix, mpi_sizex, ne, pbcx)
@@ -387,17 +387,17 @@ module simulation_setup_module
             if (pbcx == 1) then
                 neighbors(1:2) = -1
             else
-                neighbors(1:2) = mpi_rank
+                neighbors(1:2) = mpi_sub_rank
             endif
             if (pbcy == 1) then
                 neighbors(3:4) = -1
             else
-                neighbors(3:4) = mpi_rank
+                neighbors(3:4) = mpi_sub_rank
             endif
             if (pbcz == 1) then
                 neighbors(5:6) = -1
             else
-                neighbors(5:6) = mpi_rank
+                neighbors(5:6) = mpi_sub_rank
             endif
         endif
     end subroutine set_neighbors

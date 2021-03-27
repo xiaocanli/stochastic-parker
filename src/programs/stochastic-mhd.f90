@@ -54,6 +54,7 @@ program stochastic
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
+    integer :: color
     integer :: t_start, t_end, tf, dist_flag, split_flag, whole_mhd_data
     integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
@@ -73,6 +74,7 @@ program stochastic
     integer :: uniform_grid       ! Whether the grid is uniform
     integer :: check_drift_2d     ! Whether to check particle drift in 2D simulations
     integer :: particle_data_dump ! Whether to dump particle data
+    integer :: size_mpi_sub       ! Size of a MPI sub-communicator
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -81,6 +83,25 @@ program stochastic
     call cpu_time(start)
 
     call get_cmd_args
+
+    ! Split the communicator based on the color and use the original rank for ordering
+    color = mpi_rank / size_mpi_sub
+    call MPI_COMM_SPLIT(MPI_COMM_WORLD, color, mpi_rank, mpi_sub_comm, ierr);
+    call MPI_COMM_RANK(mpi_sub_comm, mpi_sub_rank, ierr)
+    call MPI_COMM_SIZE(mpi_sub_comm, mpi_sub_size, ierr)
+    if (mpi_rank == master) then
+        print '(A,I10.3)', 'mpi_sub_size: ', mpi_sub_size
+    endif
+
+    ! Group the same mpi_sub_rank in each mpi_sub_comm into another communicator
+    color = mpi_sub_rank
+    call MPI_COMM_SPLIT(MPI_COMM_WORLD, color, mpi_rank, mpi_cross_comm, ierr);
+    call MPI_COMM_RANK(mpi_cross_comm, mpi_cross_rank, ierr)
+    call MPI_COMM_SIZE(mpi_cross_comm, mpi_cross_size, ierr)
+    if (mpi_rank == master) then
+        print '(A,I10.3)', 'mpi_cross_size: ', mpi_cross_size
+    endif
+
     call init_prng
 
     !< Configurations
@@ -320,6 +341,7 @@ program stochastic
                 write(*, "(A)") " Finishing copying fields "
             endif
             if (tf < t_end) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
                 call read_field_data_parallel(fname2, var_flag=1)
                 if (deltab_flag == 1) then
@@ -385,9 +407,9 @@ program stochastic
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['stochastic-mhd.exec -dm dir_mhd_data -nm nptl_max '//&
-                        '-np nptl -dt dt -ts t_start -te t_end -df dist_flag '//&
-                        '-wm whole_mhd_data -tf track_particle_flag '//&
+            examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
+                        '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
+                        '-df dist_flag -wm whole_mhd_data -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_at_shock '//&
@@ -399,6 +421,10 @@ program stochastic
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
                         '-cd check_drift_2d -pd particle_data_dump'])
+        call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
+            help='Size of the a MPI sub-communicator', required=.false., &
+            act='store', def='1', error=error)
+        if (error/=0) stop
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
@@ -563,6 +589,8 @@ program stochastic
             help='whether to dump particle data', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%get(switch='-sm', val=size_mpi_sub, error=error)
+        if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
@@ -647,6 +675,7 @@ program stochastic
         if (error/=0) stop
 
         if (mpi_rank == master) then
+            print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
             print '(A,I10.3)', 'Initial number of particles: ', nptl
@@ -670,7 +699,7 @@ program stochastic
                 print '(A,I10.3)', 'Number of particles to track: ', nptl_selected
                 print '(A,I10.3)', 'Steps interval to track particles: ', nsteps_interval
             endif
-            print '(A,A)', 'Diagnostic file directory is: ', diagnostics_directory
+            print '(A,A)', 'Diagnostic file directory is: ', trim(diagnostics_directory)
             print '(A,I10.3)', 'Number of fine steps: ', num_fine_steps
             if (inject_at_shock == 1) then
                 print '(A)', 'Inject particles at shock location'

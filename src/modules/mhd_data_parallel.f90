@@ -4,6 +4,7 @@
 module mhd_data_parallel
     use constants, only: fp, dp
     use simulation_setup_module, only: fconfig, ndim_field
+    use mpi_module
     implicit none
     private
     save
@@ -379,7 +380,6 @@ module mhd_data_parallel
     subroutine read_field_data_parallel(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use mpi_module
         implicit none
         character(*), intent(in) :: filename
         integer, intent(in) :: var_flag
@@ -420,17 +420,26 @@ module mhd_data_parallel
             endif
             close(fh)
         else
-            mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
-            call set_mpi_info
-            call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, fh)
-            disp = 0
-            offset = 0
-            if (var_flag == 0) then
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array1)
-            else
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array2)
+            if (mpi_cross_rank == master) then
+                mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
+                call set_mpi_info
+                call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, mpi_sub_comm, fh)
+                disp = 0
+                offset = 0
+                if (var_flag == 0) then
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array1)
+                else
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array2)
+                endif
+                call MPI_FILE_CLOSE(fh, ierror)
             endif
-            call MPI_FILE_CLOSE(fh, ierror)
+            if (var_flag == 0) then
+                call MPI_BCAST(f_array1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            else
+                call MPI_BCAST(f_array2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished reading MHD data."
@@ -447,7 +456,6 @@ module mhd_data_parallel
     subroutine read_magnetic_fluctuation(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use mpi_module
         implicit none
         character(*), intent(in) :: filename
         integer, intent(in) :: var_flag
@@ -485,17 +493,26 @@ module mhd_data_parallel
             endif
             close(fh)
         else
-            mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
-            call set_mpi_info
-            call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, fh)
-            disp = 0
-            offset = 0
-            if (var_flag == 0) then
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab1)
-            else
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab2)
+            if (mpi_cross_rank == master) then
+                mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
+                call set_mpi_info
+                call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, mpi_sub_comm, fh)
+                disp = 0
+                offset = 0
+                if (var_flag == 0) then
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab1)
+                else
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab2)
+                endif
+                call MPI_FILE_CLOSE(fh, ierror)
             endif
-            call MPI_FILE_CLOSE(fh, ierror)
+            if (var_flag == 0) then
+                call MPI_BCAST(deltab1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            else
+                call MPI_BCAST(deltab2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished reading magnetic fluctuation data."
@@ -512,7 +529,6 @@ module mhd_data_parallel
     subroutine read_correlation_length(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
             open_data_mpi_io, read_data_mpi_io
-        use mpi_module
         implicit none
         character(*), intent(in) :: filename
         integer, intent(in) :: var_flag
@@ -550,17 +566,26 @@ module mhd_data_parallel
             endif
             close(fh)
         else
-            mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
-            call set_mpi_info
-            call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, fh)
-            disp = 0
-            offset = 0
-            if (var_flag == 0) then
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc1)
-            else
-                call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc2)
+            if (mpi_cross_rank == master) then
+                mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
+                call set_mpi_info
+                call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, mpi_sub_comm, fh)
+                disp = 0
+                offset = 0
+                if (var_flag == 0) then
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc1)
+                else
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc2)
+                endif
+                call MPI_FILE_CLOSE(fh, ierror)
             endif
-            call MPI_FILE_CLOSE(fh, ierror)
+            if (var_flag == 0) then
+                call MPI_BCAST(lc1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            else
+                call MPI_BCAST(lc2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+            endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished reading turbulence correlation length."
@@ -575,7 +600,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_fields_gradients(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         real(dp) :: idxh, idyh, idzh
@@ -685,7 +709,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_fields_gradients_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         integer :: unx, uny, unz, lnx, lny, lnz
@@ -834,7 +857,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_grad_deltab2(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         real(dp) :: idxh, idyh, idzh
@@ -944,7 +966,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_grad_deltab2_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         integer :: unx, uny, unz, lnx, lny, lnz
@@ -1081,7 +1102,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_grad_correl_length(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         real(dp) :: idxh, idyh, idzh
@@ -1192,7 +1212,6 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine calc_grad_correl_length_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
-        use mpi_module
         implicit none
         integer, intent(in) :: var_flag
         integer :: unx, uny, unz, lnx, lny, lnz
@@ -1589,7 +1608,6 @@ module mhd_data_parallel
     !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
     subroutine locate_shock_xpos(interp_flag)
-        use mpi_module
         implicit none
         integer, intent(in) :: interp_flag
         if (ndim_field == 1) then
@@ -1689,7 +1707,6 @@ module mhd_data_parallel
     !< Read grid positions for simulations with non-uniform grids.
     !---------------------------------------------------------------------------
     subroutine read_global_grid_positions(dir_mhd_data)
-        use mpi_module
         implicit none
         character(*), intent(in) :: dir_mhd_data
         character(len=256) :: filename
@@ -1733,7 +1750,6 @@ module mhd_data_parallel
     !< Calculate grid positions for simulations with uniform grids.
     !---------------------------------------------------------------------------
     subroutine calc_global_grid_positions
-        use mpi_module
         use mhd_config_module, only: mhd_config
         implicit none
         integer :: i
@@ -1756,7 +1772,6 @@ module mhd_data_parallel
     !< Get local grid positions and inverse interval for calculating gradients
     !---------------------------------------------------------------------------
     subroutine set_local_grid_positions(dir_mhd_data)
-        use mpi_module
         use mhd_config_module, only: uniform_grid_flag
         implicit none
         character(*), intent(in) :: dir_mhd_data

@@ -92,13 +92,12 @@ module mpi_io_module
     ! Output:
     !   fh: file handler.
     !---------------------------------------------------------------------------
-    subroutine open_data_mpi_io(fname, amode, fileinfo, fh)
+    subroutine open_data_mpi_io(fname, amode, fileinfo, mpi_comm, fh)
         implicit none
         character(*), intent(in) :: fname
-        integer, intent(in) :: amode, fileinfo
+        integer, intent(in) :: amode, fileinfo, mpi_comm
         integer, intent(out) :: fh
-        call MPI_FILE_OPEN(MPI_COMM_WORLD, fname, amode, &
-            fileinfo, fh, ierror)
+        call MPI_FILE_OPEN(mpi_comm, fname, amode, fileinfo, fh, ierror)
         if (ierror /= 0) then
             call MPI_ERROR_STRING(ierror, err_msg, err_length, ierror2)
             print*, "Error in MPI_FILE_OPEN: ", trim(err_msg)

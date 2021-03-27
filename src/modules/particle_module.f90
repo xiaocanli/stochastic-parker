@@ -417,9 +417,9 @@ module particle_module
         jz_min = -1.0 ! set negative so all cells with counted if the part_box
         ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
         call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
-            MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
-        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        nptl_inject = int(nptl * mpi_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+            MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+        call MPI_BARRIER(mpi_sub_comm, ierr)
+        nptl_inject = int(nptl * mpi_sub_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
 
         do i = 1, nptl_inject
             nptl_current = nptl_current + 1
@@ -725,8 +725,8 @@ module particle_module
         ! That's why we need to redistribute the number of particles to inject.
         ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
         call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
-            MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD, ierr)
-        nptl_inject = int(nptl * mpi_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+            MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+        nptl_inject = int(nptl * mpi_sub_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
 
         do i = 1, nptl_inject
             nptl_current = nptl_current + 1
@@ -1035,7 +1035,7 @@ module particle_module
             endif
             global_flag = 0
             call MPI_ALLREDUCE(local_flag, global_flag, 1, MPI_INTEGER, &
-                MPI_SUM, MPI_COMM_WORLD, ierr)
+                MPI_SUM, mpi_sub_comm, ierr)
             if (global_flag > 0) then
                 all_particles_in_box = .false.
             else
@@ -1093,9 +1093,9 @@ module particle_module
             if (neighbors(1) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = COUNT_FLAG_ESCAPE
-            else if (neighbors(1) == mpi_rank) then
+            else if (neighbors(1) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmin + xmax
-            else if (neighbors(1) == mpi_rank + mpi_sizex - 1) then
+            else if (neighbors(1) == mpi_sub_rank + mpi_sizex - 1) then
                 ptl%x = ptl%x - mhd_config%xmin + mhd_config%xmax
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
@@ -1109,9 +1109,9 @@ module particle_module
             if (neighbors(2) < 0) then
                 leak = leak + ptl%weight
                 ptl%count_flag = COUNT_FLAG_ESCAPE
-            else if (neighbors(2) == mpi_rank) then
+            else if (neighbors(2) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmax + xmin
-            else if (neighbors(2) == mpi_rank - mpi_sizex + 1) then !< simulation boundary
+            else if (neighbors(2) == mpi_sub_rank - mpi_sizex + 1) then !< simulation boundary
                 ptl%x = ptl%x - mhd_config%xmax + mhd_config%xmin
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
@@ -1130,9 +1130,9 @@ module particle_module
                 if (neighbors(3) < 0) then
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
-                else if (neighbors(3) == mpi_rank) then
+                else if (neighbors(3) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymin + ymax
-                else if (neighbors(3) == mpi_rank + (mpi_sizey - 1) * mpi_sizex) then
+                else if (neighbors(3) == mpi_sub_rank + (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymin + mhd_config%ymax
                     nsenders(3) = nsenders(3) + 1
                     senders(nsenders(3), 3) = ptl
@@ -1146,9 +1146,9 @@ module particle_module
                 if (neighbors(4) < 0) then
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
-                else if (neighbors(4) == mpi_rank) then
+                else if (neighbors(4) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymax + ymin
-                else if (neighbors(4) == mpi_rank - (mpi_sizey - 1) * mpi_sizex) then
+                else if (neighbors(4) == mpi_sub_rank - (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymax + mhd_config%ymin
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
@@ -1166,9 +1166,9 @@ module particle_module
                 if (neighbors(5) < 0) then
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
-                else if (neighbors(5) == mpi_rank) then
+                else if (neighbors(5) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmin + zmax
-                else if (neighbors(5) == mpi_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
+                else if (neighbors(5) == mpi_sub_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmin + mhd_config%zmax
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
@@ -1182,9 +1182,9 @@ module particle_module
                 if (neighbors(6) < 0) then
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
-                else if (neighbors(6) == mpi_rank) then
+                else if (neighbors(6) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmax + zmin
-                else if (neighbors(6) == mpi_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
+                else if (neighbors(6) == mpi_sub_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmax + mhd_config%zmin
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
@@ -1212,36 +1212,36 @@ module particle_module
         integer :: nsend, nrecv
         nrecv = 0
         nsend = nsenders(send_id)
-        if (neighbors(send_id) /= mpi_rank .and. neighbors(send_id) >= 0) then
+        if (neighbors(send_id) /= mpi_sub_rank .and. neighbors(send_id) >= 0) then
             call MPI_SEND(nsend, 1, MPI_INTEGER, neighbors(send_id), &
-                mpi_rank, MPI_COMM_WORLD, ierr)
+                mpi_sub_rank, mpi_sub_comm, ierr)
         endif
-        if (neighbors(recv_id) /= mpi_rank .and. neighbors(recv_id) >= 0) then
+        if (neighbors(recv_id) /= mpi_sub_rank .and. neighbors(recv_id) >= 0) then
             call MPI_RECV(nrecv, 1, MPI_INTEGER, &
-                neighbors(recv_id), neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+                neighbors(recv_id), neighbors(recv_id), mpi_sub_comm, status, ierr)
         endif
         nrecvers(recv_id) = nrecv
         if (mod(mpi_direc, 2) == 0) then
             if (nsend > 0) then
                 call MPI_SEND(senders(1:nsend, send_id), nsend, &
-                    particle_datatype_mpi, neighbors(send_id), mpi_rank, &
-                    MPI_COMM_WORLD, ierr)
+                    particle_datatype_mpi, neighbors(send_id), mpi_sub_rank, &
+                    mpi_sub_comm, ierr)
             endif
             if (nrecv > 0) then
                 call MPI_RECV(recvers(1:nrecv, recv_id), nrecv, &
                     particle_datatype_mpi, neighbors(recv_id), &
-                    neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+                    neighbors(recv_id), mpi_sub_comm, status, ierr)
             endif
         else
             if (nrecv > 0) then
                 call MPI_RECV(recvers(1:nrecv, recv_id), nrecv, &
                     particle_datatype_mpi, neighbors(recv_id), &
-                    neighbors(recv_id), MPI_COMM_WORLD, status, ierr)
+                    neighbors(recv_id), mpi_sub_comm, status, ierr)
             endif
             if (nsend > 0) then
                 call MPI_SEND(senders(1:nsend, send_id), nsend, &
-                    particle_datatype_mpi, neighbors(send_id), mpi_rank, &
-                    MPI_COMM_WORLD, ierr)
+                    particle_datatype_mpi, neighbors(send_id), mpi_sub_rank, &
+                    mpi_sub_comm, ierr)
             endif
         endif
     end subroutine send_recv_particle_one_neighbor
@@ -2690,7 +2690,7 @@ module particle_module
         allocate(fbands(nx, ny, nz, nbands))
         allocate(fp_global(npp))
         allocate(fdpdt(npp, 2))
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             allocate(fbands_sum(nx, ny, nz, nbands))
             allocate(fp_global_sum(npp))
             allocate(fdpdt_sum(npp, 2))
@@ -2734,7 +2734,7 @@ module particle_module
     subroutine init_local_particle_distributions
         implicit none
         allocate(fp_local(npp, nx, ny, nz))
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             allocate(fp_local_sum(npp, nx, ny, nz))
         endif
         call clean_local_particle_distribution
@@ -2748,7 +2748,7 @@ module particle_module
         fbands = 0.0_dp
         fp_global = 0.0_dp
         fdpdt = 0.0_dp
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             fbands_sum = 0.0_dp
             fp_global_sum = 0.0_dp
             fdpdt_sum = 0.0_dp
@@ -2761,7 +2761,7 @@ module particle_module
     subroutine clean_local_particle_distribution
         implicit none
         fp_local = 0.0_dp
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             fp_local_sum = 0.0_dp
         endif
     end subroutine clean_local_particle_distribution
@@ -2774,7 +2774,7 @@ module particle_module
         deallocate(fbands, parray_bands)
         deallocate(fp_global, parray)
         deallocate(fdpdt)
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             deallocate(fbands_sum)
             deallocate(fp_global_sum)
             deallocate(fdpdt_sum)
@@ -2787,7 +2787,7 @@ module particle_module
     subroutine free_local_particle_distributions
         implicit none
         deallocate(fp_local)
-        if (mpi_rank == master) then
+        if (mpi_cross_rank == master) then
             deallocate(fp_local_sum)
         endif
     end subroutine free_local_particle_distributions
@@ -2892,14 +2892,22 @@ module particle_module
         call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         call MPI_REDUCE(fdpdt, fdpdt_sum, npp*2, MPI_DOUBLE_PRECISION, &
             MPI_SUM, master, MPI_COMM_WORLD, ierr)
+        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
         if (whole_mhd_data == 1) then
-            call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
                 MPI_SUM, master, MPI_COMM_WORLD, ierr)
             if (local_dist == 1) then
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
                     MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            endif
+        else
+            call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, mpi_cross_comm, ierr)
+            if (local_dist == 1) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
             endif
         endif
     end subroutine calc_particle_distributions
@@ -2921,7 +2929,7 @@ module particle_module
         integer, intent(in) :: iframe, whole_mhd_data, local_dist
         character(*), intent(in) :: file_path
         integer :: fh, pos1
-        character(len=4) :: ctime, mrank
+        character(len=4) :: ctime
         character(len=128) :: fname
         integer(kind=MPI_OFFSET_KIND) :: disp, offset
         integer :: mpi_datatype
@@ -2935,8 +2943,7 @@ module particle_module
         call calc_particle_distributions(whole_mhd_data, local_dist)
 
         write (ctime,'(i4.4)') iframe
-        write (mrank,'(i4.4)') mpi_rank
-        if (mpi_rank .eq. 0) then
+        if (mpi_rank .eq. master) then
             fh = 15
             fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
             open(fh, file=trim(fname), access='stream', status='unknown', &
@@ -2978,35 +2985,39 @@ module particle_module
                 endif
             endif
         else
-            call set_mpi_info
-            ! fxy for different energy band
-            fh = 18
-            fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
-            if (mpi_rank == master) then
+            if (mpi_cross_rank == master) then
+                call set_mpi_info
+                ! fxy for different energy band
                 fh = 18
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) (nbands + 0.0_dp)
-                pos1 = sizeof(1.0_dp) + 1
-                write(fh, pos=pos1) parray_bands
-                close(fh)
-            endif
-            disp = (nbands + 2) * sizeof(1.0_dp)
-            offset = 0
-            mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
-            call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, fileinfo, fh)
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands)
-            call MPI_FILE_CLOSE(fh, ierror)
-
-            if (local_dist == 1) then
-                fh = 19
-                fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
-                disp = 0
+                fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
+                if (mpi_sub_rank == master) then
+                    fh = 18
+                    open(fh, file=trim(fname), access='stream', status='unknown', &
+                         form='unformatted', action='write')
+                    write(fh, pos=1) (nbands + 0.0_dp)
+                    pos1 = sizeof(1.0_dp) + 1
+                    write(fh, pos=pos1) parray_bands
+                    close(fh)
+                endif
+                disp = (nbands + 2) * sizeof(1.0_dp)
                 offset = 0
-                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
-                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, fileinfo, fh)
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local)
+                mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
+                call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, &
+                    fileinfo, mpi_sub_comm, fh)
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
                 call MPI_FILE_CLOSE(fh, ierror)
+
+                if (local_dist == 1) then
+                    fh = 19
+                    fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
+                    disp = 0
+                    offset = 0
+                    mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
+                    call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, &
+                        fileinfo, mpi_sub_comm, fh)
+                    call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local_sum)
+                    call MPI_FILE_CLOSE(fh, ierror)
+                endif
             endif
         endif
 
@@ -3330,7 +3341,7 @@ module particle_module
 
         write (ctime,'(i4.4)') iframe
         fname = trim(file_path)//'particles_'//ctime//'.h5'
-        call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true.)
+        call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., MPI_COMM_WORLD)
 
         nptl_local = nptl_current
         call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
@@ -3399,7 +3410,7 @@ module particle_module
 
             write (ctime,'(i4.4)') iframe
             fname = trim(file_path)//'escaped_particles_'//ctime//'.h5'
-            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true.)
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., MPI_COMM_WORLD)
 
             dcount(1) = nptl_local
             doffset(1) = nptl_offset

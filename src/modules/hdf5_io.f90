@@ -3,7 +3,6 @@
 !<******************************************************************************
 module hdf5_io
     use constants, only: fp, dp
-    use mpi_module
     use hdf5
     implicit none
     private
@@ -33,13 +32,15 @@ module hdf5_io
     !<   filename: file name
     !<   access_flag: file access flag
     !<   parallel_hdf5(optional): whether to use parallel HDF5
+    !<   mpi_comm(optional): MPI communicator
     !< Output:
     !<   file_id: file handler
     !<--------------------------------------------------------------------------
-    subroutine create_file_h5(filename, access_flag, file_id, parallel_hdf5)
+    subroutine create_file_h5(filename, access_flag, file_id, parallel_hdf5, mpi_comm)
         implicit none
         character(*), intent(in) :: filename
         logical, intent(in), optional :: parallel_hdf5
+        integer, intent(in), optional :: mpi_comm
         integer, intent(in) :: access_flag
         integer(hid_t), intent(out) :: file_id
         logical :: use_parallel_hdf5
@@ -56,7 +57,7 @@ module hdf5_io
             call MPI_INFO_SET(fileinfo, "romio_ds_read", "disable", ierror)
             call MPI_INFO_SET(fileinfo, "romio_cb_read", "enable", ierror)
             call h5pcreate_f(H5P_FILE_ACCESS_F, plist_id, ierror)
-            call h5pset_fapl_mpio_f(plist_id, MPI_COMM_WORLD, fileinfo, ierror)
+            call h5pset_fapl_mpio_f(plist_id, mpi_comm, fileinfo, ierror)
             call MPI_INFO_FREE(fileinfo, ierror)
             call h5fcreate_f(trim(filename), access_flag, file_id, ierror, access_prp=plist_id)
             call h5pclose_f(plist_id, ierror)
@@ -72,13 +73,15 @@ module hdf5_io
     !<   filename: file name
     !<   access_flag: file access flag
     !<   parallel_hdf5(optional): whether to use parallel HDF5
+    !<   mpi_comm(optional): MPI communicator
     !< Output:
     !<   file_id: file handler
     !<--------------------------------------------------------------------------
-    subroutine open_file_h5(filename, access_flag, file_id, parallel_hdf5)
+    subroutine open_file_h5(filename, access_flag, file_id, parallel_hdf5, mpi_comm)
         implicit none
         character(*), intent(in) :: filename
         logical, intent(in), optional :: parallel_hdf5
+        integer, intent(in), optional :: mpi_comm
         integer, intent(in) :: access_flag
         integer(hid_t), intent(out) :: file_id
         logical :: use_parallel_hdf5
@@ -95,7 +98,7 @@ module hdf5_io
             call MPI_INFO_SET(fileinfo, "romio_ds_read", "disable", ierror)
             call MPI_INFO_SET(fileinfo, "romio_cb_read", "enable", ierror)
             call h5pcreate_f(H5P_FILE_ACCESS_F, plist_id, ierror)
-            call h5pset_fapl_mpio_f(plist_id, MPI_COMM_WORLD, fileinfo, ierror)
+            call h5pset_fapl_mpio_f(plist_id, mpi_comm, fileinfo, ierror)
             call MPI_INFO_FREE(fileinfo, ierror)
             call h5fopen_f(trim(filename), access_flag, file_id, ierror, access_prp=plist_id)
             call h5pclose_f(plist_id, ierror)
