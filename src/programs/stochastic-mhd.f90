@@ -385,6 +385,10 @@ program stochastic
                     endif
                 endif
             endif
+            if (track_particles) then
+                call negative_particle_tags(nptl_selected)
+                call record_tracked_particle_init(nptl_selected)
+            endif
             call cpu_time(step2)
             if (mpi_rank == master) then
                 print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1

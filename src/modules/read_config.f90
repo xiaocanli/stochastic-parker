@@ -20,11 +20,11 @@ module read_config
     !<   var_value: the variable value.
     !---------------------------------------------------------------------------
     function get_variable(fh, var_name, delimiter) result(var_value)
-        use constants, only: fp
+        use constants, only: dp
         implicit none
         integer, intent(in) :: fh
         character(*), intent(in) :: var_name, delimiter
-        real(fp) :: var_value
+        real(dp) :: var_value
         character(len=150) :: single_line
         integer :: len1, IOstatus
         do while (index(single_line, var_name) == 0)
@@ -48,11 +48,11 @@ module read_config
     !< Get the variable as an integer.
     !---------------------------------------------------------------------------
     function get_variable_int(fh, var_name, delimiter) result(var_value_int)
-        use constants, only: fp
+        use constants, only: dp
         implicit none
         integer, intent(in) :: fh
         character(*), intent(in) :: var_name, delimiter
-        real(fp) :: var_value
+        real(dp) :: var_value
         integer :: var_value_int
 
         var_value = get_variable(fh, var_name, delimiter)

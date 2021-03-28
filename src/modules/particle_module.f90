@@ -58,6 +58,8 @@ module particle_module
     integer :: nptl_old             !< Number of particles without receivers
     integer :: nptl_max             !< Maximum number of particles allowed
     integer :: nptl_new             !< Number of particles from splitting
+    integer :: nptl_inject          !< Number of injected particles
+    integer :: tag_max              !< Maximum particle tag
     real(dp) :: leak                !< Leaking particles from boundary considering weight
     real(dp) :: leak_negp           !< Leaking particles with negative momentum
 
@@ -162,6 +164,7 @@ module particle_module
         ptls%nsteps_tracking = 0
         nptl_current = 0     ! No particle initially
         nptl_new = 0
+        tag_max = 0
 
         !< Particles crossing domain boundaries
         allocate(senders(nptl_max / 10, ndim_field*2))
@@ -398,7 +401,7 @@ module particle_module
         real(dp) :: xmax_box, ymax_box, zmax_box
         real(dp) :: rands(2)
         real(dp) :: jz_min, xtmp, ytmp, ztmp
-        integer :: nptl_inject, ncells_large_jz, ncells_large_jz_g
+        integer :: ncells_large_jz, ncells_large_jz_g
         logical :: inbox
 
         xmin_box = part_box(1)
@@ -448,7 +451,8 @@ module particle_module
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
-            ptls(nptl_current)%tag = nptl_current
+            tag_max = tag_max + 1
+            ptls(nptl_current)%tag = tag_max
             ptls(nptl_current)%nsteps_tracking = 0
         enddo
 
@@ -487,6 +491,7 @@ module particle_module
         zmin = fconfig%zmin
         zmax = fconfig%zmax
 
+        nptl_inject = nptl
         do i = 1, nptl
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
@@ -518,7 +523,8 @@ module particle_module
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
-            ptls(nptl_current)%tag = nptl_current
+            tag_max = tag_max + 1
+            ptls(nptl_current)%tag = tag_max
             ptls(nptl_current)%nsteps_tracking = 0
         enddo
         if (mpi_rank == master) then
@@ -695,7 +701,7 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         integer :: i, imod2
-        integer :: nptl_inject, ncells_large_jz, ncells_large_jz_g
+        integer :: ncells_large_jz, ncells_large_jz_g
 
         xmin_box = part_box(1)
         ymin_box = part_box(2)
@@ -777,7 +783,8 @@ module particle_module
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
-            ptls(nptl_current)%tag = nptl_current
+            tag_max = tag_max + 1
+            ptls(nptl_current)%tag = tag_max
             ptls(nptl_current)%nsteps_tracking = 0
         enddo
         if (mpi_rank == master) then
@@ -2608,7 +2615,8 @@ module particle_module
                 ptl%weight = 0.5**(1.0 + ptl%split_times)
                 ptl%split_times = ptl%split_times + 1
                 ptls(nptl_current) = ptl
-                ptls(nptl_current)%tag = nptl_current
+                tag_max = tag_max + 1
+                ptls(nptl_current)%tag = tag_max
                 ptls(i) = ptl
             endif
         enddo
@@ -3132,6 +3140,7 @@ module particle_module
         ptls%tag = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0
+        tag_max = 0
     end subroutine select_particles_tracking
 
     !---------------------------------------------------------------------------
@@ -3165,9 +3174,13 @@ module particle_module
     subroutine negative_particle_tags(nptl_selected)
         implicit none
         integer, intent(in) :: nptl_selected
-        integer :: i
-        do i = 1, nptl_selected
-            ptls(tags_selected_ptls(i))%tag = -i
+        integer :: iptl, itag
+        do iptl = nptl_current - nptl_inject + 1, nptl_current
+            do itag = 1, nptl_selected
+                if (ptls(iptl)%tag == tags_selected_ptls(itag)) then
+                    ptls(iptl)%tag = -itag
+                endif
+            enddo
         enddo
     end subroutine negative_particle_tags
 
@@ -3179,11 +3192,12 @@ module particle_module
     subroutine record_tracked_particle_init(nptl_selected)
         implicit none
         integer, intent(in) :: nptl_selected
-        integer :: i, tag, offset
-        do i = 1, nptl_selected
-            offset = noffsets_tracked_ptls(i)
-            tag = tags_selected_ptls(i)
-            ptl_traj_points(offset + 1) = ptls(tag)
+        integer :: iptl, offset
+        do iptl = nptl_current - nptl_inject + 1, nptl_current
+            if (ptls(iptl)%tag < 0) then
+                offset = noffsets_tracked_ptls(-ptls(iptl)%tag)
+                ptl_traj_points(offset + 1) = ptls(iptl)
+            endif
         enddo
     end subroutine record_tracked_particle_init
 
@@ -3207,16 +3221,18 @@ module particle_module
         character(*), intent(in) :: file_path
         character(len=4) :: mrank
         character(len=128) :: fname
-        integer :: fh, offset
+        integer :: fh, pos1
         write (mrank,'(i4.4)') mpi_rank
         fh = 41
         fname = trim(file_path)//'tracked_particle_points_'//mrank//'.dat'
         open(unit=fh, file=fname, access='stream', status='unknown', &
             form='unformatted', action='write')
-        write(fh, pos=1) nptl_selected
-        write(fh, pos=5) nsteps_tracked_ptls
-        offset = (nptl_selected + 1) * sizeof(fp)
-        write(fh, pos=offset+1) ptl_traj_points
+        pos1 = 1
+        write(fh, pos=pos1) nptl_selected
+        pos1 = pos1 + sizeof(fp)
+        write(fh, pos=pos1) nsteps_tracked_ptls
+        pos1 = pos1 + nptl_selected * sizeof(fp)
+        write(fh, pos=pos1) ptl_traj_points
         close(fh)
     end subroutine save_tracked_particle_points
 
