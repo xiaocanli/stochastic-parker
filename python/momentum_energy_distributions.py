@@ -172,7 +172,7 @@ def plot_particle_distributions(tframe, ax1, ax2, plot_config, **kwargs):
     pmom = data[0:nbins] / pinit
     elog = pmom**2
     elog *= plot_config["e0"]  # to keV
-    print("Total number of particles: %d" % np.sum(data[nbins:]))
+    # print("Total number of particles: %d" % np.sum(data[nbins:]))
     fmom = data[nbins:] * pmom / np.gradient(pmom)
     fene = fmom / pmom**2
 

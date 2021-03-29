@@ -402,7 +402,7 @@ def spatial_distribution_mhd_field(plot_config, mhd_config, show_plot=True):
         plt.close()
 
 
-def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True):
+def spatial_distribution_mhd_field_multi(plot_config, mhd_config, verbose=True, show_plot=True):
     """Plot spatial distribution for multi energy bands and corresponding MHD fields
 
     Args:
@@ -411,6 +411,8 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
     """
     # L0 = 75.0  # in Mm
     L0 = 200.0  # in Mm
+    va = 2.181E6  # m/s
+    t0 = L0 * 1E6 / va
 
     tframe = plot_config["tframe"]
 
@@ -473,18 +475,21 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
     pinit = 0.1
     pbins_edges /= pinit
     ebins_edges = pbins_edges**2
-    print("data size: %d %d" % (nx, ny))
+    if verbose:
+        print("data size: %d %d" % (nx, ny))
     ndp, = fdata.shape
     dists = fdata[nbands+2:].reshape([(ndp - nbands - 2) // (nx * ny), -1])
-    print("Total number of particles: %d" % np.sum(dists))
+    if verbose:
+        print("Total number of particles: %d" % np.sum(dists))
 
     fband_ycuts = []
     bands, bande = plot_config["high_bands"]
     for iband, eband in enumerate(range(bands, bande+1)):
         fband = dists[eband, :]
-        print("particle number in band %d: %d" % (eband, np.sum(fband)))
-        print("min, max, mean, and std: %f %f %f %f" %
-              (np.min(fband), np.max(fband), np.mean(fband), np.std(fband)))
+        if verbose:
+            print("particle number in band %d: %d" % (eband, np.sum(fband)))
+            print("min, max, mean, and std: %f %f %f %f" %
+                  (np.min(fband), np.max(fband), np.mean(fband), np.std(fband)))
         fband *= fnorms[iband]
         fband = np.reshape(fband, (ny, nx))
         # fband = fband[:, nx//4:nx*3//4]
@@ -536,7 +541,7 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
     ygrid = np.linspace(sizes[2], sizes[3], ny)
     for iband, fband_y in enumerate(fband_ycuts):
         label = r'$' + str(iband + 1) + '$'
-        ax.semilogx(fband_y, ygrid, nonposx="mask", label=label)
+        ax.semilogx(fband_y, ygrid, nonpositive="mask", label=label)
     ax.legend(loc=1, prop={'size': 16}, ncol=1,
               shadow=False, fancybox=False, frameon=False)
     ax.grid()
@@ -565,10 +570,15 @@ def spatial_distribution_mhd_field_multi(plot_config, mhd_config, show_plot=True
     ax.tick_params(labelsize=12)
 
     mhd_time = mhd_config["dt_out"][0] * tframe
-    tva = mhd_time * L0
-    title = r'$t = ' + "{:10.1f}".format(tva) + r'\text{ s}$'
+    tva = mhd_time * t0
+    title = r'$t = ' + "{:10.1f}".format(tva) + r' s$'
     plt.suptitle(title, fontsize=20)
 
+    del fdata
+    del jz
+    del bx, by, mhd_fields
+    del dists
+    del fband
 
     fdir = '../img/nrho/' + run_name + '/'
     mkdir_p(fdir)

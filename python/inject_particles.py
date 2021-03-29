@@ -439,6 +439,7 @@ def calc_correlation_length(plot_config, mhd_config):
         mhd_config: MHD simulation configuration
     """
     L0 = 200.0  # in Mm
+    lc_min = 2000  # in km
 
     nghost = 2
     tframe = plot_config["tframe"]
@@ -474,6 +475,7 @@ def calc_correlation_length(plot_config, mhd_config):
     bz = mhd_fields[:, :, 6]
     absb = np.sqrt(bx**2 + by**2 + bz**2)
 
+    # Right and left exhaust boundaries
     fdir = '../data/' + plot_config["mhd_run"] + '/exhaust_boundary/'
     fname = fdir + 'xz_right_' + str(tframe) + '.dat'
     xlist_right, ylist_right = np.fromfile(fname).reshape([2, -1])
@@ -486,24 +488,28 @@ def calc_correlation_length(plot_config, mhd_config):
         xlist_left = lx_mhd - xlist_right
         ylist_left = np.copy(ylist_right)
 
-    ix_top = len(xlist_right) - np.argmax(xlist_right[::-1] - xlist_left[::-1] > 0.1)
-    ix = np.argmin(xlist_right[:ix_top] - xlist_left[:ix_top])
+    # Find one point close to the top of the large flux rope
+    ix_top = len(xlist_right) - np.argmax((xlist_right[::-1] - xlist_left[::-1]) > 0.1)
+    ix = np.argmin(xlist_right[:ix_top] - xlist_left[:ix_top]) # X-point
     cond1 = (xlist_right[:ix] - xlist_left[:ix]) < 0.01
-    ips = np.argmin(cond1)
+    ips = np.argmin(cond1)  # one point below the X-point and close to looptop
     cond2 = (xlist_right[ix:] - xlist_left[ix:]) < 0.04
-    ipe = np.argmax(cond2) + ix
+    ipe = np.argmax(cond2) + ix # one point where the top exhaust opens up
     cond = np.concatenate((cond1, cond2), axis=0)
-    cond = np.logical_and(cond, ylist_right < ylist_left.max()*0.8)
-    ys = ylist_right[cond][0]
-    ye = ylist_right[cond][-1]
+    cond = np.logical_and(cond, ylist_right < ylist_right.max()*0.8)
 
+    # Bottom and top of reconnection exhaust
+    ys = ylist_right[cond][0]   # Close to looptop
+    ye = ylist_right[cond][-1]  # Below the large flux rope
+
+    # Find the top of the fluxrope. If the top is out of domain, then use ny_mhd
+    # And get the coordinates for the exhaust and flux rope boundaries.
     fleft = interp1d(ylist_left, xlist_left)
     fright = interp1d(ylist_right, xlist_right)
     xlist_left_mhd = np.zeros(ny_mhd)
     xlist_right_mhd = np.zeros(ny_mhd)
-    sep = np.zeros(ny_mhd)
     if ymhd[-1] > ylist_left[-1]:
-        iy_top = np.argmax(ymhd > ylist_left.max())
+        iy_top = np.argmax(ymhd > ylist_left.max()) # Top of the large flux rope
         xlist_left_mhd[:iy_top] = fleft(ymhd[:iy_top])
         xlist_right_mhd[:iy_top] = fright(ymhd[:iy_top])
         # The exhaust boundaries intersect with left and right domain boundaries
@@ -518,23 +524,28 @@ def calc_correlation_length(plot_config, mhd_config):
         xlist_right_mhd = fright(ymhd)
         iy_max = ny_mhd - 1
 
+    # x-indices of the exhaust and flux rope boundaries
     ix_left_mhd = np.floor((xlist_left_mhd - xmhd[0]) / dx + nghost).astype(int)
     ix_right_mhd = np.ceil((xlist_right_mhd - xmhd[0]) / dx + nghost).astype(int)
     # ix_right_mhd = nx - ix_left_mhd
-    iy_looptop = int(ys / dx)
-    sep[iy_looptop:iy_max] = (xlist_right_mhd[iy_looptop:iy_max] -
-                              xlist_left_mhd[iy_looptop:iy_max]) * L0 * 1E3  # in km
+
+    # separation between the left and right boundaries of the exhaust and flux rope
+    iy_looptop = int(ys / dy)
+    sep = np.zeros(ny_mhd)
+    sep[iy_looptop:] = (xlist_right_mhd[iy_looptop:] -
+                        xlist_left_mhd[iy_looptop:]) * L0 * 1E3  # in km
     sep[:iy_looptop] = (xlist_right_mhd[iy_looptop] -
                         xlist_left_mhd[iy_looptop]) * L0 * 1E3
 
-    lc_norm = 5000.0  # in km
+    lc_norm = plot_config["lc_norm"]  # in km
+    lc_min = plot_config["lc_min"]  # in km
     lc = np.zeros([ny, nx])
     absb_sqrt = np.sqrt(absb)
     ntranx = 20  # Number of transition cells at left and right
     for iy in range(nghost, iy_max+nghost):
         ix1 = ix_left_mhd[iy-nghost]
         ix2 = ix_right_mhd[iy-nghost]
-        lc_b = lc_norm / absb[iy, ix1-4*ntranx]
+        lc_b = lc_norm / absb[iy, ix1-4*ntranx]  # background
         if lc_b > sep[iy]:
             lc[iy, :] = (np.tanh((xgrid-xgrid[ix1-ntranx])/(ntranx*dx)) -
                          np.tanh((xgrid-xgrid[ix2+ntranx])/(ntranx*dx)))
@@ -548,6 +559,9 @@ def calc_correlation_length(plot_config, mhd_config):
             lc[iy, :] += lc_b
         lc[iy, :ix1-4*ntranx] = lc_norm / absb[iy, :ix1-4*ntranx]
         lc[iy, ix2+4*ntranx:] = lc_norm / absb[iy, ix2+4*ntranx:]
+    lc[lc < lc_min] = lc_min  # Set the floor value
+    # iy_lf = int(ye / dy)  # behind the large flux rope
+    # lc[iy_lf:, :] = lc_norm / absb[iy_lf:, :]
     for iy in range(nghost):
         lc[iy, :] = lc[nghost]
     for iy in range(iy_max+nghost, ny):
@@ -555,6 +569,7 @@ def calc_correlation_length(plot_config, mhd_config):
             lc[iy, :] = lc_norm / absb[iy, :]
         else:
             lc[iy, :] = lc[iy_max+nghost-1]
+    # lc[lc<lc_min] = lc_min
 
     lc = lc.astype(np.float32)
     fname = fpath + 'lc_' + str(tframe).zfill(4)
@@ -626,7 +641,7 @@ def plot_deltab(plot_config, mhd_config, show_plot=True):
     ax.plot(xlist_right*L0, ylist_right*L0, color='w',
             linewidth=1, linestyle='--')
     img = ax.imshow(deltab, extent=sizes, cmap=plt.cm.plasma,
-                    norm=LogNorm(vmin=1E-2, vmax=1E0),
+                    norm=LogNorm(vmin=1E-3, vmax=3E-2),
                     aspect='auto', origin='lower', interpolation='bicubic')
 
     rect_cbar = np.copy(rect)
@@ -920,6 +935,10 @@ def get_cmd_args():
                         help='whether to get the boundary of reconnection exhaust')
     parser.add_argument('--shear_params', action="store_true", default=False,
                         help='whether to shear parameters')
+    parser.add_argument('--lc_norm', action="store", default='5000.0', type=float,
+                        help='Normalization for the turbulence correlation length (km)')
+    parser.add_argument('--lc_min', action="store", default='500.0', type=float,
+                        help='Minimum of the turbulence correlation length (km)')
     return parser.parse_args()
 
 
@@ -943,7 +962,6 @@ def analysis_single_frames(plot_config, mhd_config, args):
 
 
 def process_input(plot_config, mhd_config, args, tframe):
-    """process one time frame"""
     plot_config["tframe"] = tframe
     print("Time frame: %d" % tframe)
     if args.exhaust_boundary:
@@ -966,6 +984,8 @@ def analysis_multi_frames(plot_config, mhd_config, args):
                 inject_at_jz(plot_config, mhd_config, show_plot=False)
             elif args.plot_deltab:
                 plot_deltab(plot_config, mhd_config, show_plot=False)
+            elif args.calc_lc:
+                calc_correlation_length(plot_config, mhd_config)
             elif args.plot_lc:
                 plot_correlation_length(plot_config, mhd_config, show_plot=False)
     else:
@@ -986,6 +1006,8 @@ def main():
     plot_config["mhd_run_dir"] = args.mhd_run_dir
     plot_config["tstart"] = args.tstart
     plot_config["tend"] = args.tend
+    plot_config["lc_norm"] = args.lc_norm
+    plot_config["lc_min"] = args.lc_min
     if args.multi_frames:
         analysis_multi_frames(plot_config, mhd_config, args)
     else:

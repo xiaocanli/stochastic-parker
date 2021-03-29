@@ -16,7 +16,7 @@ from joblib import Parallel, delayed
 
 from sde_util import mkdir_p, load_mhd_config, find_nearest
 
-sys.path.insert(0, '/users/xiaocanli/Git/mhd_analysis_sli')
+sys.path.insert(0, '/global/homes/x/xiaocan/Git/mhd_analysis_sli')
 import mhd_data
 
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})

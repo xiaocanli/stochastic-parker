@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 
+
 def mkdir_p(path):
     """Create directory recursively
     """
@@ -17,8 +18,18 @@ def mkdir_p(path):
         else:
             raise
 
+
 def load_mhd_config(run_dir):
     """Load MHD simulation configuration
+
+    The configuration might be different from that for the original MHD
+    simulation after reorganizing the MHD data.
+
+    Arguments:
+        run_dir (string): MHD run directory
+
+    Returns:
+        mhd_config (numpy ndarray): MHD configuration
     """
     fname = run_dir + 'bin_data/mhd_config.dat'
     mtype = np.dtype([('dx', float), ('dy', float), ('dz', float),
