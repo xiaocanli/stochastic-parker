@@ -5,6 +5,7 @@ module particle_module
     use constants, only: fp, dp
     use simulation_setup_module, only: ndim_field
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
+    use mhd_data_parallel, only: nfields, ngrads
     use mpi_module
     use hdf5
     implicit none
@@ -128,6 +129,14 @@ module particle_module
     type(particle_type), allocatable, dimension(:) :: escaped_ptls
     integer :: nptl_escaped, nptl_escaped_max
     !dir$ attributes align:64 :: escaped_ptls
+
+    !< Fields and gradients at particle position
+    real(dp), dimension(nfields) :: fields
+    real(dp), dimension(ngrads) :: gradf
+    real(dp), dimension(3) :: grad_db2, grad_lc
+    real(dp) :: db2, lc
+    !dir$ attributes align:64 :: fields
+    !dir$ attributes align:64 :: gradf
 
     interface push_particle
         module procedure &
@@ -684,7 +693,7 @@ module particle_module
     subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, jz_min, part_box)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
-        use mhd_data_parallel, only: gradf, fields, interp_fields
+        use mhd_data_parallel, only: interp_fields
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -755,7 +764,7 @@ module particle_module
                     else
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
-                    call interp_fields(pos, weights, rt)
+                    call interp_fields(pos, weights, rt, fields, gradf)
                     dbx_dy = gradf(14)
                     dby_dx = gradf(16)
                     if (spherical_coord_flag) then
@@ -898,12 +907,12 @@ module particle_module
                     else
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
-                    call interp_fields(pos, weights, rt)
+                    call interp_fields(pos, weights, rt, fields, gradf)
                     if (deltab_flag) then
-                        call interp_magnetic_fluctuation(pos, weights, rt)
+                        call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
                     endif
                     if (correlation_flag) then
-                        call interp_correlation_length(pos, weights, rt)
+                        call interp_correlation_length(pos, weights, rt, lc, grad_lc)
                     endif
                     call calc_spatial_diffusion_coefficients
                     call set_time_step(t0, dt_target)
@@ -950,12 +959,12 @@ module particle_module
                         else
                             call get_interp_paramters(px, py, pz, pos, weights)
                         endif
-                        call interp_fields(pos, weights, rt)
+                        call interp_fields(pos, weights, rt, fields, gradf)
                         if (deltab_flag) then
-                            call interp_magnetic_fluctuation(pos, weights, rt)
+                            call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
                         endif
                         if (correlation_flag) then
-                            call interp_correlation_length(pos, weights, rt)
+                            call interp_correlation_length(pos, weights, rt, lc, grad_lc)
                         endif
                         call calc_spatial_diffusion_coefficients
                         if (ndim_field == 1) then
@@ -1276,7 +1285,6 @@ module particle_module
     !< Calculate the spatial diffusion coefficients
     !---------------------------------------------------------------------------
     subroutine calc_spatial_diffusion_coefficients
-        use mhd_data_parallel, only: fields, gradf, db2, lc, grad_db, grad_lc
         implicit none
         real(dp) :: knorm
         real(dp) :: bx, by, bz, b, ib1, ib2, ib3, ib4
@@ -1335,7 +1343,7 @@ module particle_module
                 dkdx = -db_dx * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db(1) / db2
+                dkdx = dkdx - grad_db2(1) / db2
             endif
             if (correlation_flag) then
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
@@ -1358,8 +1366,8 @@ module particle_module
                 dkdy = -db_dy * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db(1) / db2
-                dkdy = dkdy - grad_db(2) / db2
+                dkdx = dkdx - grad_db2(1) / db2
+                dkdy = dkdy - grad_db2(2) / db2
             endif
             if (correlation_flag) then
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
@@ -1400,9 +1408,9 @@ module particle_module
                 dkdz = -db_dz * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db(1) / db2
-                dkdy = dkdy - grad_db(2) / db2
-                dkdz = dkdz - grad_db(3) / db2
+                dkdx = dkdx - grad_db2(1) / db2
+                dkdy = dkdy - grad_db2(2) / db2
+                dkdz = dkdz - grad_db2(3) / db2
             endif
             if (correlation_flag) then
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
@@ -1601,7 +1609,6 @@ module particle_module
     subroutine set_time_step(t0, dtf)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
-        use mhd_data_parallel, only: fields, gradf
         implicit none
         real(dp), intent(in) :: t0, dtf
         real(dp) :: tmp30, tmp40, bx, by, bz, b, ib, ib2, ib3
@@ -1891,7 +1898,7 @@ module particle_module
     subroutine push_particle_1d(rt, deltax, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: fields, gradf, interp_fields, &
+        use mhd_data_parallel, only: interp_fields, &
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -1951,12 +1958,12 @@ module particle_module
             else
                 call get_interp_paramters(px, 0.0_dp, 0.0_dp, pos, weights)
             endif
-            call interp_fields(pos, weights, rt)
+            call interp_fields(pos, weights, rt, fields, gradf)
             if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt)
+                call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
             endif
             if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt)
+                call interp_correlation_length(pos, weights, rt, lc, grad_lc)
             endif
 
             call calc_spatial_diffusion_coefficients
@@ -2043,7 +2050,7 @@ module particle_module
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: fields, gradf, interp_fields, &
+        use mhd_data_parallel, only: interp_fields, &
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -2190,12 +2197,12 @@ module particle_module
             else
                 call get_interp_paramters(px, py, 0.0_dp, pos, weights)
             endif
-            call interp_fields(pos, weights, rt)
+            call interp_fields(pos, weights, rt, fields, gradf)
             if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt)
+                call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
             endif
             if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt)
+                call interp_correlation_length(pos, weights, rt, lc, grad_lc)
             endif
 
             call calc_spatial_diffusion_coefficients
@@ -2320,7 +2327,7 @@ module particle_module
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: fields, gradf, interp_fields, &
+        use mhd_data_parallel, only: interp_fields, &
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -2807,7 +2814,7 @@ module particle_module
     subroutine energization_dist(t0)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
-        use mhd_data_parallel, only: gradf, interp_fields
+        use mhd_data_parallel, only: interp_fields
         implicit none
         real(dp), intent(in) :: t0
         real(dp) :: weight, px, py, pz, rt
@@ -2827,7 +2834,7 @@ module particle_module
                 call get_interp_paramters(px, py, pz, pos, weights)
             endif
             rt = (ptl%t - t0) / mhd_config%dt_out
-            call interp_fields(pos, weights, rt)
+            call interp_fields(pos, weights, rt, fields, gradf)
             dvx_dx = gradf(1)
             dvy_dy = gradf(5)
             dvz_dz = gradf(9)

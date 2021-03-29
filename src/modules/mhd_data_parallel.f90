@@ -25,21 +25,11 @@ module mhd_data_parallel
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz
-    public fields, gradf, db2, lc, grad_db, grad_lc
     public xpos_local, ypos_local, zpos_local
+    public nfields, ngrads
 
-    real(dp) :: db2, db2_1
-    real(dp) :: lc0_1, lc0_2, lc
     integer, parameter :: nfields=8
     integer, parameter :: ngrads=24
-    real(dp), dimension(nfields) :: fields, fields1
-    real(dp), dimension(ngrads) :: gradf, gradf1
-    real(dp), dimension(3) :: grad_db, grad_db1
-    real(dp), dimension(3) :: grad_lc, grad_lc1
-    !dir$ attributes align:64 :: fields
-    !dir$ attributes align:64 :: fields1
-    !dir$ attributes align:128 :: gradf
-    !dir$ attributes align:128 :: gradf1
 
     !< 80 variables in total
     real(fp), allocatable, dimension(:, :, :, :) :: f_array1, f_array2 ! Current,next
@@ -1348,61 +1338,55 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  fields(output): fields at particle position
+    !<  gradf(output): gradients of the fields at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_fields(pos, weights, rt)
+    subroutine interp_fields(pos, weights, rt, fields, gradf)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        integer :: ix, iy, iz, i, j, k
+        real(dp), dimension(nfields), intent(out) :: fields
+        real(dp), dimension(ngrads), intent(out) :: gradf
+        integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
+        real(dp), dimension(nfields) :: fields2
+        real(dp), dimension(ngrads) :: gradf2
+        !dir$ attributes align:64 :: fields2
+        !dir$ attributes align:64 :: gradf2
 
         ix = pos(1)
         iy = pos(2)
         iz = pos(3)
+        if (ndim_field > 1) then
+            ye = 1
+        else
+            ye = 0
+        endif
+
+        if (ndim_field > 2) then
+            ze = 1
+        else
+            ze = 0
+        endif
 
         fields = 0.0_dp
-        fields1 = 0.0_dp
+        fields2 = 0.0_dp
         gradf = 0.0_dp
-        gradf1 = 0.0_dp
-        if (ndim_field .eq. 1) then
-            do i = 0, 1
-                fields = fields + f_array1(:, ix+i, 1, 1) * weights(i+1)
-                fields1 = fields1 + f_array2(:, ix+i, 1, 1) * weights(i+1)
-                gradf = gradf + fgrad_array1(:, ix+i, 1, 1) * weights(i+1)
-                gradf1 = gradf1 + fgrad_array2(:, ix+i, 1, 1) * weights(i+1)
-            enddo
-        else if (ndim_field .eq. 2) then
-            do j = 0, 1
-            do i = 0, 1
-                fields = fields + &
-                    f_array1(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-                fields1 = fields1 + &
-                    f_array2(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-                gradf = gradf + &
-                    fgrad_array1(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-                gradf1 = gradf1 + &
-                    fgrad_array2(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-            enddo
-            enddo
-        else
-            do k = 0, 1
-            do j = 0, 1
-            do i = 0, 1
-                fields = fields + &
-                    f_array1(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                fields1 = fields1 + &
-                    f_array2(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                gradf = gradf + &
-                    fgrad_array1(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                gradf1 = gradf1 + &
-                    fgrad_array2(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-            enddo
-            enddo
-            enddo
-        endif
+        gradf2 = 0.0_dp
+        do k = 0, ze
+        do j = 0, ye
+        do i = 0, 1
+            index_1d = k*4 + j*2 + i + 1
+            fields = fields + f_array1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            fields2 = fields2 + f_array2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            gradf = gradf + fgrad_array1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            gradf2 = gradf2 + fgrad_array2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+        enddo
+        enddo
+        enddo
         !< Time interpolation
-        fields = fields * (1.0 - rt) + fields1 * rt
-        gradf = gradf * (1.0 - rt) + gradf1 * rt
+        fields = fields * (1.0 - rt) + fields2 * rt
+        gradf = gradf * (1.0 - rt) + gradf2 * rt
     end subroutine interp_fields
 
     !---------------------------------------------------------------------------
@@ -1413,57 +1397,53 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  db2(output): turbulence variance at particle position
+    !<  grad_db2(output): gradients of db2 at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_magnetic_fluctuation(pos, weights, rt)
+    subroutine interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        integer :: ix, iy, iz, i, j, k
+        real(dp), intent(out) :: db2
+        real(dp), dimension(3), intent(out) :: grad_db2
+        integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
+        real(dp), dimension(3) :: grad_db2_2
+        real(dp) :: db2_2
 
         ix = pos(1)
         iy = pos(2)
         iz = pos(3)
+        if (ndim_field > 1) then
+            ye = 1
+        else
+            ye = 0
+        endif
+
+        if (ndim_field > 2) then
+            ze = 1
+        else
+            ze = 0
+        endif
 
         db2 = 0.0_dp
-        db2_1 = 0.0_dp
-        grad_db = 0.0_dp
-        grad_db1 = 0.0_dp
-        if (ndim_field .eq. 1) then
-            do i = 0, 1
-                db2 = db2 + deltab1(ix+i, 1, 1) * weights(i+1)
-                db2_1 = db2_1 + deltab2(ix+i, 1, 1) * weights(i+1)
-                grad_db = grad_db + grad_deltab1(:, ix+i, 1, 1) * weights(i+1)
-                grad_db1 = grad_db1 + grad_deltab2(:, ix+i, 1, 1) * weights(i+1)
-            enddo
-        else if (ndim_field .eq. 2) then
-            do j = 0, 1
-            do i = 0, 1
-                db2 = db2 + deltab1(ix+i, iy+j, 1) * weights(j*2+i+1)
-                db2_1 = db2_1 + deltab2(ix+i, iy+j, 1) * weights(j*2+i+1)
-                grad_db = grad_db + &
-                    grad_deltab1(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-                grad_db1 = grad_db1 + &
-                    grad_deltab2(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-            enddo
-            enddo
-        else
-            do k = 0, 1
-            do j = 0, 1
-            do i = 0, 1
-                db2 = db2 + deltab1(ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                db2_1 = db2_1 + deltab2(ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                grad_db = grad_db + &
-                    grad_deltab1(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                grad_db1 = grad_db1 + &
-                    grad_deltab2(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-            enddo
-            enddo
-            enddo
-        endif
+        db2_2 = 0.0_dp
+        grad_db2 = 0.0_dp
+        grad_db2_2 = 0.0_dp
+        do k = 0, ze
+        do j = 0, ye
+        do i = 0, 1
+            index_1d = k*4 + j*2 + i + 1
+            db2 = db2 + deltab1(ix+i, iy+j, iz+k) * weights(index_1d)
+            db2_2 = db2_2 + deltab2(ix+i, iy+j, iz+k) * weights(index_1d)
+            grad_db2 = grad_db2 + grad_deltab1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            grad_db2_2 = grad_db2_2 + grad_deltab2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+        enddo
+        enddo
+        enddo
         !< Time interpolation
-        db2 = db2 * (1.0 - rt) + db2_1 * rt
-        grad_db = grad_db * (1.0 - rt) + grad_db1 * rt
+        db2 = db2 * (1.0 - rt) + db2_2 * rt
+        grad_db2 = grad_db2 * (1.0 - rt) + grad_db2_2 * rt
     end subroutine interp_magnetic_fluctuation
 
     !---------------------------------------------------------------------------
@@ -1474,57 +1454,53 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  lc0(output): turbulence correlation length at particle position
+    !<  grad_lc0(output): gradients of lc0 at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_correlation_length(pos, weights, rt)
+    subroutine interp_correlation_length(pos, weights, rt, lc0, grad_lc0)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        integer :: ix, iy, iz, i, j, k
+        real(dp), intent(out) :: lc0
+        real(dp), dimension(3), intent(out) :: grad_lc0
+        integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
+        real(dp), dimension(3) :: grad_lc0_2
+        real(dp) :: lc0_2
 
         ix = pos(1)
         iy = pos(2)
         iz = pos(3)
-
-        lc0_1 = 0.0_dp
-        lc0_2 = 0.0_dp
-        grad_lc = 0.0_dp
-        grad_lc1 = 0.0_dp
-        if (ndim_field .eq. 1) then
-            do i = 0, 1
-                lc0_1 = lc0_1 + lc1(ix+i, 1, 1) * weights(i+1)
-                lc0_2 = lc0_2 + lc2(ix+i, 1, 1) * weights(i+1)
-                grad_lc = grad_lc + grad_correl1(:, ix+i, 1, 1) * weights(i+1)
-                grad_lc1 = grad_lc1 + grad_correl2(:, ix+i, 1, 1) * weights(i+1)
-            enddo
-        else if (ndim_field .eq. 2) then
-            do j = 0, 1
-            do i = 0, 1
-                lc0_1 = lc0_1 + lc1(ix+i, iy+j, 1) * weights(j*2+i+1)
-                lc0_2 = lc0_2 + lc2(ix+i, iy+j, 1) * weights(j*2+i+1)
-                grad_lc = grad_lc + &
-                    grad_correl1(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-                grad_lc1 = grad_lc1 + &
-                    grad_correl2(:, ix+i, iy+j, 1) * weights(j*2+i+1)
-            enddo
-            enddo
+        if (ndim_field > 1) then
+            ye = 1
         else
-            do k = 0, 1
-            do j = 0, 1
-            do i = 0, 1
-                lc0_1 = lc0_1 + lc1(ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                lc0_2 = lc0_2 + lc2(ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                grad_lc = grad_lc + &
-                    grad_correl1(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-                grad_lc1 = grad_lc1 + &
-                    grad_correl2(:, ix+i, iy+j, iz+k) * weights(k*4+j*2+i+1)
-            enddo
-            enddo
-            enddo
+            ye = 0
         endif
+
+        if (ndim_field > 2) then
+            ze = 1
+        else
+            ze = 0
+        endif
+
+        lc0 = 0.0_dp
+        lc0_2 = 0.0_dp
+        grad_lc0 = 0.0_dp
+        grad_lc0_2 = 0.0_dp
+        do k = 0, ze
+        do j = 0, ye
+        do i = 0, 1
+            index_1d = k*4 + j*2 + i + 1
+            lc0 = lc0 + lc1(ix+i, iy+j, iz+k) * weights(index_1d)
+            lc0_2 = lc0_2 + lc2(ix+i, iy+j, iz+k) * weights(index_1d)
+            grad_lc0 = grad_lc0 + grad_correl1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            grad_lc0_2 = grad_lc0_2 + grad_correl2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+        enddo
+        enddo
+        enddo
         !< Time interpolation
-        lc = lc0_1 * (1.0 - rt) + lc0_2 * rt
-        grad_lc = grad_lc * (1.0 - rt) + grad_lc1 * rt
+        lc0 = lc0 * (1.0 - rt) + lc0_2 * rt
+        grad_lc0 = grad_lc0 * (1.0 - rt) + grad_lc0_2 * rt
     end subroutine interp_correlation_length
 
     !<--------------------------------------------------------------------------
