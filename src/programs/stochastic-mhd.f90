@@ -9,7 +9,7 @@ program stochastic
         echo_mhd_config, set_mhd_grid_type
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
-        particle_mover, remove_particles, split_particle, &
+        particle_mover, split_particle, &
         init_particle_distributions, free_particle_distributions, &
         distributions_diagnostics, quick_check, set_particle_datatype_mpi, &
         free_particle_datatype_mpi, select_particles_tracking, &

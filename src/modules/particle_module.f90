@@ -7,12 +7,13 @@ module particle_module
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
     use mhd_data_parallel, only: nfields, ngrads
     use mpi_module
+    use omp_lib
     use hdf5
     implicit none
     private
     save
     public init_particles, free_particles, inject_particles_spatial_uniform, &
-        read_particle_params, particle_mover, remove_particles, split_particle, &
+        read_particle_params, particle_mover, split_particle, &
         init_particle_distributions, clean_particle_distributions, &
         free_particle_distributions, distributions_diagnostics, quick_check, &
         set_particle_datatype_mpi, free_particle_datatype_mpi, &
@@ -47,7 +48,6 @@ module particle_module
     type(particle_type), allocatable, dimension(:, :) :: recvers
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:64 :: ptls
-    type(particle_type) :: ptl
 
     ! Particle tracking
     integer, allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
@@ -66,20 +66,24 @@ module particle_module
 
     real(dp) :: kpara0              !< kpara for particles with momentum p0
     real(dp) :: kret                !< The ratio of kpara to kperp
-    real(dp) :: knorm0              !< normalization for spatial diffusion coefficient
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
     integer :: acc_region_flag      !< flag for whether to turn on acceleration in certain region
     real(dp) :: pindex              !< power index for the momentum dependency
     real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
-    real(dp) :: kpara, kperp
-    real(dp) :: kxx, kyy, kzz, kxy, kxz, kyz
-    real(dp) :: dkxx_dx, dkyy_dy, dkzz_dz
-    real(dp) :: dkxy_dx, dkxy_dy
-    real(dp) :: dkxz_dx, dkxz_dz
-    real(dp) :: dkyz_dy, dkyz_dz
-    real(dp) :: skpara, skperp, skpara_perp
+    type kappa_type
+        real(dp) :: knorm0                    !< normalization for spatial diffusion coefficient
+        real(dp) :: kpara, kperp              !< Parallel and perpendicular kappa
+        real(dp) :: skpara, skperp            !< Square root of 2*kpara and 2*kperp
+        real(dp) :: skpara_perp               !< Square root of 2*(kpara - kperp)
+        real(dp) :: kxx, kyy, kzz             !< Diagonal components of kappa tensor
+        real(dp) :: kxy, kxz, kyz             !< Other components of kappa tensor
+        real(dp) :: dkxx_dx, dkyy_dy, dkzz_dz !< Gradients of diagonal components
+        real(dp) :: dkxy_dx, dkxy_dy          !< Gradients of other components
+        real(dp) :: dkxz_dx, dkxz_dz
+        real(dp) :: dkyz_dy, dkyz_dz
+    end type kappa_type !< 21 variables
     real(dp), dimension(6) :: acc_region  !< from 0 to 1 (xmin, xmax, ymin, ymax, zmin, zmax)
 
     real(dp) :: dt_min      !< Minimum time step
@@ -129,19 +133,6 @@ module particle_module
     type(particle_type), allocatable, dimension(:) :: escaped_ptls
     integer :: nptl_escaped, nptl_escaped_max
     !dir$ attributes align:64 :: escaped_ptls
-
-    !< Fields and gradients at particle position
-    real(dp), dimension(nfields) :: fields
-    real(dp), dimension(ngrads) :: gradf
-    real(dp), dimension(3) :: grad_db2, grad_lc
-    real(dp) :: db2, lc
-    !dir$ attributes align:64 :: fields
-    !dir$ attributes align:64 :: gradf
-
-    interface push_particle
-        module procedure &
-            push_particle_1d, push_particle_2d, push_particle_3d
-    end interface push_particle
 
     interface write_ptl_element
         module procedure &
@@ -707,6 +698,8 @@ module particle_module
         real(dp) :: dxm, dym, dzm, dby_dx, dbx_dy
         real(dp) :: rt, jz, by
         real(dp), dimension(2) :: rands
+        real(dp), dimension(nfields) :: fields !< Fields at particle position
+        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         integer :: i, imod2
@@ -827,7 +820,15 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: px, py, pz, rt
-        integer :: i, tracking_step, offset, tfine, step
+        integer :: i, tracking_step, offset, step
+        type(particle_type) :: ptl
+        type(kappa_type) :: kappa
+        real(dp), dimension(nfields) :: fields !< Fields at particle position
+        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
+        real(dp) :: db2, lc !< turbulence variance and correlation length
+        real(dp), dimension(3) :: grad_db2, grad_lc !< Gradients of db2 and lc
+        !dir$ attributes align:64 :: fields
+        !dir$ attributes align:64 :: gradf
 
         dtf = mhd_config%dt_out
         dt_fine = dtf / num_fine_steps
@@ -847,6 +848,12 @@ module particle_module
         zmin1 = zmin - dzm * 0.5
         zmax1 = zmax + dzm * 0.5
 
+        !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ptl, kappa, &
+        !$OMP& fields, gradf, db2, lc, grad_db2, grad_lc, &
+        !$OMP& deltax, deltay, deltaz, deltap, &
+        !$OMP& dt_target, pos, weights, px, py, pz, rt, &
+        !$OMP& tracking_step, offset, step)
+        !$OMP DO
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
             deltax = 0.0
@@ -868,6 +875,7 @@ module particle_module
             ! Safe check
             if (ptl%p < 0.0 .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 ptl%count_flag = COUNT_FLAG_OTHERS
+                !$OMP ATOMIC UPDATE
                 leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin1, xmax1, &
@@ -888,6 +896,7 @@ module particle_module
                     ! Check if particles are leaked or out of the local domain
                     if (ptl%p < 0.0) then
                         ptl%count_flag = COUNT_FLAG_OTHERS
+                        !$OMP ATOMIC UPDATE
                         leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, &
@@ -914,14 +923,18 @@ module particle_module
                     if (correlation_flag) then
                         call interp_correlation_length(pos, weights, rt, lc, grad_lc)
                     endif
-                    call calc_spatial_diffusion_coefficients
-                    call set_time_step(t0, dt_target)
+                    call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
+                        db2, grad_db2, lc, grad_lc, kappa)
+                    call set_time_step(t0, dt_target, fields, gradf, kappa, ptl)
                     if (ndim_field == 1) then
-                        call push_particle(rt, deltax, deltap)
+                        call push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
+                            lc, grad_lc, kappa, deltax, deltap)
                     else if (ndim_field == 2) then
-                        call push_particle(rt, deltax, deltay, deltap)
+                        call push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
+                            lc, grad_lc, kappa, deltax, deltay, deltap)
                     else
-                        call push_particle(rt, deltax, deltay, deltaz, deltap)
+                        call push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
+                            lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
                     endif
 
                     ! Number of particle tracking steps
@@ -966,13 +979,17 @@ module particle_module
                         if (correlation_flag) then
                             call interp_correlation_length(pos, weights, rt, lc, grad_lc)
                         endif
-                        call calc_spatial_diffusion_coefficients
+                        call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
+                            db2, grad_db2, lc, grad_lc, kappa)
                         if (ndim_field == 1) then
-                            call push_particle(rt, deltax, deltap)
+                            call push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
+                                lc, grad_lc, kappa, deltax, deltap)
                         else if (ndim_field == 2) then
-                            call push_particle(rt, deltax, deltay, deltap)
+                            call push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
+                                lc, grad_lc, kappa, deltax, deltay, deltap)
                         else
-                            call push_particle(rt, deltax, deltay, deltaz, deltap)
+                            call push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
+                                lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
                         endif
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
@@ -988,6 +1005,7 @@ module particle_module
                     endif
                     if (ptl%p < 0.0) then
                         ptl%count_flag = COUNT_FLAG_OTHERS
+                        !$OMP ATOMIC UPDATE
                         leak_negp = leak_negp + ptl%weight
                     else
                         call particle_boundary_condition(ptl, xmin1, xmax1, &
@@ -996,13 +1014,13 @@ module particle_module
                 endif
 
                 if (ptl%count_flag == COUNT_FLAG_INBOX) then
-                    call energization_dist(t0)
+                    call energization_dist(ptl, t0)
                 endif
                 dt_target = dt_target + dt_fine
-
             enddo ! Fine time step loop
             ptls(i) = ptl
         enddo ! Loop over particles
+        !$OMP END PARALLEL
     end subroutine particle_mover_one_cycle
 
     !---------------------------------------------------------------------------
@@ -1024,6 +1042,7 @@ module particle_module
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
         real(dp) :: t0, xmin, xmax, ymin, ymax, zmin, zmax
+        type(particle_type) :: ptl
         all_particles_in_box = .false.
         nptl_old = 0
         nptl_new = 0
@@ -1108,34 +1127,44 @@ module particle_module
 
         if (ptl%x < xmin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
             if (neighbors(1) < 0) then
+                !$OMP ATOMIC UPDATE
                 leak = leak + ptl%weight
                 ptl%count_flag = COUNT_FLAG_ESCAPE
             else if (neighbors(1) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmin + xmax
             else if (neighbors(1) == mpi_sub_rank + mpi_sizex - 1) then
                 ptl%x = ptl%x - mhd_config%xmin + mhd_config%xmax
+                !$OMP CRITICAL
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
+                !$OMP END CRITICAL
                 ptl%count_flag = COUNT_FLAG_OTHERS
             else
+                !$OMP CRITICAL
                 nsenders(1) = nsenders(1) + 1
                 senders(nsenders(1), 1) = ptl
+                !$OMP END CRITICAL
                 ptl%count_flag = COUNT_FLAG_OTHERS
             endif
         else if (ptl%x > xmax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
             if (neighbors(2) < 0) then
+                !$OMP ATOMIC UPDATE
                 leak = leak + ptl%weight
                 ptl%count_flag = COUNT_FLAG_ESCAPE
             else if (neighbors(2) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmax + xmin
             else if (neighbors(2) == mpi_sub_rank - mpi_sizex + 1) then !< simulation boundary
                 ptl%x = ptl%x - mhd_config%xmax + mhd_config%xmin
+                !$OMP CRITICAL
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
+                !$OMP END CRITICAL
                 ptl%count_flag = COUNT_FLAG_OTHERS
             else
+                !$OMP CRITICAL
                 nsenders(2) = nsenders(2) + 1
                 senders(nsenders(2), 2) = ptl
+                !$OMP END CRITICAL
                 ptl%count_flag = COUNT_FLAG_OTHERS
             endif
         endif
@@ -1145,34 +1174,44 @@ module particle_module
             !< Otherwise, we met send the particles to two different neighbors.
             if (ptl%y < ymin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(3) < 0) then
+                    !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(3) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymin + ymax
                 else if (neighbors(3) == mpi_sub_rank + (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymin + mhd_config%ymax
+                    !$OMP CRITICAL
                     nsenders(3) = nsenders(3) + 1
                     senders(nsenders(3), 3) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 else
+                    !$OMP CRITICAL
                     nsenders(3) = nsenders(3) + 1
                     senders(nsenders(3), 3) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             else if (ptl%y > ymax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(4) < 0) then
+                    !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(4) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymax + ymin
                 else if (neighbors(4) == mpi_sub_rank - (mpi_sizey - 1) * mpi_sizex) then
                     ptl%y = ptl%y - mhd_config%ymax + mhd_config%ymin
+                    !$OMP CRITICAL
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 else
+                    !$OMP CRITICAL
                     nsenders(4) = nsenders(4) + 1
                     senders(nsenders(4), 4) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             endif
@@ -1181,34 +1220,44 @@ module particle_module
         if (ndim_field == 3) then
             if (ptl%z < zmin .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(5) < 0) then
+                    !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(5) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmin + zmax
                 else if (neighbors(5) == mpi_sub_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmin + mhd_config%zmax
+                    !$OMP CRITICAL
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 else
+                    !$OMP CRITICAL
                     nsenders(5) = nsenders(5) + 1
                     senders(nsenders(5), 5) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             else if (ptl%z > zmax .and. ptl%count_flag == COUNT_FLAG_INBOX) then
                 if (neighbors(6) < 0) then
+                    !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
                     ptl%count_flag = COUNT_FLAG_ESCAPE
                 else if (neighbors(6) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmax + zmin
                 else if (neighbors(6) == mpi_sub_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
                     ptl%z = ptl%z - mhd_config%zmax + mhd_config%zmin
+                    !$OMP CRITICAL
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 else
+                    !$OMP CRITICAL
                     nsenders(6) = nsenders(6) + 1
                     senders(nsenders(6), 6) = ptl
+                    !$OMP END CRITICAL
                     ptl%count_flag = COUNT_FLAG_OTHERS
                 endif
             endif
@@ -1283,9 +1332,26 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Calculate the spatial diffusion coefficients
+    !< Args:
+    !<  ptl: particle structure
+    !<  fields: fields at particle position
+    !<  gradf: gradients of the fields at particle position
+    !<  db2: turbulence variance at particle position
+    !<  grad_db2: gradients of db2
+    !<  lc: turbulence correlation length at particle position
+    !<  grad_lc: gradients of lc
+    !<  kappa: kappa and related variables
     !---------------------------------------------------------------------------
-    subroutine calc_spatial_diffusion_coefficients
+    subroutine calc_spatial_diffusion_coefficients(ptl, fields, gradf, db2, &
+            grad_db2, lc, grad_lc, kappa)
         implicit none
+        type(particle_type), intent(in) :: ptl
+        real(dp), dimension(*), intent(in) :: fields
+        real(dp), dimension(*), intent(in) :: gradf
+        real(dp), dimension(*), intent(in) :: grad_db2
+        real(dp), dimension(*), intent(in) :: grad_lc
+        real(dp), intent(in) :: db2, lc
+        type(kappa_type), intent(out) :: kappa
         real(dp) :: knorm
         real(dp) :: bx, by, bz, b, ib1, ib2, ib3, ib4
         real(dp) :: dbx_dx, dby_dx, dbz_dx
@@ -1293,6 +1359,7 @@ module particle_module
         real(dp) :: dbx_dz, dby_dz, dbz_dz
         real(dp) :: db_dx, db_dy, db_dz
         real(dp) :: dkdx, dkdy, dkdz
+        real(dp) :: kpp
 
         bx = fields(5)
         by = fields(6)
@@ -1307,35 +1374,39 @@ module particle_module
         ib3 = ib1 * ib2
         ib4 = ib2 * ib2
 
-        knorm0 = 1.0_dp
+        kappa%knorm0 = 1.0_dp
         if (mag_dependency == 1) then
-            knorm0 = knorm0 * ib1**(1./3.)
+            kappa%knorm0 = kappa%knorm0 * ib1**(1./3.)
         endif
 
         ! Magnetic fluctuation dB^2/B^2
         if (deltab_flag) then
-            knorm0 = knorm0 / db2
+            kappa%knorm0 = kappa%knorm0 / db2
         endif
 
         ! Turbulence correlation length
         ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
-            knorm0 = knorm0 * lc**(2./3.)
+            kappa%knorm0 = kappa%knorm0 * lc**(2./3.)
         endif
 
         ! Momentum-dependent kappa
         if (momentum_dependency == 1) then
-            knorm = knorm0 * (ptl%p / p0)**pindex
+            knorm = kappa%knorm0 * (ptl%p / p0)**pindex
         else
-            knorm = knorm0
+            knorm = kappa%knorm0
         endif
 
-        kpara = kpara0 * knorm
-        kperp = kpara * kret
+        kappa%kpara = kpara0 * knorm
+        kappa%kperp = kappa%kpara * kret
 
         if (deltab_flag) then
-            kperp = kperp * db2
+            kappa%kperp = kappa%kperp * db2
         endif
+
+        kappa%skpara = dsqrt(2.0 * kappa%kpara)
+        kappa%skperp = dsqrt(2.0 * kappa%kperp)
+        kappa%skpara_perp = dsqrt(2.0 * (kappa%kpara - kappa%kperp))
 
         if (ndim_field == 1) then
             dkdx = 0.0_dp
@@ -1348,9 +1419,9 @@ module particle_module
             if (correlation_flag) then
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
             endif
-            dkxx_dx = kpara*dkdx
+            kappa%dkxx_dx = kappa%kpara * dkdx
             if (spherical_coord_flag) then
-                kxx = kpara
+                kappa%kxx = kappa%kpara
             endif
         else if (ndim_field == 2) then
             dbx_dx = gradf(13)
@@ -1373,18 +1444,19 @@ module particle_module
                 dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
                 dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
             endif
-            dkxx_dx = kperp*dkdx + (kpara-kperp)*dkdx*bx**2*ib2 + &
-                2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
-            dkyy_dy = kperp*dkdy + (kpara-kperp)*dkdy*by**2*ib2 + &
-                2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
-            dkxy_dx = (kpara-kperp)*dkdx*bx*by*ib2 + (kpara-kperp) * &
+            kpp = kappa%kpara - kappa%kperp
+            kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
+                2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
+            kappa%dkyy_dy = kappa%kperp*dkdy + kpp*dkdy*by**2*ib2 + &
+                2.0*kpp*by*(dby_dy*b-by*db_dy)*ib3
+            kappa%dkxy_dx = kpp*dkdx*bx*by*ib2 + kpp * &
                 ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
-            dkxy_dy = (kpara-kperp)*dkdy*bx*by*ib2 + (kpara-kperp) * &
+            kappa%dkxy_dy = kpp*dkdy*bx*by*ib2 + kpp * &
                 ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
             if (spherical_coord_flag) then
-                kxx = kperp + (kpara - kperp) * bx * bx * ib2
-                kyy = kperp + (kpara - kperp) * by * by * ib2
-                kxy = (kpara - kperp) * bx * by * ib2
+                kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
+                kappa%kyy = kappa%kperp + kpp * by * by * ib2
+                kappa%kxy = kpp * bx * by * ib2
             endif
         else
             dbx_dx = gradf(13)
@@ -1417,31 +1489,32 @@ module particle_module
                 dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
                 dkdz = dkdz + 2 * grad_lc(3) / (3 * lc)
             endif
-            dkxx_dx = kperp*dkdx + (kpara-kperp)*dkdx*bx**2*ib2 + &
-                2.0*(kpara-kperp)*bx*(dbx_dx*b-bx*db_dx)*ib3
-            dkyy_dy = kperp*dkdy + (kpara-kperp)*dkdy*by**2*ib2 + &
-                2.0*(kpara-kperp)*by*(dby_dy*b-by*db_dy)*ib3
-            dkzz_dz = kperp*dkdz + (kpara-kperp)*dkdz*bz**2*ib2 + &
-                2.0*(kpara-kperp)*bz*(dbz_dz*b-bz*db_dz)*ib3
-            dkxy_dx = (kpara-kperp)*dkdx*bx*by*ib2 + (kpara-kperp) * &
+            kpp = kappa%kpara - kappa%kperp
+            kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
+                2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
+            kappa%dkyy_dy = kappa%kperp*dkdy + kpp*dkdy*by**2*ib2 + &
+                2.0*kpp*by*(dby_dy*b-by*db_dy)*ib3
+            kappa%dkzz_dz = kappa%kperp*dkdz + kpp*dkdz*bz**2*ib2 + &
+                2.0*kpp*bz*(dbz_dz*b-bz*db_dz)*ib3
+            kappa%dkxy_dx = kpp*dkdx*bx*by*ib2 + kpp * &
                 ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
-            dkxy_dy = (kpara-kperp)*dkdy*bx*by*ib2 + (kpara-kperp) * &
+            kappa%dkxy_dy = kpp*dkdy*bx*by*ib2 + kpp * &
                 ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
-            dkxz_dx = (kpara-kperp)*dkdx*bx*bz*ib2 + (kpara-kperp) * &
+            kappa%dkxz_dx = kpp*dkdx*bx*bz*ib2 + kpp * &
                 ((dbx_dx*bz+bx*dbz_dx)*ib2 - 2.0*bx*bz*db_dx*ib3)
-            dkxz_dz = (kpara-kperp)*dkdz*bx*bz*ib2 + (kpara-kperp) * &
+            kappa%dkxz_dz = kpp*dkdz*bx*bz*ib2 + kpp * &
                 ((dbx_dz*bz+bx*dbz_dz)*ib2 - 2.0*bx*bz*db_dz*ib3)
-            dkyz_dy = (kpara-kperp)*dkdy*by*bz*ib2 + (kpara-kperp) * &
+            kappa%dkyz_dy = kpp*dkdy*by*bz*ib2 + kpp * &
                 ((dby_dy*bz+by*dbz_dy)*ib2 - 2.0*by*bz*db_dy*ib3)
-            dkyz_dz = (kpara-kperp)*dkdz*by*bz*ib2 + (kpara-kperp) * &
+            kappa%dkyz_dz = kpp*dkdz*by*bz*ib2 + kpp * &
                 ((dby_dz*bz+by*dbz_dz)*ib2 - 2.0*by*bz*db_dz*ib3)
             if (spherical_coord_flag) then
-                kxx = kperp + (kpara - kperp) * bx * bx * ib2
-                kyy = kperp + (kpara - kperp) * by * by * ib2
-                kzz = kperp + (kpara - kperp) * bz * bz * ib2
-                kxy = (kpara - kperp) * bx * by * ib2
-                kxz = (kpara - kperp) * bx * bz * ib2
-                kyz = (kpara - kperp) * by * bz * ib2
+                kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
+                kappa%kyy = kappa%kperp + kpp * by * by * ib2
+                kappa%kzz = kappa%kperp + kpp * bz * bz * ib2
+                kappa%kxy = kpp * bx * by * ib2
+                kappa%kxz = kpp * bx * bz * ib2
+                kappa%kyz = kpp * by * bz * ib2
             endif
         endif
     end subroutine calc_spatial_diffusion_coefficients
@@ -1605,12 +1678,20 @@ module particle_module
     !< Args;
     !<  t0: the initial time for current particle
     !<  dtf: the time interval between fine diagnostics
+    !<  fields: fields at particle position
+    !<  gradf: gradients of the fields at particle position
+    !<  kappa: kappa and related variables
+    !<  ptl: particle structure
     !---------------------------------------------------------------------------
-    subroutine set_time_step(t0, dtf)
+    subroutine set_time_step(t0, dtf, fields, gradf, kappa, ptl)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         implicit none
         real(dp), intent(in) :: t0, dtf
+        real(dp), dimension(*), intent(in) :: fields
+        real(dp), dimension(*), intent(in) :: gradf
+        type(kappa_type), intent(in) :: kappa
+        type(particle_type), intent(inout) :: ptl
         real(dp) :: tmp30, tmp40, bx, by, bz, b, ib, ib2, ib3
         real(dp) :: vx, vy, vz, dxm, dym, dzm, dt1, dt2, dt3
         real(dp) :: vdx, vdy, vdz, vdp
@@ -1620,18 +1701,14 @@ module particle_module
         real(dp) :: qtmp1, qtmp2, atmp
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
 
-        skpara = dsqrt(2.0*kpara)
-        skperp = dsqrt(2.0*kperp)
-        skpara_perp = dsqrt(2.0*(kpara-kperp))
-
         if (ndim_field == 1) then
             vx = fields(1)
             dxm = mhd_config%dx
-            tmp30 = skpara
+            tmp30 = kappa%skpara
             if (spherical_coord_flag) then
-                tmp40 = abs(vx + dkxx_dx + 2.0*kxx/ptl%x)
+                tmp40 = abs(vx + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x)
             else
-                tmp40 = abs(vx + dkxx_dx)
+                tmp40 = abs(vx + kappa%dkxx_dx)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1663,9 +1740,9 @@ module particle_module
                 istheta = 1.0 / sin(ptl%y + 0.5*pi)
                 ir = 1.0 / ptl%x
                 ir2 = 1.0 / ptl%x**2
-                a1 = kxx
-                b1 = kxy * ir
-                c1 = kyy * ir2
+                a1 = kappa%kxx
+                b1 = kappa%kxy * ir
+                c1 = kappa%kyy * ir2
                 atmp = dsqrt((a1-c1)**2 + 4*b1**2)
                 Qpp = atmp + (a1 + c1)
                 Qmp = atmp - (a1 + c1)
@@ -1678,11 +1755,11 @@ module particle_module
             ! X-direction
             if (spherical_coord_flag) then
                 tmp30 = abs(-Qmm * qtmp1) + abs(Qpm * qtmp2)
-                tmp40 = abs(vx + dkxx_dx + &
-                    (2.0*kxx + dkxy_dy*ir + kxy*ctheta*istheta)*ir)
+                tmp40 = abs(vx + kappa%dkxx_dx + &
+                    (2.0*kappa%kxx + kappa%dkxy_dy*ir + kappa%kxy*ctheta*istheta)*ir)
             else
-                tmp30 = skperp + skpara_perp * abs(bxn)
-                tmp40 = abs(vx + dkxx_dx + dkxy_dy)
+                tmp30 = kappa%skperp + kappa%skpara_perp * abs(bxn)
+                tmp40 = abs(vx + kappa%dkxx_dx + kappa%dkxy_dy)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1697,11 +1774,11 @@ module particle_module
             ! Y-direction
             if (spherical_coord_flag) then
                 tmp30 = abs(2*b1*qtmp1) + abs(2*b1*qtmp2)
-                tmp40 = abs((vy+dkxy_dx)*ir + &
-                    (kxy + dkyy_dy + kyy*ctheta*istheta)*ir2)
+                tmp40 = abs((vy+kappa%dkxy_dx)*ir + &
+                    (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta)*ir2)
             else
-                tmp30 = skperp + skpara_perp * abs(byn)
-                tmp40 = abs(vy + dkxy_dx + dkyy_dy)
+                tmp30 = kappa%skperp + kappa%skpara_perp * abs(byn)
+                tmp40 = abs(vy + kappa%dkxy_dx + kappa%dkyy_dy)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1744,13 +1821,19 @@ module particle_module
                 istheta = 1.0 / sin(ptl%y + 0.5*pi)
                 ir = 1.0 / ptl%x
                 ir2 = ir**2
-                p11 = dsqrt(2.0*(kxx*kyz**2 + kyy*kxz**2 + kzz*kxy**2 - &
-                                 2.0*kxy*kxz*kyz - kxx*kyy*kzz) / (kyz**2 - kyy*kzz))
-                p12 = (kxz*kyz - kxy*kzz) * dsqrt(2.0*(kyy - (kyz**2/kzz))) / (kyz**2 - kyy*kzz)
-                p13 = dsqrt(2.0 / kzz) * kxz
-                p22 = dsqrt(2.0 * (kyy - kyz**2/kzz)) * ir
-                p23 = dsqrt(2.0 / kzz) * kyz * ir
-                p33 = dsqrt(2.0 * kzz) * istheta * ir
+                p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                                 kappa%kyy*kappa%kxz**2 + &
+                                 kappa%kzz*kappa%kxy**2 - &
+                                 2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                                 kappa%kxx*kappa%kyy*kappa%kzz) / &
+                                 (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+                p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                    dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                    (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+                p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+                p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+                p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+                p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
             endif
 
             ! Drift velocity
@@ -1785,11 +1868,14 @@ module particle_module
             ! X-direction
             if (spherical_coord_flag) then
                 tmp30 = abs(p11) + abs(p12) + abs(p13)
-                tmp40 = abs(vx + vdx + dkxx_dx + &
-                    (2.0*kxx + dkxy_dy + kxy*ctheta*istheta + dkxz_dz*istheta)*ir)
+                tmp40 = abs(vx + vdx + kappa%dkxx_dx + &
+                    (2.0*kappa%kxx + kappa%dkxy_dy + &
+                     kappa%kxy*ctheta*istheta + &
+                     kappa%dkxz_dz*istheta)*ir)
             else
-                tmp30 = abs(bxn)*skpara + abs(bxn*bzn)*skperp*ibxyn + abs(byn)*skperp*ibxyn
-                tmp40 = abs(vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz)
+                tmp30 = abs(bxn)*kappa%skpara + &
+                    abs(bxn*bzn)*kappa%skperp*ibxyn + abs(byn)*kappa%skperp*ibxyn
+                tmp40 = abs(vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1804,11 +1890,13 @@ module particle_module
             ! Y-direction
             if (spherical_coord_flag) then
                 tmp30 = abs(p22) + abs(p33)
-                tmp40 = abs((vy + vdy + dkxy_dx)*ir + &
-                    (kxy + dkyy_dy + kyy*ctheta*istheta + dkyz_dz*istheta)*ir2)
+                tmp40 = abs((vy + vdy + kappa%dkxy_dx)*ir + &
+                    (kappa%kxy + kappa%dkyy_dy + &
+                     kappa%kyy*ctheta*istheta + kappa%dkyz_dz*istheta)*ir2)
             else
-                tmp30 = abs(byn)*skpara + abs(byn*bzn)*skperp*ibxyn + abs(bxn)*skperp*ibxyn
-                tmp40 = abs(vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz)
+                tmp30 = abs(byn)*kappa%skpara + &
+                    abs(byn*bzn)*kappa%skperp*ibxyn + abs(bxn)*kappa%skperp*ibxyn
+                tmp40 = abs(vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1823,11 +1911,11 @@ module particle_module
             ! Z-direction
             if (spherical_coord_flag) then
                 tmp30 = abs(p33)
-                tmp40 = abs((vz + vdz + dkxz_dx)*istheta*ir + &
-                    (kxz + dkyz_dy + dkzz_dz*istheta)*istheta*ir2)
+                tmp40 = abs((vz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                    (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2)
             else
-                tmp30 = abs(bzn)*skpara + bxyn*skperp
-                tmp40 = abs(vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz)
+                tmp30 = abs(bzn)*kappa%skpara + bxyn*kappa%skperp
+                tmp40 = abs(vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz)
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
@@ -1865,24 +1953,24 @@ module particle_module
     !< Args:
     !<  ptl: one particle
     !---------------------------------------------------------------------------
-    function particle_in_acceleration_region(particle) result (ptl_in_region)
+    function particle_in_acceleration_region(ptl) result (ptl_in_region)
         use mhd_config_module, only: mhd_config
         implicit none
-        type(particle_type), intent(in) :: particle
+        type(particle_type), intent(in) :: ptl
         logical :: ptl_in_region, inx, iny, inz
         real(dp) :: xnorm, ynorm, znorm  !< 0 - 1
         ptl_in_region = .true.
         inx = .true.
         iny = .true.
         inz = .true.
-        xnorm = (particle%x - mhd_config%xmin) / mhd_config%lx
+        xnorm = (ptl%x - mhd_config%xmin) / mhd_config%lx
         inx = (xnorm >= acc_region(1)) .and. ((1.0d0-xnorm) <= acc_region(2))
         if (ndim_field > 1) then
-            ynorm = (particle%y - mhd_config%ymin) / mhd_config%ly
+            ynorm = (ptl%y - mhd_config%ymin) / mhd_config%ly
             iny = (ynorm >= acc_region(3)) .and. ((1.0d0-ynorm) <= acc_region(4))
         endif
         if (ndim_field == 3) then
-            znorm = (particle%z - mhd_config%zmin) / mhd_config%lz
+            znorm = (ptl%z - mhd_config%zmin) / mhd_config%lz
             inz = (znorm >= acc_region(5)) .and. ((1.0d0-znorm) <= acc_region(6))
         endif
         ptl_in_region = inx .and. iny .and. inz
@@ -1893,9 +1981,18 @@ module particle_module
     !< Args:
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  ptl: particle structure
+    !<  fields: fields at particle position
+    !<  gradf: gradients of the fields at particle position
+    !<  db2: turbulence variance at particle position
+    !<  grad_db2: gradients of db2
+    !<  lc: turbulence correlation length at particle position
+    !<  grad_lc: gradients of lc
+    !<  kappa: kappa and related variables
     !<  deltax, deltap: the change of x and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_1d(rt, deltax, deltap)
+    subroutine push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
+            lc, grad_lc, kappa, deltax, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, &
@@ -1903,13 +2000,20 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: rt
+        type(particle_type), intent(inout) :: ptl
+        real(dp), dimension(*), intent(inout) :: fields
+        real(dp), dimension(*), intent(inout) :: gradf
+        real(dp), dimension(*), intent(inout) :: grad_db2
+        real(dp), dimension(*), intent(inout) :: grad_lc
+        real(dp), intent(inout) :: db2, lc
+        type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltap
         real(dp) :: xtmp
         real(dp) :: sdt, dvx_dx, divv, gshear
         real(dp) :: b, ib, bx, by, bz, vx, px, rt1
         real(dp) :: xmin, xmax, dxm
         reaL(dp) :: xmin1, xmax1, dxmh
-        real(dp) :: skpara1
+        real(dp) :: skpara, skpara1
         real(dp) :: ran1, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
@@ -1936,11 +2040,11 @@ module particle_module
 
         sdt = dsqrt(ptl%dt)
         if (spherical_coord_flag) then
-            deltax = (vx+dkxx_dx+2.0*kxx/ptl%x)*ptl%dt
+            deltax = (vx + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x) * ptl%dt
         else
-            deltax = (vx+dkxx_dx)*ptl%dt
+            deltax = (vx + kappa%dkxx_dx)*ptl%dt
         endif
-        xtmp = ptl%x + deltax + skpara*sdt
+        xtmp = ptl%x + deltax + kappa%skpara*sdt
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
 
@@ -1949,7 +2053,7 @@ module particle_module
         !< Therefore, we switch between first-order and second-order method.
         if (xtmp < xmin1 .or. xtmp > xmax1) then
             !< First-order method
-            deltax = deltax + ran1*skpara*sdt
+            deltax = deltax + ran1*kappa%skpara*sdt
         else
             !< Second-order method. It requires xtmp and ytmp are in the local domain.
             px = (xtmp - xmin) / dxm
@@ -1966,10 +2070,12 @@ module particle_module
                 call interp_correlation_length(pos, weights, rt, lc, grad_lc)
             endif
 
-            call calc_spatial_diffusion_coefficients
+            skpara = kappa%skpara
 
-            ! Diffusion coefficient at predicted position
-            skpara1 = dsqrt(2.0*kpara)
+            call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
+                db2, grad_db2, lc, grad_lc, kappa)
+
+            skpara1 = kappa%skpara ! Diffusion coefficient at predicted position
 
             deltax = deltax + ran1*skpara*sdt + &
                 (skpara1-skpara)*(ran1*ran1-1.0)*sdt/2.0
@@ -1990,12 +2096,12 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
@@ -2020,10 +2126,10 @@ module particle_module
                 gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2) / 15
             endif
             if (gshear > 0) then
-                deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
+                deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
                 ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-                deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
+                deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
         endif
@@ -2044,9 +2150,18 @@ module particle_module
     !< Args:
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  ptl: particle structure
+    !<  fields: fields at particle position
+    !<  gradf: gradients of the fields at particle position
+    !<  db2: turbulence variance at particle position
+    !<  grad_db2: gradients of db2
+    !<  lc: turbulence correlation length at particle position
+    !<  grad_lc: gradients of lc
+    !<  kappa: kappa and related variables
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_2d(rt, deltax, deltay, deltap)
+    subroutine push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
+            lc, grad_lc, kappa, deltax, deltay, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2055,6 +2170,13 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: rt
+        type(particle_type), intent(inout) :: ptl
+        real(dp), dimension(*), intent(inout) :: fields
+        real(dp), dimension(*), intent(inout) :: gradf
+        real(dp), dimension(*), intent(inout) :: grad_db2
+        real(dp), dimension(*), intent(inout) :: grad_lc
+        real(dp), intent(inout) :: db2, lc
+        type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp) :: xtmp, ytmp
         real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv, gshear
@@ -2063,7 +2185,7 @@ module particle_module
         real(dp) :: dbx_dy, dby_dx, db_dx, db_dy, vdz, vdp, ib2, ib3, gbr, gbt
         real(dp) :: xmin, ymin, xmax, ymax, dxm, dym
         reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
-        real(dp) :: skperp1, skpara_perp1
+        real(dp) :: skperp, skpara_perp, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
         real(dp) :: rands(2)
@@ -2117,9 +2239,9 @@ module particle_module
             istheta = 1.0 / sin(ptl%y + 0.5*pi)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            a1 = kxx
-            b1 = kxy * ir
-            c1 = kyy * ir2
+            a1 = kappa%kxx
+            b1 = kappa%kxy * ir
+            c1 = kappa%kyy * ir2
             atmp = dsqrt((a1-c1)**2 + 4*b1**2)
             Qpp = atmp + (a1 + c1)
             Qmp = atmp - (a1 + c1)
@@ -2153,17 +2275,17 @@ module particle_module
         endif
 
         if (spherical_coord_flag) then
-            deltax = (vx + dkxx_dx + &
-                (2.0*kxx + dkxy_dy*ir + kxy*ctheta*istheta)*ir)*ptl%dt
-            deltay = ((vy+dkxy_dx)*ir + &
-                (kxy + dkyy_dy + kyy*ctheta*istheta)*ir2)*ptl%dt
+            deltax = (vx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy*ir + kappa%kxy*ctheta*istheta)*ir)*ptl%dt
+            deltay = ((vy + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta)*ir2)*ptl%dt
             xtmp = ptl%x + deltax + (-Qmm*qtmp1 + Qpm*qtmp2)*sdt
             ytmp = ptl%y + deltay + (2*b1*qtmp1 + 2*b1*qtmp2)*sdt
         else
-            deltax = (vx+dkxx_dx+dkxy_dy)*ptl%dt
-            deltay = (vy+dkxy_dx+dkyy_dy)*ptl%dt
-            xtmp = ptl%x + deltax + (skperp+skpara_perp*bx*ib)*sdt
-            ytmp = ptl%y + deltay + (skperp+skpara_perp*by*ib)*sdt
+            deltax = (vx + kappa%dkxx_dx + kappa%dkxy_dy)*ptl%dt
+            deltay = (vy + kappa%dkxy_dx + kappa%dkyy_dy)*ptl%dt
+            xtmp = ptl%x + deltax + (kappa%skperp + kappa%skpara_perp*bx*ib)*sdt
+            ytmp = ptl%y + deltay + (kappa%skperp + kappa%skpara_perp*by*ib)*sdt
         endif
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
@@ -2185,8 +2307,8 @@ module particle_module
                 deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
                 deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
             else
-                deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib
-                deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib
+                deltax = deltax + ran1*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*bx*ib
+                deltay = deltay + ran2*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*by*ib
             endif
         else
             !< Second-order method. It requires xtmp and ytmp are in the local domain.
@@ -2205,14 +2327,18 @@ module particle_module
                 call interp_correlation_length(pos, weights, rt, lc, grad_lc)
             endif
 
-            call calc_spatial_diffusion_coefficients
+            skperp = kappa%skperp
+            skpara_perp = kappa%skpara_perp
+
+            call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
+                db2, grad_db2, lc, grad_lc, kappa)
 
             if (spherical_coord_flag) then
                 ir = 1.0 / xtmp
                 ir2 = ir * ir
-                a1_1 = kxx
-                b1_1 = kxy * ir
-                c1_1 = kyy * ir2
+                a1_1 = kappa%kxx
+                b1_1 = kappa%kxy * ir
+                c1_1 = kappa%kyy * ir2
                 atmp = dsqrt((a1_1-c1_1)**2 + 4*b1_1**2)
                 Qpp_1 = atmp + (a1_1 + c1_1)
                 Qmp_1 = atmp - (a1_1 + c1_1)
@@ -2227,8 +2353,8 @@ module particle_module
             by1 = fields(6)
             btot1 = fields(8)
 
-            skperp1 = dsqrt(2.0*kperp)
-            skpara_perp1 = dsqrt(2.0*(kpara-kperp))
+            skperp1 = kappa%skperp
+            skpara_perp1 = kappa%skpara_perp
 
             if (btot1 == 0) then
                 ib1 = 0.0
@@ -2244,10 +2370,10 @@ module particle_module
                          (2*b1_1*qtmp1_1 - 2*b1_1*qtmp1_1)*(ran1*ran1-1.0)*sdt/2.0 + &
                          (2*b1_1*qtmp2_1 - 2*b1_1*qtmp2_1)*(ran2*ran2-1.0)*sdt/2.0
             else
-                deltax = deltax + ran1*skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
+                deltax = deltax + ran1*kappa%skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
                          (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
                          (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
-                deltay = deltay + ran2*skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
+                deltay = deltay + ran2*kappa%skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
                          (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
                          (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
             endif
@@ -2270,14 +2396,14 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
             ! ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
             rands = two_normals()
             ran1 = rands(1)
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
@@ -2297,10 +2423,10 @@ module particle_module
                 gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + 2 * sigmaxy**2) / 15
             endif
             if (gshear > 0) then
-                deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
+                deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
                 ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-                deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
+                deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
         endif
@@ -2321,9 +2447,18 @@ module particle_module
     !< Args:
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  ptl: particle structure
+    !<  fields: fields at particle position
+    !<  gradf: gradients of the fields at particle position
+    !<  db2: turbulence variance at particle position
+    !<  grad_db2: gradients of db2
+    !<  lc: turbulence correlation length at particle position
+    !<  grad_lc: gradients of lc
+    !<  kappa: kappa and related variables
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_3d(rt, deltax, deltay, deltaz, deltap)
+    subroutine push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
+            lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2332,6 +2467,13 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: rt
+        type(particle_type), intent(inout) :: ptl
+        real(dp), dimension(*), intent(inout) :: fields
+        real(dp), dimension(*), intent(inout) :: gradf
+        real(dp), dimension(*), intent(inout) :: grad_db2
+        real(dp), dimension(*), intent(inout) :: grad_lc
+        real(dp), intent(inout) :: db2, lc
+        type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltay, deltaz, deltap
         real(dp) :: rt1, sdt
         real(dp) :: dvx_dx, dvx_dy, dvx_dz
@@ -2399,13 +2541,19 @@ module particle_module
             istheta = 1.0 / sin(ptl%y + 0.5*pi)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            p11 = dsqrt(2.0*(kxx*kyz**2 + kyy*kxz**2 + kzz*kxy**2 - &
-                             2.0*kxy*kxz*kyz - kxx*kyy*kzz) / (kyz**2 - kyy*kzz))
-            p12 = (kxz*kyz - kxy*kzz) * dsqrt(2.0*(kyy - (kyz**2/kzz))) / (kyz**2 - kyy*kzz)
-            p13 = dsqrt(2.0 / kzz) * kxz
-            p22 = dsqrt(2.0 * (kyy - kyz**2/kzz)) * ir
-            p23 = dsqrt(2.0 / kzz) * kyz * ir
-            p33 = dsqrt(2.0 * kzz) * istheta * ir
+            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                             kappa%kyy*kappa%kxz**2 + &
+                             kappa%kzz*kappa%kxy**2 - &
+                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                             kappa%kxx*kappa%kyy*kappa%kzz) / &
+                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
         endif
 
         ! Drift velocity
@@ -2445,16 +2593,18 @@ module particle_module
         ymax1 = ymax + dymh
 
         if (spherical_coord_flag) then
-            deltax = (vx + vdx + dkxx_dx + &
-                (2.0*kxx + dkxy_dy + kxy*ctheta*istheta + dkxz_dz*istheta)*ir) * ptl%dt
-            deltay = ((vy + vdy + dkxy_dx)*ir + &
-                (kxy + dkyy_dy + kyy*ctheta*istheta + dkyz_dz*istheta)*ir2) * ptl%dt
-            deltaz = ((vz + vdz + dkxz_dx)*istheta*ir + &
-                (kxz + dkyz_dy + dkzz_dz*istheta)*istheta*ir2) * ptl%dt
+            deltax = (vx + vdx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy + &
+                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir) * ptl%dt
+            deltay = ((vy + vdy + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta + &
+                kappa%dkyz_dz*istheta)*ir2) * ptl%dt
+            deltaz = ((vz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2) * ptl%dt
         else
-            deltax = (vx + vdx + dkxx_dx + dkxy_dy + dkxz_dz) * ptl%dt
-            deltay = (vy + vdy + dkxy_dx + dkyy_dy + dkyz_dz) * ptl%dt
-            deltaz = (vz + vdz + dkxz_dx + dkyz_dy + dkzz_dz) * ptl%dt
+            deltax = (vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz) * ptl%dt
+            deltay = (vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz) * ptl%dt
+            deltaz = (vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz) * ptl%dt
         endif
 
         sqrt3 = dsqrt(3.0_dp)
@@ -2470,10 +2620,12 @@ module particle_module
             deltaz = deltaz + p33*ran3*sdt
         else
             deltax = deltax + &
-                (bxn*skpara*ran1 - bxn*bzn*skperp*ibxyn*ran2 - byn*skperp*ibxyn*ran3)*sdt
+                (bxn*kappa%skpara*ran1 - bxn*bzn*kappa%skperp*ibxyn*ran2 - &
+                 byn*kappa%skperp*ibxyn*ran3)*sdt
             deltay = deltay + &
-                (byn*skpara*ran1 - byn*bzn*skperp*ibxyn*ran2 + bxn*skperp*ibxyn*ran3)*sdt
-            deltaz = deltaz + (bzn*skpara*ran1 + bxyn*skperp*ran2)*sdt
+                (byn*kappa%skpara*ran1 - byn*bzn*kappa%skperp*ibxyn*ran2 + &
+                 bxn*kappa%skperp*ibxyn*ran3)*sdt
+            deltaz = deltaz + (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
         endif
 
         ptl%x = ptl%x + deltax
@@ -2494,12 +2646,12 @@ module particle_module
             rho = fields(4)
             va = b / dsqrt(rho)
             if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
             else
-                deltap = deltap + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
+                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kpara)) * sdt
+            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
@@ -2525,10 +2677,10 @@ module particle_module
                 gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
                     2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
             endif
-            deltap = deltap + (2 + pindex) * gshear * tau0 * knorm0 * &
+            deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
             ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            deltap = deltap + dsqrt(2 * gshear * tau0 * knorm0 * &
+            deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
 
@@ -2607,7 +2759,7 @@ module particle_module
         implicit none
         integer :: i, nptl
         real(dp) :: p_threshold
-        type(particle_type) :: ptl_new
+        type(particle_type) :: ptl, ptl_new
         nptl = nptl_current
         do i = 1, nptl
             ptl = ptls(i)
@@ -2810,17 +2962,23 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Accumulate particle energization distributions
+    !< Args:
+    !<  ptl: particle structure
+    !<  t0: initial time of current time interval
     !---------------------------------------------------------------------------
-    subroutine energization_dist(t0)
+    subroutine energization_dist(ptl, t0)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_fields
         implicit none
+        type(particle_type), intent(in) :: ptl
         real(dp), intent(in) :: t0
         real(dp) :: weight, px, py, pz, rt
         real(dp) :: dvx_dx, dvy_dy, dvz_dz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
+        real(dp), dimension(nfields) :: fields !< Fields at particle position
+        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
         integer :: ip
 
         if (ptl%p > pmin .and. ptl%p <= pmax) then
@@ -2859,6 +3017,7 @@ module particle_module
         real(dp) :: weight, p, xmin, xmax, ymin, ymax, zmin, zmax
         real(dp) :: px, py, pz, rx, ry, rz, rt
         real(dp) :: dxm, dym, dzm
+        type(particle_type) :: ptl
 
         xmin = fconfig%xmin
         xmax = fconfig%xmax

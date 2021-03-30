@@ -46,7 +46,9 @@ module random_number_generator
     !---------------------------------------------------------------------------
     real(dp) function unif_01()
         implicit none
+        !$OMP CRITICAL
         unif_01 = genrand_double1(mts1)
+        !$OMP END CRITICAL
     end function unif_01
 
     !---------------------------------------------------------------------------
