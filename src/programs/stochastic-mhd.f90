@@ -5,6 +5,7 @@
 program stochastic
     use constants, only: fp, dp
     use mpi_module
+    use omp_lib
     use mhd_config_module, only: load_mhd_config, mhd_config, &
         echo_mhd_config, set_mhd_grid_type
     use particle_module, only: init_particles, free_particles, &
@@ -54,7 +55,7 @@ program stochastic
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
-    integer :: color
+    integer :: nthreads, color
     integer :: t_start, t_end, tf, dist_flag, split_flag
     integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
@@ -80,7 +81,7 @@ program stochastic
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
     call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_size, ierr)
 
-    call cpu_time(start)
+    start = MPI_Wtime()
 
     call get_cmd_args
 
@@ -102,7 +103,13 @@ program stochastic
         print '(A,I10.3)', 'mpi_cross_size: ', mpi_cross_size
     endif
 
-    call init_prng
+    nthreads = 1
+    !$OMP PARALLEL
+    !$OMP MASTER
+    nthreads = OMP_GET_NUM_THREADS()
+    !$OMP END MASTER
+    !$OMP END PARALLEL
+    call init_prng(mpi_rank, nthreads)
 
     !< Configurations
     write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
@@ -154,7 +161,7 @@ program stochastic
     if (track_particle_flag == 1) then
         !< We need to reset the random number generator
         call delete_prng
-        call init_prng
+        call init_prng(mpi_rank, nthreads)
 
         call init_particle_tracking(nptl_selected)
         call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
@@ -196,7 +203,7 @@ program stochastic
 
     call free_grid_positions
 
-    call cpu_time(finish)
+    finish = MPI_Wtime()
     if (mpi_rank == master) then
         print '("Time = ",f9.4," seconds.")',finish-start
     endif
@@ -289,7 +296,7 @@ program stochastic
             call record_tracked_particle_init(nptl_selected)
         endif
 
-        call cpu_time(step1)
+        step1 = MPI_Wtime()
 
         if (.not. track_particles) then
             call set_mpi_io_data_sizes
@@ -389,7 +396,7 @@ program stochastic
                 call negative_particle_tags(nptl_selected)
                 call record_tracked_particle_init(nptl_selected)
             endif
-            call cpu_time(step2)
+            step2 = MPI_Wtime()
             if (mpi_rank == master) then
                 print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
             endif

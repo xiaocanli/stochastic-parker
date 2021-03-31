@@ -38,8 +38,8 @@ module mhd_data_parallel
     real(fp), allocatable, dimension(:, :, :) :: lc1, lc2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: grad_deltab1, grad_deltab2
     real(fp), allocatable, dimension(:, :, :, :) :: grad_correl1, grad_correl2
-    !dir$ attributes align:32 :: f_array1
-    !dir$ attributes align:32 :: f_array2
+    !dir$ attributes align:64 :: f_array1
+    !dir$ attributes align:64 :: f_array2
     !dir$ attributes align:32 :: deltab1
     !dir$ attributes align:32 :: deltab2
     !dir$ attributes align:32 :: lc1

@@ -429,9 +429,9 @@ module particle_module
             if (nptl_current > nptl_max) nptl_current = nptl_max
             inbox = .false.
             do while (.not. inbox)
-                xtmp = unif_01() * (xmax - xmin) + xmin
-                ytmp = unif_01() * (ymax - ymin) + ymin
-                ztmp = unif_01() * (zmax - zmin) + zmin
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
                 inbox = xtmp > xmin_box .and. xtmp < xmax_box .and. &
                         ytmp > ymin_box .and. ytmp < ymax_box .and. &
                         ztmp > zmin_box .and. ztmp < zmax_box
@@ -441,7 +441,7 @@ module particle_module
             ptls(nptl_current)%z = ztmp
             if (dist_flag == 0) then
                 imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals()
+                if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
             else
                 ptls(nptl_current)%p = p0
@@ -495,10 +495,10 @@ module particle_module
         do i = 1, nptl
             nptl_current = nptl_current + 1
             if (nptl_current > nptl_max) nptl_current = nptl_max
-            ptls(nptl_current)%y = unif_01()*(ymax-ymin) + ymin
+            ptls(nptl_current)%y = unif_01(0)*(ymax-ymin) + ymin
             dpy = ptls(nptl_current)%y / mhd_config%dy
             iy = floor(dpy)
-            ptls(nptl_current)%z = unif_01()*(zmax-zmin) + zmin
+            ptls(nptl_current)%z = unif_01(0)*(zmax-zmin) + zmin
             dpz = ptls(nptl_current)%z / mhd_config%dz
             iz = floor(dpz)
             !< We assume that particles are inject at the earlier shock location
@@ -513,7 +513,7 @@ module particle_module
             ptls(nptl_current)%x = shock_xpos * (xmax - xmin) / fconfig%nxg
             if (dist_flag == 0) then
                 imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals()
+                if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
             else
                 ptls(nptl_current)%p = p0
@@ -742,9 +742,9 @@ module particle_module
             if (nptl_current > nptl_max) nptl_current = nptl_max
             jz = -2.0_dp
             do while (jz < jz_min)
-                xtmp = unif_01() * (xmax - xmin) + xmin
-                ytmp = unif_01() * (ymax - ymin) + ymin
-                ztmp = unif_01() * (zmax - zmin) + zmin
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
@@ -775,7 +775,7 @@ module particle_module
             ptls(nptl_current)%z = ztmp
             if (dist_flag == 0) then
                 imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals()
+                if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
             else
                 ptls(nptl_current)%p = p0
@@ -820,7 +820,7 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: px, py, pz, rt
-        integer :: i, tracking_step, offset, step
+        integer :: i, tracking_step, offset, step, thread_id
         type(particle_type) :: ptl
         type(kappa_type) :: kappa
         real(dp), dimension(nfields) :: fields !< Fields at particle position
@@ -852,7 +852,8 @@ module particle_module
         !$OMP& fields, gradf, db2, lc, grad_db2, grad_lc, &
         !$OMP& deltax, deltay, deltaz, deltap, &
         !$OMP& dt_target, pos, weights, px, py, pz, rt, &
-        !$OMP& tracking_step, offset, step)
+        !$OMP& tracking_step, offset, step, thread_id)
+        thread_id = OMP_GET_THREAD_NUM()
         !$OMP DO
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
@@ -927,14 +928,14 @@ module particle_module
                         db2, grad_db2, lc, grad_lc, kappa)
                     call set_time_step(t0, dt_target, fields, gradf, kappa, ptl)
                     if (ndim_field == 1) then
-                        call push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
-                            lc, grad_lc, kappa, deltax, deltap)
+                        call push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
+                            grad_db2, lc, grad_lc, kappa, deltax, deltap)
                     else if (ndim_field == 2) then
-                        call push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
-                            lc, grad_lc, kappa, deltax, deltay, deltap)
+                        call push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
+                            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
                     else
-                        call push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
-                            lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+                        call push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
+                            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
                     endif
 
                     ! Number of particle tracking steps
@@ -982,14 +983,14 @@ module particle_module
                         call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
                             db2, grad_db2, lc, grad_lc, kappa)
                         if (ndim_field == 1) then
-                            call push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
-                                lc, grad_lc, kappa, deltax, deltap)
+                            call push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
+                                grad_db2, lc, grad_lc, kappa, deltax, deltap)
                         else if (ndim_field == 2) then
-                            call push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
-                                lc, grad_lc, kappa, deltax, deltay, deltap)
+                            call push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
+                                grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
                         else
-                            call push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
-                                lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+                            call push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
+                                grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
                         endif
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
@@ -1979,6 +1980,7 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Push particle for a single step for a 1D simulation
     !< Args:
+    !<  thread_id: thread ID staring from 0
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
@@ -1991,14 +1993,15 @@ module particle_module
     !<  kappa: kappa and related variables
     !<  deltax, deltap: the change of x and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_1d(rt, ptl, fields, gradf, db2, grad_db2, &
-            lc, grad_lc, kappa, deltax, deltap)
+    subroutine push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
+            grad_db2, lc, grad_lc, kappa, deltax, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, &
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
+        integer, intent(in) :: thread_id
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -2046,7 +2049,7 @@ module particle_module
         endif
         xtmp = ptl%x + deltax + kappa%skpara*sdt
         sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
 
         !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
         !< but decreasing the time step does not necessarily make the moving distance smaller.
@@ -2100,7 +2103,7 @@ module particle_module
             else
                 deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
@@ -2128,7 +2131,7 @@ module particle_module
             if (gshear > 0) then
                 deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
                 deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
@@ -2148,6 +2151,7 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Push particle for a single step for a 2D simulation
     !< Args:
+    !<  thread_id: thread ID staring from 0
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
@@ -2160,8 +2164,8 @@ module particle_module
     !<  kappa: kappa and related variables
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_2d(rt, ptl, fields, gradf, db2, grad_db2, &
-            lc, grad_lc, kappa, deltax, deltay, deltap)
+    subroutine push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
+            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2169,6 +2173,7 @@ module particle_module
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
+        integer, intent(in) :: thread_id
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -2288,14 +2293,14 @@ module particle_module
             ytmp = ptl%y + deltay + (kappa%skperp + kappa%skpara_perp*by*ib)*sdt
         endif
         sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
 
-        ! rands = two_normals()
+        ! rands = two_normals(thread_id)
         ! ran1 = rands(1)
         ! ran2 = rands(2)
-        ! rands = two_normals()
+        ! rands = two_normals(thread_id)
         ! ran3 = rands(1)
 
         !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
@@ -2400,8 +2405,8 @@ module particle_module
             else
                 deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
-            ! ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-            rands = two_normals()
+            ! ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+            rands = two_normals(thread_id)
             ran1 = rands(1)
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
@@ -2425,7 +2430,7 @@ module particle_module
             if (gshear > 0) then
                 deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
                 deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
@@ -2445,6 +2450,7 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Push particle for a single step for a 3D simulation
     !< Args:
+    !<  thread_id: thread ID staring from 0
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
@@ -2457,8 +2463,8 @@ module particle_module
     !<  kappa: kappa and related variables
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_3d(rt, ptl, fields, gradf, db2, grad_db2, &
-            lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+    subroutine push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
+            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2466,6 +2472,7 @@ module particle_module
             interp_magnetic_fluctuation, interp_correlation_length
         use random_number_generator, only: unif_01, two_normals
         implicit none
+        integer, intent(in) :: thread_id
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -2608,9 +2615,9 @@ module particle_module
         endif
 
         sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
 
         sdt = dsqrt(ptl%dt)
 
@@ -2650,7 +2657,7 @@ module particle_module
             else
                 deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
@@ -2679,7 +2686,7 @@ module particle_module
             endif
             deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-            ran1 = (2.0_dp*unif_01() - 1.0_dp) * sqrt3
+            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
             deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
