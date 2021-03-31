@@ -106,7 +106,9 @@ program stochastic
     nthreads = 1
     !$OMP PARALLEL
     !$OMP MASTER
+#if (defined USE_OPENMP)
     nthreads = OMP_GET_NUM_THREADS()
+#endif
     !$OMP END MASTER
     !$OMP END PARALLEL
     call init_prng(mpi_rank, nthreads)

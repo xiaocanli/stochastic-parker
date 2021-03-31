@@ -853,7 +853,11 @@ module particle_module
         !$OMP& deltax, deltay, deltaz, deltap, &
         !$OMP& dt_target, pos, weights, px, py, pz, rt, &
         !$OMP& tracking_step, offset, step, thread_id)
+        thread_id = 0
+#if (defined USE_OPENMP)
         thread_id = OMP_GET_THREAD_NUM()
+#endif
+        print*, thread_id
         !$OMP DO
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
