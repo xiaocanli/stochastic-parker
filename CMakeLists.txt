@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.9)
 
 project("stochastic_parker")
 
+#------------------------------------------------------------------------------#
+# Quiet newer versions of cmake about HDF5_ROOT
+#------------------------------------------------------------------------------#
+if(POLICY CMP0074)
+    cmake_policy(SET CMP0074 NEW)
+endif()
+
 enable_language (Fortran)
 
 #~----------------------------------------------------------------------------~#
@@ -18,6 +25,7 @@ link_directories(${MPI_Fortran_LIBRARIES})
 #------------------------------------------------------------------------------#
 
 option(USE_OPENMP "Use OpenMP" OFF)
+option(USE_AVX512 "Use AVX512" OFF)
 
 #------------------------------------------------------------------------------#
 # Fortran compiler and flags
@@ -43,7 +51,7 @@ elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
     -check bounds -check uninit -debug all -check arg_temp_created \
     -fpe0 -ftrapuv -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "ftn.*")
-  set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -g -no-prec-div -fPIC -cpp")
+  set (CMAKE_Fortran_FLAGS_RELEASE "-g -no-prec-div -fPIC -cpp")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fPIC -cpp")
 elseif (Fortran_COMPILER_NAME MATCHES "g77")
   set (CMAKE_Fortran_FLAGS_RELEASE "-funroll-all-loops -fno-f2c -O3 -m32")
@@ -62,6 +70,11 @@ if(USE_OPENMP)
     set(CMAKE_Fortran_FLAGS_DEBUG "${CMAKE_Fortran_FLAGS_DEBUG} ${OpenMP_Fortran_FLAGS}")
   endif(OPENMP_FOUND)
 endif(USE_OPENMP)
+
+if(USE_AVX512)
+    set(CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE} -xMIC-AVX512")
+    set(CMAKE_Fortran_FLAGS_DEBUG "${CMAKE_Fortran_FLAGS_DEBUG} -xCORE-AVX2")
+endif(USE_AVX512)
 
 #------------------------------------------------------------------------------#
 # HDF5 library
@@ -89,7 +102,11 @@ if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
 elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
     include_directories($ENV{MT_STREAM})
 elseif (Fortran_COMPILER_NAME MATCHES "ftn*")
-    include_directories($ENV{MT_STREAM_HSW})
+    if(USE_AVX512)
+        include_directories($ENV{MT_STREAM_KNL})
+    else ()
+        include_directories($ENV{MT_STREAM_HSW})
+    endif(USE_AVX512)
 else ()
     message( FATAL_ERROR "Only GNU and Intel are supported, CMake will exit." )
 endif ()

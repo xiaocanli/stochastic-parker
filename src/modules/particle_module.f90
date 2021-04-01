@@ -698,12 +698,12 @@ module particle_module
         real(dp) :: dxm, dym, dzm, dby_dx, dbx_dy
         real(dp) :: rt, jz, by
         real(dp), dimension(2) :: rands
-        real(dp), dimension(nfields) :: fields !< Fields at particle position
-        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
+        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         integer :: i, imod2
         integer :: ncells_large_jz, ncells_large_jz_g
+        !dir$ attributes align:256 :: fields
 
         xmin_box = part_box(1)
         ymin_box = part_box(2)
@@ -757,9 +757,9 @@ module particle_module
                     else
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
-                    call interp_fields(pos, weights, rt, fields, gradf)
-                    dbx_dy = gradf(14)
-                    dby_dx = gradf(16)
+                    call interp_fields(pos, weights, rt, fields)
+                    dbx_dy = fields(nfields+14)
+                    dby_dx = fields(nfields+16)
                     if (spherical_coord_flag) then
                         by = fields(6)
                         jz = abs(dby_dx + (by - dbx_dy) / xtmp)
@@ -823,12 +823,11 @@ module particle_module
         integer :: i, tracking_step, offset, step, thread_id
         type(particle_type) :: ptl
         type(kappa_type) :: kappa
-        real(dp), dimension(nfields) :: fields !< Fields at particle position
-        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
-        real(dp) :: db2, lc !< turbulence variance and correlation length
-        real(dp), dimension(3) :: grad_db2, grad_lc !< Gradients of db2 and lc
-        !dir$ attributes align:64 :: fields
-        !dir$ attributes align:64 :: gradf
+        real(dp), dimension(nfields+ngrads) :: fields
+        real(dp), dimension(4) :: db2, lc
+        !dir$ attributes align:256 :: fields
+        !dir$ attributes align:32 :: db2
+        !dir$ attributes align:32 :: lc
 
         dtf = mhd_config%dt_out
         dt_fine = dtf / num_fine_steps
@@ -849,7 +848,7 @@ module particle_module
         zmax1 = zmax + dzm * 0.5
 
         !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ptl, kappa, &
-        !$OMP& fields, gradf, db2, lc, grad_db2, grad_lc, &
+        !$OMP& fields, db2, lc, &
         !$OMP& deltax, deltay, deltaz, deltap, &
         !$OMP& dt_target, pos, weights, px, py, pz, rt, &
         !$OMP& tracking_step, offset, step, thread_id)
@@ -857,7 +856,6 @@ module particle_module
 #if (defined USE_OPENMP)
         thread_id = OMP_GET_THREAD_NUM()
 #endif
-        print*, thread_id
         !$OMP DO
         do i = nptl_old + 1, nptl_current
             ptl = ptls(i)
@@ -921,25 +919,25 @@ module particle_module
                     else
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
-                    call interp_fields(pos, weights, rt, fields, gradf)
+                    call interp_fields(pos, weights, rt, fields)
                     if (deltab_flag) then
-                        call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
+                        call interp_magnetic_fluctuation(pos, weights, rt, db2)
                     endif
                     if (correlation_flag) then
-                        call interp_correlation_length(pos, weights, rt, lc, grad_lc)
+                        call interp_correlation_length(pos, weights, rt, lc)
                     endif
-                    call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
-                        db2, grad_db2, lc, grad_lc, kappa)
-                    call set_time_step(t0, dt_target, fields, gradf, kappa, ptl)
+                    call calc_spatial_diffusion_coefficients(ptl, fields, db2, &
+                        lc, kappa)
+                    call set_time_step(t0, dt_target, fields, kappa, ptl)
                     if (ndim_field == 1) then
-                        call push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
-                            grad_db2, lc, grad_lc, kappa, deltax, deltap)
+                        call push_particle_1d(thread_id, rt, ptl, fields, db2, &
+                            lc, kappa, deltax, deltap)
                     else if (ndim_field == 2) then
-                        call push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
-                            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
+                        call push_particle_2d(thread_id, rt, ptl, fields, db2, &
+                            lc, kappa, deltax, deltay, deltap)
                     else
-                        call push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
-                            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+                        call push_particle_3d(thread_id, rt, ptl, fields, db2, &
+                            lc, kappa, deltax, deltay, deltaz, deltap)
                     endif
 
                     ! Number of particle tracking steps
@@ -977,24 +975,24 @@ module particle_module
                         else
                             call get_interp_paramters(px, py, pz, pos, weights)
                         endif
-                        call interp_fields(pos, weights, rt, fields, gradf)
+                        call interp_fields(pos, weights, rt, fields)
                         if (deltab_flag) then
-                            call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
+                            call interp_magnetic_fluctuation(pos, weights, rt, db2)
                         endif
                         if (correlation_flag) then
-                            call interp_correlation_length(pos, weights, rt, lc, grad_lc)
+                            call interp_correlation_length(pos, weights, rt, lc)
                         endif
-                        call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
-                            db2, grad_db2, lc, grad_lc, kappa)
+                        call calc_spatial_diffusion_coefficients(ptl, fields, db2, &
+                            lc, kappa)
                         if (ndim_field == 1) then
-                            call push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
-                                grad_db2, lc, grad_lc, kappa, deltax, deltap)
+                            call push_particle_1d(thread_id, rt, ptl, fields, db2, &
+                                lc, kappa, deltax, deltap)
                         else if (ndim_field == 2) then
-                            call push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
-                                grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
+                            call push_particle_2d(thread_id, rt, ptl, fields, db2, &
+                                lc, kappa, deltax, deltay, deltap)
                         else
-                            call push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
-                                grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+                            call push_particle_3d(thread_id, rt, ptl, fields, db2, &
+                                lc, kappa, deltax, deltay, deltaz, deltap)
                         endif
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
@@ -1339,23 +1337,16 @@ module particle_module
     !< Calculate the spatial diffusion coefficients
     !< Args:
     !<  ptl: particle structure
-    !<  fields: fields at particle position
-    !<  gradf: gradients of the fields at particle position
-    !<  db2: turbulence variance at particle position
-    !<  grad_db2: gradients of db2
-    !<  lc: turbulence correlation length at particle position
-    !<  grad_lc: gradients of lc
+    !<  fields: fields and their gradients at particle position
+    !<  db2: turbulence variance and its gradients at particle position
+    !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
     !---------------------------------------------------------------------------
-    subroutine calc_spatial_diffusion_coefficients(ptl, fields, gradf, db2, &
-            grad_db2, lc, grad_lc, kappa)
+    subroutine calc_spatial_diffusion_coefficients(ptl, fields, db2, lc, kappa)
         implicit none
         type(particle_type), intent(in) :: ptl
         real(dp), dimension(*), intent(in) :: fields
-        real(dp), dimension(*), intent(in) :: gradf
-        real(dp), dimension(*), intent(in) :: grad_db2
-        real(dp), dimension(*), intent(in) :: grad_lc
-        real(dp), intent(in) :: db2, lc
+        real(dp), dimension(*), intent(in) :: db2, lc
         type(kappa_type), intent(out) :: kappa
         real(dp) :: knorm
         real(dp) :: bx, by, bz, b, ib1, ib2, ib3, ib4
@@ -1386,13 +1377,13 @@ module particle_module
 
         ! Magnetic fluctuation dB^2/B^2
         if (deltab_flag) then
-            kappa%knorm0 = kappa%knorm0 / db2
+            kappa%knorm0 = kappa%knorm0 / db2(1)
         endif
 
         ! Turbulence correlation length
         ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
-            kappa%knorm0 = kappa%knorm0 * lc**(2./3.)
+            kappa%knorm0 = kappa%knorm0 * lc(1)**(2./3.)
         endif
 
         ! Momentum-dependent kappa
@@ -1406,7 +1397,7 @@ module particle_module
         kappa%kperp = kappa%kpara * kret
 
         if (deltab_flag) then
-            kappa%kperp = kappa%kperp * db2
+            kappa%kperp = kappa%kperp * db2(1)
         endif
 
         kappa%skpara = dsqrt(2.0 * kappa%kpara)
@@ -1419,22 +1410,22 @@ module particle_module
                 dkdx = -db_dx * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db2(1) / db2
+                dkdx = dkdx - db2(2) / db2(1)
             endif
             if (correlation_flag) then
-                dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
+                dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
             endif
             kappa%dkxx_dx = kappa%kpara * dkdx
             if (spherical_coord_flag) then
                 kappa%kxx = kappa%kpara
             endif
         else if (ndim_field == 2) then
-            dbx_dx = gradf(13)
-            dbx_dy = gradf(14)
-            dby_dx = gradf(16)
-            dby_dy = gradf(17)
-            db_dx = gradf(22)
-            db_dy = gradf(23)
+            dbx_dx = fields(nfields+13)
+            dbx_dy = fields(nfields+14)
+            dby_dx = fields(nfields+16)
+            dby_dy = fields(nfields+17)
+            db_dx = fields(nfields+22)
+            db_dy = fields(nfields+23)
             dkdx = 0.0_dp
             dkdy = 0.0_dp
             if (mag_dependency == 1) then
@@ -1442,12 +1433,12 @@ module particle_module
                 dkdy = -db_dy * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db2(1) / db2
-                dkdy = dkdy - grad_db2(2) / db2
+                dkdx = dkdx - db2(2) / db2(1)
+                dkdy = dkdy - db2(3) / db2(1)
             endif
             if (correlation_flag) then
-                dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
-                dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
+                dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
+                dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
             endif
             kpp = kappa%kpara - kappa%kperp
             kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
@@ -1464,18 +1455,18 @@ module particle_module
                 kappa%kxy = kpp * bx * by * ib2
             endif
         else
-            dbx_dx = gradf(13)
-            dbx_dy = gradf(14)
-            dbx_dz = gradf(15)
-            dby_dx = gradf(16)
-            dby_dy = gradf(17)
-            dby_dz = gradf(18)
-            dbz_dx = gradf(19)
-            dbz_dy = gradf(20)
-            dbz_dz = gradf(21)
-            db_dx = gradf(22)
-            db_dy = gradf(23)
-            db_dz = gradf(24)
+            dbx_dx = fields(nfields+13)
+            dbx_dy = fields(nfields+14)
+            dbx_dz = fields(nfields+15)
+            dby_dx = fields(nfields+16)
+            dby_dy = fields(nfields+17)
+            dby_dz = fields(nfields+18)
+            dbz_dx = fields(nfields+19)
+            dbz_dy = fields(nfields+20)
+            dbz_dz = fields(nfields+21)
+            db_dx = fields(nfields+22)
+            db_dy = fields(nfields+23)
+            db_dz = fields(nfields+24)
             dkdx = 0.0_dp
             dkdy = 0.0_dp
             dkdz = 0.0_dp
@@ -1485,14 +1476,14 @@ module particle_module
                 dkdz = -db_dz * ib1 / 3
             endif
             if (deltab_flag) then
-                dkdx = dkdx - grad_db2(1) / db2
-                dkdy = dkdy - grad_db2(2) / db2
-                dkdz = dkdz - grad_db2(3) / db2
+                dkdx = dkdx - db2(2) / db2(1)
+                dkdy = dkdy - db2(3) / db2(1)
+                dkdz = dkdz - db2(4) / db2(1)
             endif
             if (correlation_flag) then
-                dkdx = dkdx + 2 * grad_lc(1) / (3 * lc)
-                dkdy = dkdy + 2 * grad_lc(2) / (3 * lc)
-                dkdz = dkdz + 2 * grad_lc(3) / (3 * lc)
+                dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
+                dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
+                dkdz = dkdz + 2 * lc(4) / (3 * lc(1))
             endif
             kpp = kappa%kpara - kappa%kperp
             kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
@@ -1683,18 +1674,16 @@ module particle_module
     !< Args;
     !<  t0: the initial time for current particle
     !<  dtf: the time interval between fine diagnostics
-    !<  fields: fields at particle position
-    !<  gradf: gradients of the fields at particle position
+    !<  fields: fields and their gradients at particle position
     !<  kappa: kappa and related variables
     !<  ptl: particle structure
     !---------------------------------------------------------------------------
-    subroutine set_time_step(t0, dtf, fields, gradf, kappa, ptl)
+    subroutine set_time_step(t0, dtf, fields, kappa, ptl)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         implicit none
         real(dp), intent(in) :: t0, dtf
         real(dp), dimension(*), intent(in) :: fields
-        real(dp), dimension(*), intent(in) :: gradf
         type(kappa_type), intent(in) :: kappa
         type(particle_type), intent(inout) :: ptl
         real(dp) :: tmp30, tmp40, bx, by, bz, b, ib, ib2, ib3
@@ -1842,15 +1831,15 @@ module particle_module
             endif
 
             ! Drift velocity
-            dbx_dy = gradf(14)
-            dbx_dz = gradf(15)
-            dby_dx = gradf(16)
-            dby_dz = gradf(18)
-            dbz_dx = gradf(19)
-            dbz_dy = gradf(20)
-            db_dx = gradf(22)
-            db_dy = gradf(23)
-            db_dz = gradf(24)
+            dbx_dy = fields(nfields+14)
+            dbx_dz = fields(nfields+15)
+            dby_dx = fields(nfields+16)
+            dby_dz = fields(nfields+18)
+            dbz_dx = fields(nfields+19)
+            dbz_dy = fields(nfields+20)
+            db_dx = fields(nfields+22)
+            db_dy = fields(nfields+23)
+            db_dz = fields(nfields+24)
             ib2 = ib * ib
             ib3 = ib * ib2
             vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
@@ -1988,17 +1977,14 @@ module particle_module
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
-    !<  fields: fields at particle position
-    !<  gradf: gradients of the fields at particle position
-    !<  db2: turbulence variance at particle position
-    !<  grad_db2: gradients of db2
-    !<  lc: turbulence correlation length at particle position
-    !<  grad_lc: gradients of lc
+    !<  fields: fields and their gradients at particle position
+    !<  db2: turbulence variance and its gradients at particle position
+    !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
     !<  deltax, deltap: the change of x and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_1d(thread_id, rt, ptl, fields, gradf, db2, &
-            grad_db2, lc, grad_lc, kappa, deltax, deltap)
+    subroutine push_particle_1d(thread_id, rt, ptl, fields, db2, &
+            lc, kappa, deltax, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, &
@@ -2009,10 +1995,7 @@ module particle_module
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
-        real(dp), dimension(*), intent(inout) :: gradf
-        real(dp), dimension(*), intent(inout) :: grad_db2
-        real(dp), dimension(*), intent(inout) :: grad_lc
-        real(dp), intent(inout) :: db2, lc
+        real(dp), dimension(*), intent(inout) :: db2, lc
         type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltap
         real(dp) :: xtmp
@@ -2031,7 +2014,7 @@ module particle_module
 
         vx = fields(1)
         b = fields(8)
-        dvx_dx = gradf(1)
+        dvx_dx = fields(nfields+1)
         xmin = fconfig%xmin
         xmax = fconfig%xmax
         dxm = mhd_config%dx
@@ -2069,18 +2052,18 @@ module particle_module
             else
                 call get_interp_paramters(px, 0.0_dp, 0.0_dp, pos, weights)
             endif
-            call interp_fields(pos, weights, rt, fields, gradf)
+            call interp_fields(pos, weights, rt, fields)
             if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
+                call interp_magnetic_fluctuation(pos, weights, rt, db2)
             endif
             if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt, lc, grad_lc)
+                call interp_correlation_length(pos, weights, rt, lc)
             endif
 
             skpara = kappa%skpara
 
-            call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
-                db2, grad_db2, lc, grad_lc, kappa)
+            call calc_spatial_diffusion_coefficients(ptl, fields, &
+                db2, lc, kappa)
 
             skpara1 = kappa%skpara ! Diffusion coefficient at predicted position
 
@@ -2159,17 +2142,14 @@ module particle_module
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
-    !<  fields: fields at particle position
-    !<  gradf: gradients of the fields at particle position
-    !<  db2: turbulence variance at particle position
-    !<  grad_db2: gradients of db2
-    !<  lc: turbulence correlation length at particle position
-    !<  grad_lc: gradients of lc
+    !<  fields: fields and their gradients at particle position
+    !<  db2: turbulence variance and its gradients at particle position
+    !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_2d(thread_id, rt, ptl, fields, gradf, db2, &
-            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltap)
+    subroutine push_particle_2d(thread_id, rt, ptl, fields, db2, &
+            lc, kappa, deltax, deltay, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2181,10 +2161,7 @@ module particle_module
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
-        real(dp), dimension(*), intent(inout) :: gradf
-        real(dp), dimension(*), intent(inout) :: grad_db2
-        real(dp), dimension(*), intent(inout) :: grad_lc
-        real(dp), intent(inout) :: db2, lc
+        real(dp), dimension(*), intent(inout) :: db2, lc
         type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp) :: xtmp, ytmp
@@ -2214,8 +2191,8 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        dvx_dx = gradf(1)
-        dvy_dy = gradf(5)
+        dvx_dx = fields(nfields+1)
+        dvy_dy = fields(nfields+5)
         xmin = fconfig%xmin
         ymin = fconfig%ymin
         xmax = fconfig%xmax
@@ -2262,10 +2239,10 @@ module particle_module
 
         !< Check particle drift along the out-of-plane direction
         if (check_drift_2d) then
-            dbx_dy = gradf(14)
-            dby_dx = gradf(16)
-            db_dx = gradf(22)
-            db_dy = gradf(23)
+            dbx_dy = fields(nfields+14)
+            dby_dx = fields(nfields+16)
+            db_dx = fields(nfields+22)
+            db_dy = fields(nfields+23)
             ib2 = ib * ib
             ib3 = ib * ib2
             vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
@@ -2328,19 +2305,19 @@ module particle_module
             else
                 call get_interp_paramters(px, py, 0.0_dp, pos, weights)
             endif
-            call interp_fields(pos, weights, rt, fields, gradf)
+            call interp_fields(pos, weights, rt, fields)
             if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
+                call interp_magnetic_fluctuation(pos, weights, rt, db2)
             endif
             if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt, lc, grad_lc)
+                call interp_correlation_length(pos, weights, rt, lc)
             endif
 
             skperp = kappa%skperp
             skpara_perp = kappa%skpara_perp
 
-            call calc_spatial_diffusion_coefficients(ptl, fields, gradf, &
-                db2, grad_db2, lc, grad_lc, kappa)
+            call calc_spatial_diffusion_coefficients(ptl, fields, &
+                db2, lc, kappa)
 
             if (spherical_coord_flag) then
                 ir = 1.0 / xtmp
@@ -2409,16 +2386,16 @@ module particle_module
             else
                 deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
             endif
-            ! ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            rands = two_normals(thread_id)
-            ran1 = rands(1)
+            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+            ! rands = two_normals(thread_id)
+            ! ran1 = rands(1)
             deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
         endif
 
         ! Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
-            dvx_dy = gradf(2)
-            dvy_dx = gradf(4)
+            dvx_dy = fields(nfields+2)
+            dvy_dx = fields(nfields+4)
             sigmaxx = dvx_dx - divv / 3
             sigmayy = dvy_dy - divv / 3
             sigmazz = -divv / 3
@@ -2458,17 +2435,14 @@ module particle_module
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
     !<  ptl: particle structure
-    !<  fields: fields at particle position
-    !<  gradf: gradients of the fields at particle position
-    !<  db2: turbulence variance at particle position
-    !<  grad_db2: gradients of db2
-    !<  lc: turbulence correlation length at particle position
-    !<  grad_lc: gradients of lc
+    !<  fields: fields and their gradients at particle position
+    !<  db2: turbulence variance and its gradients at particle position
+    !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_3d(thread_id, rt, ptl, fields, gradf, db2, &
-            grad_db2, lc, grad_lc, kappa, deltax, deltay, deltaz, deltap)
+    subroutine push_particle_3d(thread_id, rt, ptl, fields, db2, &
+            lc, kappa, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2480,10 +2454,7 @@ module particle_module
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
-        real(dp), dimension(*), intent(inout) :: gradf
-        real(dp), dimension(*), intent(inout) :: grad_db2
-        real(dp), dimension(*), intent(inout) :: grad_lc
-        real(dp), intent(inout) :: db2, lc
+        real(dp), dimension(*), intent(inout) :: db2, lc
         type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltay, deltaz, deltap
         real(dp) :: rt1, sdt
@@ -2531,9 +2502,9 @@ module particle_module
         else
             ibxyn = 1.0_dp / bxyn
         endif
-        dvx_dx = gradf(1)
-        dvy_dy = gradf(5)
-        dvz_dz = gradf(9)
+        dvx_dx = fields(nfields+1)
+        dvy_dy = fields(nfields+5)
+        dvz_dz = fields(nfields+9)
         xmin = fconfig%xmin
         ymin = fconfig%ymin
         zmin = fconfig%zmin
@@ -2568,15 +2539,15 @@ module particle_module
         endif
 
         ! Drift velocity
-        dbx_dy = gradf(14)
-        dbx_dz = gradf(15)
-        dby_dx = gradf(16)
-        dby_dz = gradf(18)
-        dbz_dx = gradf(19)
-        dbz_dy = gradf(20)
-        db_dx = gradf(22)
-        db_dy = gradf(23)
-        db_dz = gradf(24)
+        dbx_dy = fields(nfields+14)
+        dbx_dz = fields(nfields+15)
+        dby_dx = fields(nfields+16)
+        dby_dz = fields(nfields+18)
+        dbz_dx = fields(nfields+19)
+        dbz_dy = fields(nfields+20)
+        db_dx = fields(nfields+22)
+        db_dy = fields(nfields+23)
+        db_dz = fields(nfields+24)
         ib2 = ib * ib
         ib3 = ib * ib2
         vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
@@ -2667,12 +2638,12 @@ module particle_module
 
         ! Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
-            dvx_dy = gradf(2)
-            dvx_dz = gradf(3)
-            dvy_dx = gradf(4)
-            dvy_dz = gradf(6)
-            dvz_dx = gradf(7)
-            dvz_dy = gradf(8)
+            dvx_dy = fields(nfields+2)
+            dvx_dz = fields(nfields+3)
+            dvy_dx = fields(nfields+4)
+            dvy_dz = fields(nfields+6)
+            dvz_dx = fields(nfields+7)
+            dvz_dy = fields(nfields+8)
             sigmaxx = dvx_dx - divv / 3
             sigmayy = dvy_dy - divv / 3
             sigmazz = dvz_dz - divv / 3
@@ -2988,8 +2959,7 @@ module particle_module
         real(dp) :: dvx_dx, dvy_dy, dvz_dz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        real(dp), dimension(nfields) :: fields !< Fields at particle position
-        real(dp), dimension(ngrads) :: gradf !< Field gradients at particle position
+        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer :: ip
 
         if (ptl%p > pmin .and. ptl%p <= pmax) then
@@ -3003,10 +2973,10 @@ module particle_module
                 call get_interp_paramters(px, py, pz, pos, weights)
             endif
             rt = (ptl%t - t0) / mhd_config%dt_out
-            call interp_fields(pos, weights, rt, fields, gradf)
-            dvx_dx = gradf(1)
-            dvy_dy = gradf(5)
-            dvz_dz = gradf(9)
+            call interp_fields(pos, weights, rt, fields)
+            dvx_dx = fields(nfields+1)
+            dvy_dy = fields(nfields+5)
+            dvz_dz = fields(nfields+9)
 
             fdpdt(ip, 1) = fdpdt(ip, 1) + ptl%weight
             fdpdt(ip, 2) = fdpdt(ip, 2) - &

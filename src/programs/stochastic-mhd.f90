@@ -26,16 +26,14 @@ program stochastic
         record_tracked_particle_init
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
-        read_field_data_parallel, init_fields_gradients, free_fields_gradients, &
-        calc_fields_gradients, calc_fields_gradients_nonuniform, &
+        read_field_data_parallel, calc_fields_gradients, &
+        calc_fields_gradients_nonuniform, &
         copy_fields, init_shock_xpos, free_shock_xpos, &
         locate_shock_xpos, init_magnetic_fluctuation, free_magnetic_fluctuation, &
         read_magnetic_fluctuation, copy_magnetic_fluctuation, &
         init_correlation_length, free_correlation_length, &
         read_correlation_length, copy_correlation_length, &
-        init_grad_deltab2, free_grad_deltab2, &
         calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
-        init_grad_correl_length, free_grad_correl_length, &
         calc_grad_correl_length, calc_grad_correl_length_nonuniform, &
         init_grid_positions, free_grid_positions, &
         set_local_grid_positions
@@ -131,14 +129,11 @@ program stochastic
     !< Initialization
     interp_flag = 1 ! Two time are needed for interpolation
     call init_field_data(interp_flag)
-    call init_fields_gradients(interp_flag)
     if (deltab_flag == 1) then
         call init_magnetic_fluctuation(interp_flag)
-        call init_grad_deltab2(interp_flag)
     endif
     if (correlation_flag == 1) then
         call init_correlation_length(interp_flag)
-        call init_grad_correl_length(interp_flag)
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
@@ -188,13 +183,6 @@ program stochastic
     endif
     call free_particles
     call free_escaped_particles
-    call free_fields_gradients(interp_flag)
-    if (deltab_flag == 1) then
-        call free_grad_deltab2(interp_flag)
-    endif
-    if (correlation_flag == 1) then
-        call free_grad_correl_length(interp_flag)
-    endif
     call free_field_data(interp_flag)
     if (deltab_flag == 1) then
         call free_magnetic_fluctuation(interp_flag)

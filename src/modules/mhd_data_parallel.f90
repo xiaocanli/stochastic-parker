@@ -10,18 +10,15 @@ module mhd_data_parallel
     save
 
     public init_field_data, free_field_data, read_field_data_parallel, &
-           init_fields_gradients, free_fields_gradients, calc_fields_gradients, &
-           calc_fields_gradients_nonuniform, interp_fields, &
+           calc_fields_gradients, calc_fields_gradients_nonuniform, interp_fields, &
            copy_fields, init_shock_xpos, free_shock_xpos, &
            locate_shock_xpos, interp_shock_location, init_magnetic_fluctuation, &
            free_magnetic_fluctuation, read_magnetic_fluctuation, &
            interp_magnetic_fluctuation, copy_magnetic_fluctuation, &
-           init_grad_deltab2, free_grad_deltab2, calc_grad_deltab2, &
-           calc_grad_deltab2_nonuniform, &
+           calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
            init_correlation_length, free_correlation_length, &
            read_correlation_length, interp_correlation_length, &
-           copy_correlation_length, init_grad_correl_length, &
-           free_grad_correl_length, calc_grad_correl_length, &
+           copy_correlation_length, calc_grad_correl_length, &
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz
@@ -32,24 +29,15 @@ module mhd_data_parallel
     integer, parameter :: ngrads=24
 
     !< 80 variables in total
-    real(fp), allocatable, dimension(:, :, :, :) :: f_array1, f_array2 ! Current,next
-    real(fp), allocatable, dimension(:, :, :, :) :: fgrad_array1, fgrad_array2
-    real(fp), allocatable, dimension(:, :, :) :: deltab1, deltab2 ! Current,next
-    real(fp), allocatable, dimension(:, :, :) :: lc1, lc2 ! Current,next
-    real(fp), allocatable, dimension(:, :, :, :) :: grad_deltab1, grad_deltab2
-    real(fp), allocatable, dimension(:, :, :, :) :: grad_correl1, grad_correl2
-    !dir$ attributes align:64 :: f_array1
-    !dir$ attributes align:64 :: f_array2
-    !dir$ attributes align:32 :: deltab1
-    !dir$ attributes align:32 :: deltab2
-    !dir$ attributes align:32 :: lc1
-    !dir$ attributes align:32 :: lc2
-    !dir$ attributes align:64 :: fgrad_array1
-    !dir$ attributes align:64 :: fgrad_array2
-    !dir$ attributes align:64 :: grad_deltab1
-    !dir$ attributes align:64 :: grad_deltab2
-    !dir$ attributes align:64 :: grad_correl1
-    !dir$ attributes align:64 :: grad_correl2
+    real(fp), allocatable, dimension(:, :, :, :) :: farray1, farray2 ! Current,next
+    real(fp), allocatable, dimension(:, :, :, :) :: deltab2_1, deltab2_2 ! Current,next
+    real(fp), allocatable, dimension(:, :, :, :) :: lcorr1, lcorr2 ! Current,next
+    !dir$ attributes align:128 :: farray1
+    !dir$ attributes align:128 :: farray2
+    !dir$ attributes align:16 :: deltab2_1
+    !dir$ attributes align:16 :: deltab2_2
+    !dir$ attributes align:16 :: lcorr1
+    !dir$ attributes align:16 :: lcorr2
 
     integer, allocatable, dimension(:, :) :: shock_xpos1, shock_xpos2  ! Shock x-position indices
 
@@ -60,7 +48,7 @@ module mhd_data_parallel
 
     contains
     !---------------------------------------------------------------------------
-    !< Initialize MHD field data arrays
+    !< Initialize MHD field data arrays and their gradients
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
@@ -74,68 +62,34 @@ module mhd_data_parallel
         nz = fconfig%nz
 
         !< vx, vy, vz, rho, bx, by, bz, btot
-        if (ndim_field == 1) then
-            allocate(f_array1(nfields, -1:nx+2, 1, 1))
-        else if (ndim_field == 2) then
-            allocate(f_array1(nfields, -1:nx+2, -1:ny+2, 1))
-        else
-            allocate(f_array1(nfields, -1:nx+2, -1:ny+2, -1:nz+2))
-        endif
-        f_array1 = 0.0
-        ! Next time step
-        if (interp_flag == 1) then
-            if (ndim_field == 1) then
-                allocate(f_array2(nfields, -1:nx+2, 1, 1))
-            else if (ndim_field == 2) then
-                allocate(f_array2(nfields, -1:nx+2, -1:ny+2, 1))
-            else
-                allocate(f_array2(nfields, -1:nx+2, -1:ny+2, -1:nz+2))
-            endif
-            f_array2 = 0.0
-        endif
-    end subroutine init_field_data
-
-    !---------------------------------------------------------------------------
-    !< Initialize the gradients of the MHD data arrays.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine init_fields_gradients(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        integer :: nx, ny, nz
-
-        nx = fconfig%nx
-        ny = fconfig%ny
-        nz = fconfig%nz
-
         !< dvx_dx, dvx_dy, dvx_dz, dvy_dx, dvy_dy, dvy_dz,
         !< dvz_dx, dvz_dy, dvz_dz, drho_dx, drho_d, drho_dz,
         !< dbx_dx, dbx_dy, dbx_dz, dby_dx, dby_dy, dby_dz,
         !< dbz_dx, dbz_dy, dbz_dz, dbtot_dx, dbtot_dy, dbtot_dz
         if (ndim_field == 1) then
-            allocate(fgrad_array1(ngrads, -1:nx+2, 1, 1))
+            allocate(farray1(nfields+ngrads, -1:nx+2, 1, 1))
         else if (ndim_field == 2) then
-            allocate(fgrad_array1(ngrads, -1:nx+2, -1:ny+2, 1))
+            allocate(farray1(nfields+ngrads, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(fgrad_array1(ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(farray1(nfields+ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
-        fgrad_array1 = 0.0
+        farray1 = 0.0
         ! Next time step
         if (interp_flag == 1) then
             if (ndim_field == 1) then
-                allocate(fgrad_array2(ngrads, -1:nx+2, 1, 1))
+                allocate(farray2(nfields+ngrads, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
-                allocate(fgrad_array2(ngrads, -1:nx+2, -1:ny+2, 1))
+                allocate(farray2(nfields+ngrads, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(fgrad_array2(ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(farray2(nfields+ngrads, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
-            fgrad_array2 = 0.0
+            farray2 = 0.0
         endif
-    end subroutine init_fields_gradients
+    end subroutine init_field_data
 
     !---------------------------------------------------------------------------
-    !< Initialize the magnetic fluctuation, defined as deltaB**2 / B0**2
+    !< Initialize the magnetic fluctuation, defined as deltaB**2 / B0**2, and
+    !< its gradients.
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
@@ -149,64 +103,28 @@ module mhd_data_parallel
         nz = fconfig%nz
 
         if (ndim_field == 1) then
-            allocate(deltab1(-1:nx+2, 1, 1))
+            allocate(deltab2_1(4, -1:nx+2, 1, 1))
         else if (ndim_field == 2) then
-            allocate(deltab1(-1:nx+2, -1:ny+2, 1))
+            allocate(deltab2_1(4, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(deltab1(-1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(deltab2_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
-        deltab1 = 1.0
+        deltab2_1 = 1.0
         ! Next time step
         if (interp_flag == 1) then
             if (ndim_field == 1) then
-                allocate(deltab2(-1:nx+2, 1, 1))
+                allocate(deltab2_2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
-                allocate(deltab2(-1:nx+2, -1:ny+2, 1))
+                allocate(deltab2_2(4, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(deltab2(-1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(deltab2_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
-            deltab2 = 1.0
+            deltab2_2 = 1.0
         endif
     end subroutine init_magnetic_fluctuation
 
     !---------------------------------------------------------------------------
-    !< Initialize the gradients of the magnetic fluctuation.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine init_grad_deltab2(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        integer :: nx, ny, nz
-
-        nx = fconfig%nx
-        ny = fconfig%ny
-        nz = fconfig%nz
-
-        !< 3 components
-        if (ndim_field == 1) then
-            allocate(grad_deltab1(3, -1:nx+2, 1, 1))
-        else if (ndim_field == 2) then
-            allocate(grad_deltab1(3, -1:nx+2, -1:ny+2, 1))
-        else
-            allocate(grad_deltab1(3, -1:nx+2, -1:ny+2, -1:nz+2))
-        endif
-        grad_deltab1 = 0.0
-        ! Next time step
-        if (interp_flag == 1) then
-            if (ndim_field == 1) then
-                allocate(grad_deltab2(3, -1:nx+2, 1, 1))
-            else if (ndim_field == 2) then
-                allocate(grad_deltab2(3, -1:nx+2, -1:ny+2, 1))
-            else
-                allocate(grad_deltab2(3, -1:nx+2, -1:ny+2, -1:nz+2))
-            endif
-            grad_deltab2 = 0.0
-        endif
-    end subroutine init_grad_deltab2
-
-    !---------------------------------------------------------------------------
-    !< Initialize the turbulence correlation length
+    !< Initialize the turbulence correlation length and its gradients
     !< Args:
     !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
@@ -220,61 +138,25 @@ module mhd_data_parallel
         nz = fconfig%nz
 
         if (ndim_field == 1) then
-            allocate(lc1(-1:nx+2, 1, 1))
+            allocate(lcorr1(4, -1:nx+2, 1, 1))
         else if (ndim_field == 2) then
-            allocate(lc1(-1:nx+2, -1:ny+2, 1))
+            allocate(lcorr1(4, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(lc1(-1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(lcorr1(4, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
-        lc1 = 1.0
+        lcorr1 = 1.0
         ! Next time step
         if (interp_flag == 1) then
             if (ndim_field == 1) then
-                allocate(lc2(-1:nx+2, 1, 1))
+                allocate(lcorr2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
-                allocate(lc2(-1:nx+2, -1:ny+2, 1))
+                allocate(lcorr2(4, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(lc2(-1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(lcorr2(4, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
-            lc2 = 1.0
+            lcorr2 = 1.0
         endif
     end subroutine init_correlation_length
-
-    !---------------------------------------------------------------------------
-    !< Initialize the gradients of turbulence correlation length.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine init_grad_correl_length(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        integer :: nx, ny, nz
-
-        nx = fconfig%nx
-        ny = fconfig%ny
-        nz = fconfig%nz
-
-        !< 3 components
-        if (ndim_field == 1) then
-            allocate(grad_correl1(3, -1:nx+2, 1, 1))
-        else if (ndim_field == 2) then
-            allocate(grad_correl1(3, -1:nx+2, -1:ny+2, 1))
-        else
-            allocate(grad_correl1(3, -1:nx+2, -1:ny+2, -1:nz+2))
-        endif
-        grad_correl1 = 0.0
-        ! Next time step
-        if (interp_flag == 1) then
-            if (ndim_field == 1) then
-                allocate(grad_correl2(3, -1:nx+2, 1, 1))
-            else if (ndim_field == 2) then
-                allocate(grad_correl2(3, -1:nx+2, -1:ny+2, 1))
-            else
-                allocate(grad_correl2(3, -1:nx+2, -1:ny+2, -1:nz+2))
-            endif
-            grad_correl2 = 0.0
-        endif
-    end subroutine init_grad_correl_length
 
     !---------------------------------------------------------------------------
     !< Free MHD field data arrays
@@ -284,25 +166,11 @@ module mhd_data_parallel
     subroutine free_field_data(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
-        deallocate(f_array1)
+        deallocate(farray1)
         if (interp_flag == 1) then
-            deallocate(f_array2)
+            deallocate(farray2)
         endif
     end subroutine free_field_data
-
-    !---------------------------------------------------------------------------
-    !< Free the gradients of the MHD data arrays.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine free_fields_gradients(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        deallocate(fgrad_array1)
-        if (interp_flag == 1) then
-            deallocate(fgrad_array2)
-        endif
-    end subroutine free_fields_gradients
 
     !---------------------------------------------------------------------------
     !< Free the data array for magnetic fluctuation
@@ -312,25 +180,11 @@ module mhd_data_parallel
     subroutine free_magnetic_fluctuation(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
-        deallocate(deltab1)
+        deallocate(deltab2_1)
         if (interp_flag == 1) then
-            deallocate(deltab2)
+            deallocate(deltab2_2)
         endif
     end subroutine free_magnetic_fluctuation
-
-    !---------------------------------------------------------------------------
-    !< Free the gradients of magnetic fluctuation.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine free_grad_deltab2(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        deallocate(grad_deltab1)
-        if (interp_flag == 1) then
-            deallocate(grad_deltab2)
-        endif
-    end subroutine free_grad_deltab2
 
     !---------------------------------------------------------------------------
     !< Free the data array for turbulence correlation length
@@ -340,32 +194,18 @@ module mhd_data_parallel
     subroutine free_correlation_length(interp_flag)
         implicit none
         integer, intent(in) :: interp_flag
-        deallocate(lc1)
+        deallocate(lcorr1)
         if (interp_flag == 1) then
-            deallocate(lc2)
+            deallocate(lcorr2)
         endif
     end subroutine free_correlation_length
-
-    !---------------------------------------------------------------------------
-    !< Free the gradients of turbulence correlation length.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
-    !---------------------------------------------------------------------------
-    subroutine free_grad_correl_length(interp_flag)
-        implicit none
-        integer, intent(in) :: interp_flag
-        deallocate(grad_correl1)
-        if (interp_flag == 1) then
-            deallocate(grad_correl2)
-        endif
-    end subroutine free_grad_correl_length
 
     !---------------------------------------------------------------------------
     !< Read MHD field data in parallel
     !< Args:
     !<  filename: file name to get the data
     !<  var_flag: indicating which set of variables to save the data. 0 for
-    !<            f_array1 and other numbers for f_array2.
+    !<            farray1 and other numbers for farray2.
     !---------------------------------------------------------------------------
     subroutine read_field_data_parallel(filename, var_flag)
         use mpi_io_module, only: set_mpi_datatype_real, set_mpi_info, fileinfo, &
@@ -376,11 +216,11 @@ module mhd_data_parallel
         integer :: mpi_datatype, fh
         integer, dimension(4) :: sizes, subsizes, starts
         integer(kind=MPI_OFFSET_KIND) :: disp, offset
-        sizes(1) = 8 ! vx, vy, vz, rho, bx, by, bz, btot
+        sizes(1) = nfields ! vx, vy, vz, rho, bx, by, bz, btot
         sizes(2) = fconfig%nxg
         sizes(3) = fconfig%nyg
         sizes(4) = fconfig%nzg
-        subsizes(1) = 8
+        subsizes(1) = nfields
         subsizes(2) = fconfig%nxf
         subsizes(3) = fconfig%nyf
         subsizes(4) = fconfig%nzf
@@ -397,15 +237,17 @@ module mhd_data_parallel
                  form='unformatted', action='read')
             if (var_flag == 0) then
                 if (mpi_rank == master) then
-                    read(fh, pos=1) f_array1
+                    read(fh, pos=1) farray1(:nfields, :, :, :)
                 endif
-                call MPI_BCAST(f_array1, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(farray1(:nfields, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
-                    read(fh, pos=1) f_array2
+                    read(fh, pos=1) farray2(:nfields, :, :, :)
                 endif
-                call MPI_BCAST(f_array2, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(farray2(:nfields, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
             close(fh)
@@ -417,17 +259,21 @@ module mhd_data_parallel
                 disp = 0
                 offset = 0
                 if (var_flag == 0) then
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array1)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, &
+                        offset, farray1(:nfields, :, :, :))
                 else
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, f_array2)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, &
+                        offset, farray2(:nfields, :, :, :))
                 endif
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
             if (var_flag == 0) then
-                call MPI_BCAST(f_array1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(farray1(:nfields, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             else
-                call MPI_BCAST(f_array2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(farray2(:nfields, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             endif
         endif
@@ -470,15 +316,17 @@ module mhd_data_parallel
                  form='unformatted', action='read')
             if (var_flag == 0) then
                 if (mpi_rank == master) then
-                    read(fh, pos=1) deltab1
+                    read(fh, pos=1) deltab2_1(1, :, :, :)
                 endif
-                call MPI_BCAST(deltab1, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(deltab2_1(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
-                    read(fh, pos=1) deltab2
+                    read(fh, pos=1) deltab2_2(1, :, :, :)
                 endif
-                call MPI_BCAST(deltab2, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(deltab2_2(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
             close(fh)
@@ -490,17 +338,21 @@ module mhd_data_parallel
                 disp = 0
                 offset = 0
                 if (var_flag == 0) then
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab1)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, deltab2_1(1, :, :, :))
                 else
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, deltab2)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, deltab2_2(1, :, :, :))
                 endif
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
             if (var_flag == 0) then
-                call MPI_BCAST(deltab1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(deltab2_1(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             else
-                call MPI_BCAST(deltab2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(deltab2_2(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             endif
         endif
@@ -543,15 +395,17 @@ module mhd_data_parallel
                  form='unformatted', action='read')
             if (var_flag == 0) then
                 if (mpi_rank == master) then
-                    read(fh, pos=1) lc1
+                    read(fh, pos=1) lcorr1(1, :, :, :)
                 endif
-                call MPI_BCAST(lc1, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(lcorr1(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
-                    read(fh, pos=1) lc2
+                    read(fh, pos=1) lcorr2(1, :, :, :)
                 endif
-                call MPI_BCAST(lc2, product(sizes), MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(lcorr2(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
             close(fh)
@@ -563,17 +417,21 @@ module mhd_data_parallel
                 disp = 0
                 offset = 0
                 if (var_flag == 0) then
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc1)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, lcorr1(1, :, :, :))
                 else
-                    call read_data_mpi_io(fh, mpi_datatype, subsizes, disp, offset, lc2)
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, lcorr2(1, :, :, :))
                 endif
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
             if (var_flag == 0) then
-                call MPI_BCAST(lc1, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(lcorr1(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             else
-                call MPI_BCAST(lc2, product(subsizes), MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BCAST(lcorr2(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             endif
         endif
@@ -586,7 +444,6 @@ module mhd_data_parallel
     !< Calculate the gradients of the MHD data arrays.
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for fgrad_array1 and other numbers for fgrad_array2.
     !---------------------------------------------------------------------------
     subroutine calc_fields_gradients(var_flag)
         use mhd_config_module, only: mhd_config
@@ -599,12 +456,12 @@ module mhd_data_parallel
         idxh = 0.5_dp / mhd_config%dx
         idyh = 0.5_dp / mhd_config%dy
         idzh = 0.5_dp / mhd_config%dz
-        unx = ubound(f_array1, 2)
-        uny = ubound(f_array1, 3)
-        unz = ubound(f_array1, 4)
-        lnx = lbound(f_array1, 2)
-        lny = lbound(f_array1, 3)
-        lnz = lbound(f_array1, 4)
+        unx = ubound(farray1, 2)
+        uny = ubound(farray1, 3)
+        unz = ubound(farray1, 4)
+        lnx = lbound(farray1, 2)
+        lny = lbound(farray1, 3)
+        lnz = lbound(farray1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -619,71 +476,71 @@ module mhd_data_parallel
         lnz2 = lnz + 2
         if (var_flag == 0) then
             ! d/dx
-            fgrad_array1(1::3, lnx1:unx1, :, :) = (f_array1(:, lnx2:unx, :, :) - &
-                                                   f_array1(:, lnx:unx2, :, :)) * idxh
-            fgrad_array1(1::3, lnx, :, :) =  (-3.0*f_array1(:, lnx, :, :) + &
-                                               4.0*f_array1(:, lnx1, :, :) - &
-                                                   f_array1(:, lnx2, :, :)) * idxh
-            fgrad_array1(1::3, unx, :, :) =   (3.0*f_array1(:, unx, :, :) - &
-                                               4.0*f_array1(:, unx1, :, :) + &
-                                                   f_array1(:, unx2, :, :)) * idxh
+            farray1(nfields+1::3, lnx1:unx1, :, :) = (farray1(:nfields, lnx2:unx, :, :) - &
+                                                      farray1(:nfields, lnx:unx2, :, :)) * idxh
+            farray1(nfields+1::3, lnx, :, :) =  (-3.0*farray1(:nfields, lnx, :, :) + &
+                                                  4.0*farray1(:nfields, lnx1, :, :) - &
+                                                      farray1(:nfields, lnx2, :, :)) * idxh
+            farray1(nfields+1::3, unx, :, :) =   (3.0*farray1(:nfields, unx, :, :) - &
+                                                  4.0*farray1(:nfields, unx1, :, :) + &
+                                                      farray1(:nfields, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                fgrad_array1(2::3, :, lny1:uny1, :) = (f_array1(:, :, lny2:uny, :) - &
-                                                       f_array1(:, :, lny:uny2, :)) * idyh
-                fgrad_array1(2::3, :, lny, :) =  (-3.0*f_array1(:, :, lny, :) + &
-                                                   4.0*f_array1(:, :, lny1, :) - &
-                                                       f_array1(:, :, lny2, :)) * idyh
-                fgrad_array1(2::3, :, uny, :) =   (3.0*f_array1(:, :, uny, :) - &
-                                                   4.0*f_array1(:, :, uny1, :) + &
-                                                       f_array1(:, :, uny2, :)) * idyh
+                farray1(nfields+2::3, :, lny1:uny1, :) = (farray1(:nfields, :, lny2:uny, :) - &
+                                                          farray1(:nfields, :, lny:uny2, :)) * idyh
+                farray1(nfields+2::3, :, lny, :) =  (-3.0*farray1(:nfields, :, lny, :) + &
+                                                      4.0*farray1(:nfields, :, lny1, :) - &
+                                                          farray1(:nfields, :, lny2, :)) * idyh
+                farray1(nfields+2::3, :, uny, :) =   (3.0*farray1(:nfields, :, uny, :) - &
+                                                      4.0*farray1(:nfields, :, uny1, :) + &
+                                                          farray1(:nfields, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                fgrad_array1(3::3, :, :, lnz1:unz1) = (f_array1(:, :, :, lnz2:unz) - &
-                                                       f_array1(:, :, :, lnz:unz2)) * idzh
-                fgrad_array1(3::3, :, :, lnz) =  (-3.0*f_array1(:, :, :, lnz) + &
-                                                   4.0*f_array1(:, :, :, lnz1) - &
-                                                       f_array1(:, :, :, lnz2)) * idzh
-                fgrad_array1(3::3, :, :, unz) =   (3.0*f_array1(:, :, :, unz) - &
-                                                   4.0*f_array1(:, :, :, unz1) + &
-                                                       f_array1(:, :, :, unz2)) * idzh
+                farray1(nfields+3::3, :, :, lnz1:unz1) = (farray1(:nfields, :, :, lnz2:unz) - &
+                                                          farray1(:nfields, :, :, lnz:unz2)) * idzh
+                farray1(nfields+3::3, :, :, lnz) =  (-3.0*farray1(:nfields, :, :, lnz) + &
+                                                      4.0*farray1(:nfields, :, :, lnz1) - &
+                                                          farray1(:nfields, :, :, lnz2)) * idzh
+                farray1(nfields+3::3, :, :, unz) =   (3.0*farray1(:nfields, :, :, unz) - &
+                                                      4.0*farray1(:nfields, :, :, unz1) + &
+                                                          farray1(:nfields, :, :, unz2)) * idzh
             endif
         else
             ! d/dx
-            fgrad_array2(1::3, lnx1:unx1, :, :) = (f_array2(:, lnx2:unx, :, :) - &
-                                                   f_array2(:, lnx:unx2, :, :)) * idxh
-            fgrad_array2(1::3, lnx, :, :) =  (-3.0*f_array2(:, lnx, :, :) + &
-                                               4.0*f_array2(:, lnx1, :, :) - &
-                                                   f_array2(:, lnx2, :, :)) * idxh
-            fgrad_array2(1::3, unx, :, :) =   (3.0*f_array2(:, unx, :, :) - &
-                                               4.0*f_array2(:, unx1, :, :) + &
-                                                   f_array2(:, unx2, :, :)) * idxh
+            farray2(nfields+1::3, lnx1:unx1, :, :) = (farray2(:nfields, lnx2:unx, :, :) - &
+                                                      farray2(:nfields, lnx:unx2, :, :)) * idxh
+            farray2(nfields+1::3, lnx, :, :) =  (-3.0*farray2(:nfields, lnx, :, :) + &
+                                                  4.0*farray2(:nfields, lnx1, :, :) - &
+                                                      farray2(:nfields, lnx2, :, :)) * idxh
+            farray2(nfields+1::3, unx, :, :) =   (3.0*farray2(:nfields, unx, :, :) - &
+                                                  4.0*farray2(:nfields, unx1, :, :) + &
+                                                      farray2(:nfields, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                fgrad_array2(2::3, :, lny1:uny1, :) = (f_array2(:, :, lny2:uny, :) - &
-                                                       f_array2(:, :, lny:uny2, :)) * idyh
-                fgrad_array2(2::3, :, lny, :) =  (-3.0*f_array2(:, :, lny, :) + &
-                                                   4.0*f_array2(:, :, lny1, :) - &
-                                                       f_array2(:, :, lny2, :)) * idyh
-                fgrad_array2(2::3, :, uny, :) =   (3.0*f_array2(:, :, uny, :) - &
-                                                   4.0*f_array2(:, :, uny1, :) + &
-                                                       f_array2(:, :, uny2, :)) * idyh
+                farray2(nfields+2::3, :, lny1:uny1, :) = (farray2(:nfields, :, lny2:uny, :) - &
+                                                          farray2(:nfields, :, lny:uny2, :)) * idyh
+                farray2(nfields+2::3, :, lny, :) =  (-3.0*farray2(:nfields, :, lny, :) + &
+                                                      4.0*farray2(:nfields, :, lny1, :) - &
+                                                          farray2(:nfields, :, lny2, :)) * idyh
+                farray2(nfields+2::3, :, uny, :) =   (3.0*farray2(:nfields, :, uny, :) - &
+                                                      4.0*farray2(:nfields, :, uny1, :) + &
+                                                          farray2(:nfields, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                fgrad_array2(3::3, :, :, lnz1:unz1) = (f_array2(:, :, :, lnz2:unz) - &
-                                                       f_array2(:, :, :, lnz:unz2)) * idzh
-                fgrad_array2(3::3, :, :, lnz) =  (-3.0*f_array2(:, :, :, lnz) + &
-                                                   4.0*f_array2(:, :, :, lnz1) - &
-                                                       f_array2(:, :, :, lnz2)) * idzh
-                fgrad_array2(3::3, :, :, unz) =   (3.0*f_array2(:, :, :, unz) - &
-                                                   4.0*f_array2(:, :, :, unz1) + &
-                                                       f_array2(:, :, :, unz2)) * idzh
+                farray2(nfields+3::3, :, :, lnz1:unz1) = (farray2(:nfields, :, :, lnz2:unz) - &
+                                                          farray2(:nfields, :, :, lnz:unz2)) * idzh
+                farray2(nfields+3::3, :, :, lnz) =  (-3.0*farray2(:nfields, :, :, lnz) + &
+                                                      4.0*farray2(:nfields, :, :, lnz1) - &
+                                                          farray2(:nfields, :, :, lnz2)) * idzh
+                farray2(nfields+3::3, :, :, unz) =   (3.0*farray2(:nfields, :, :, unz) - &
+                                                      4.0*farray2(:nfields, :, :, unz1) + &
+                                                          farray2(:nfields, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
@@ -695,7 +552,6 @@ module mhd_data_parallel
     !< Calculate the gradients of the MHD data arrays for non-uniform grid.
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for fgrad_array1 and other numbers for fgrad_array2.
     !---------------------------------------------------------------------------
     subroutine calc_fields_gradients_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
@@ -705,12 +561,12 @@ module mhd_data_parallel
         integer :: unx1, unx2, uny1, uny2, unz1, unz2
         integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
         integer :: iv, ix, iy, iz
-        unx = ubound(f_array1, 2)
-        uny = ubound(f_array1, 3)
-        unz = ubound(f_array1, 4)
-        lnx = lbound(f_array1, 2)
-        lny = lbound(f_array1, 3)
-        lnz = lbound(f_array1, 4)
+        unx = ubound(farray1, 2)
+        uny = ubound(farray1, 3)
+        unz = ubound(farray1, 4)
+        lnx = lbound(farray1, 2)
+        lny = lbound(farray1, 3)
+        lnz = lbound(farray1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -728,36 +584,40 @@ module mhd_data_parallel
             do iz = lnz, unz
             do iy = lny, uny
             do iv = 1, nfields
-                fgrad_array1(3*iv-2, lnx1:unx1, iy, iz) = &
-                    (f_array1(iv, lnx2:unx, iy, iz) - &
-                     f_array1(iv, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                farray1(nfields+3*iv-2, lnx1:unx1, iy, iz) = &
+                    (farray1(iv, lnx2:unx, iy, iz) - &
+                     farray1(iv, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
             enddo
-            fgrad_array1(1::3, lnx, :, :) =  (-3.0*f_array1(:, lnx, :, :) + &
-                                               4.0*f_array1(:, lnx1, :, :) - &
-                                                   f_array1(:, lnx2, :, :)) * idxh_grid(lnx)
-            fgrad_array1(1::3, unx, :, :) =   (3.0*f_array1(:, unx, :, :) - &
-                                               4.0*f_array1(:, unx1, :, :) + &
-                                                   f_array1(:, unx2, :, :)) * idxh_grid(unx)
+            farray1(nfields+1::3, lnx, :, :) =  (-3.0*farray1(:nfields, lnx, :, :) + &
+                                                  4.0*farray1(:nfields, lnx1, :, :) - &
+                                                      farray1(:nfields, lnx2, :, :)) * &
+                                                      idxh_grid(lnx)
+            farray1(nfields+1::3, unx, :, :) =   (3.0*farray1(:nfields, unx, :, :) - &
+                                                  4.0*farray1(:nfields, unx1, :, :) + &
+                                                      farray1(:nfields, unx2, :, :)) * &
+                                                      idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
                 do iv = 1, nfields
-                    fgrad_array1(3*iv-1, ix, lny1:uny1, iz) = &
-                        (f_array1(iv, ix, lny2:uny, iz) - &
-                         f_array1(iv, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    farray1(nfields+3*iv-1, ix, lny1:uny1, iz) = &
+                        (farray1(iv, ix, lny2:uny, iz) - &
+                         farray1(iv, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
                 enddo
-                fgrad_array1(2::3, :, lny, :) =  (-3.0*f_array1(:, :, lny, :) + &
-                                                   4.0*f_array1(:, :, lny1, :) - &
-                                                       f_array1(:, :, lny2, :)) * idyh_grid(lny)
-                fgrad_array1(2::3, :, uny, :) =   (3.0*f_array1(:, :, uny, :) - &
-                                                   4.0*f_array1(:, :, uny1, :) + &
-                                                       f_array1(:, :, uny2, :)) * idyh_grid(uny)
+                farray1(nfields+2::3, :, lny, :) =  (-3.0*farray1(:nfields, :, lny, :) + &
+                                                      4.0*farray1(:nfields, :, lny1, :) - &
+                                                          farray1(:nfields, :, lny2, :)) * &
+                                                          idyh_grid(lny)
+                farray1(nfields+2::3, :, uny, :) =   (3.0*farray1(:nfields, :, uny, :) - &
+                                                      4.0*farray1(:nfields, :, uny1, :) + &
+                                                          farray1(:nfields, :, uny2, :)) * &
+                                                          idyh_grid(uny)
             endif
 
             ! d/dz
@@ -765,54 +625,60 @@ module mhd_data_parallel
                 do iy = lny, uny
                 do ix = lnx, unx
                 do iv = 1, nfields
-                    fgrad_array1(3*iv, ix, iy, lnz1:unz1) = &
-                        (f_array1(iv, ix, iy, lnz2:unz) - &
-                         f_array1(iv, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    farray1(nfields+3*iv, ix, iy, lnz1:unz1) = &
+                        (farray1(iv, ix, iy, lnz2:unz) - &
+                         farray1(iv, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
                 enddo
-                fgrad_array1(3::3, :, :, lnz) =  (-3.0*f_array1(:, :, :, lnz) + &
-                                                   4.0*f_array1(:, :, :, lnz1) - &
-                                                       f_array1(:, :, :, lnz2)) * idzh_grid(lnz)
-                fgrad_array1(3::3, :, :, unz) =   (3.0*f_array1(:, :, :, unz) - &
-                                                   4.0*f_array1(:, :, :, unz1) + &
-                                                       f_array1(:, :, :, unz2)) * idzh_grid(unz)
+                farray1(nfields+3::3, :, :, lnz) =  (-3.0*farray1(:nfields, :, :, lnz) + &
+                                                      4.0*farray1(:nfields, :, :, lnz1) - &
+                                                          farray1(:nfields, :, :, lnz2)) * &
+                                                          idzh_grid(lnz)
+                farray1(nfields+3::3, :, :, unz) =   (3.0*farray1(:nfields, :, :, unz) - &
+                                                      4.0*farray1(:nfields, :, :, unz1) + &
+                                                          farray1(:nfields, :, :, unz2)) * &
+                                                          idzh_grid(unz)
             endif
         else
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
             do iv = 1, nfields
-                fgrad_array2(3*iv-2, lnx1:unx1, iy, iz) = &
-                    (f_array2(iv, lnx2:unx, iy, iz) - &
-                     f_array2(iv, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                farray2(nfields+3*iv-2, lnx1:unx1, iy, iz) = &
+                    (farray2(iv, lnx2:unx, iy, iz) - &
+                     farray2(iv, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
             enddo
-            fgrad_array2(1::3, lnx, :, :) =  (-3.0*f_array2(:, lnx, :, :) + &
-                                               4.0*f_array2(:, lnx1, :, :) - &
-                                                   f_array2(:, lnx2, :, :)) * idxh_grid(lnx)
-            fgrad_array2(1::3, unx, :, :) =   (3.0*f_array2(:, unx, :, :) - &
-                                               4.0*f_array2(:, unx1, :, :) + &
-                                                   f_array2(:, unx2, :, :)) * idxh_grid(unx)
+            farray2(nfields+1::3, lnx, :, :) =  (-3.0*farray2(:nfields, lnx, :, :) + &
+                                                  4.0*farray2(:nfields, lnx1, :, :) - &
+                                                      farray2(:nfields, lnx2, :, :)) * &
+                                                      idxh_grid(lnx)
+            farray2(nfields+1::3, unx, :, :) =   (3.0*farray2(:nfields, unx, :, :) - &
+                                                  4.0*farray2(:nfields, unx1, :, :) + &
+                                                      farray2(:nfields, unx2, :, :)) * &
+                                                      idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
                 do iv = 1, nfields
-                    fgrad_array2(3*iv-1, ix, lny1:uny1, iz) = &
-                        (f_array2(iv, ix, lny2:uny, iz) - &
-                         f_array2(iv, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    farray2(nfields+3*iv-1, ix, lny1:uny1, iz) = &
+                        (farray2(iv, ix, lny2:uny, iz) - &
+                         farray2(iv, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
                 enddo
-                fgrad_array2(2::3, :, lny, :) =  (-3.0*f_array2(:, :, lny, :) + &
-                                                   4.0*f_array2(:, :, lny1, :) - &
-                                                       f_array2(:, :, lny2, :)) * idyh_grid(lny)
-                fgrad_array2(2::3, :, uny, :) =   (3.0*f_array2(:, :, uny, :) - &
-                                                   4.0*f_array2(:, :, uny1, :) + &
-                                                       f_array2(:, :, uny2, :)) * idyh_grid(uny)
+                farray2(nfields+2::3, :, lny, :) =  (-3.0*farray2(:nfields, :, lny, :) + &
+                                                      4.0*farray2(:nfields, :, lny1, :) - &
+                                                          farray2(:nfields, :, lny2, :)) * &
+                                                          idyh_grid(lny)
+                farray2(nfields+2::3, :, uny, :) =   (3.0*farray2(:nfields, :, uny, :) - &
+                                                      4.0*farray2(:nfields, :, uny1, :) + &
+                                                          farray2(:nfields, :, uny2, :)) * &
+                                                          idyh_grid(uny)
             endif
 
             ! d/dz
@@ -820,18 +686,20 @@ module mhd_data_parallel
                 do iy = lny, uny
                 do ix = lnx, unx
                 do iv = 1, nfields
-                    fgrad_array2(3*iv, ix, iy, lnz1:unz1) = &
-                        (f_array2(iv, ix, iy, lnz2:unz) - &
-                         f_array2(iv, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    farray2(nfields+3*iv, ix, iy, lnz1:unz1) = &
+                        (farray2(iv, ix, iy, lnz2:unz) - &
+                         farray2(iv, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
                 enddo
-                fgrad_array2(3::3, :, :, lnz) =  (-3.0*f_array2(:, :, :, lnz) + &
-                                                   4.0*f_array2(:, :, :, lnz1) - &
-                                                       f_array2(:, :, :, lnz2)) * idzh_grid(lnz)
-                fgrad_array2(3::3, :, :, unz) =   (3.0*f_array2(:, :, :, unz) - &
-                                                   4.0*f_array2(:, :, :, unz1) + &
-                                                       f_array2(:, :, :, unz2)) * idzh_grid(unz)
+                farray2(nfields+3::3, :, :, lnz) =  (-3.0*farray2(:nfields, :, :, lnz) + &
+                                                      4.0*farray2(:nfields, :, :, lnz1) - &
+                                                          farray2(:nfields, :, :, lnz2)) * &
+                                                          idzh_grid(lnz)
+                farray2(nfields+3::3, :, :, unz) =   (3.0*farray2(:nfields, :, :, unz) - &
+                                                      4.0*farray2(:nfields, :, :, unz1) + &
+                                                          farray2(:nfields, :, :, unz2)) * &
+                                                          idzh_grid(unz)
             endif
         endif
         if (mpi_rank == master) then
@@ -843,7 +711,6 @@ module mhd_data_parallel
     !< Calculate the gradients of magnetic fluctuation.
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for grad_deltab1 and other numbers for grad_deltab2.
     !---------------------------------------------------------------------------
     subroutine calc_grad_deltab2(var_flag)
         use mhd_config_module, only: mhd_config
@@ -856,12 +723,12 @@ module mhd_data_parallel
         idxh = 0.5_dp / mhd_config%dx
         idyh = 0.5_dp / mhd_config%dy
         idzh = 0.5_dp / mhd_config%dz
-        unx = ubound(deltab1, 1)
-        uny = ubound(deltab1, 2)
-        unz = ubound(deltab1, 3)
-        lnx = lbound(deltab1, 1)
-        lny = lbound(deltab1, 2)
-        lnz = lbound(deltab1, 3)
+        unx = ubound(deltab2_1, 2)
+        uny = ubound(deltab2_1, 3)
+        unz = ubound(deltab2_1, 4)
+        lnx = lbound(deltab2_1, 2)
+        lny = lbound(deltab2_1, 3)
+        lnz = lbound(deltab2_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -876,71 +743,71 @@ module mhd_data_parallel
         lnz2 = lnz + 2
         if (var_flag == 0) then
             ! d/dx
-            grad_deltab1(1, lnx1:unx1, :, :) = (deltab1(lnx2:unx, :, :) - &
-                                                deltab1(lnx:unx2, :, :)) * idxh
-            grad_deltab1(1, lnx, :, :) =  (-3.0*deltab1(lnx, :, :) + &
-                                            4.0*deltab1(lnx1, :, :) - &
-                                                deltab1(lnx2, :, :)) * idxh
-            grad_deltab1(1, unx, :, :) =   (3.0*deltab1(unx, :, :) - &
-                                            4.0*deltab1(unx1, :, :) + &
-                                                deltab1(unx2, :, :)) * idxh
+            deltab2_1(2, lnx1:unx1, :, :) = (deltab2_1(1, lnx2:unx, :, :) - &
+                                             deltab2_1(1, lnx:unx2, :, :)) * idxh
+            deltab2_1(2, lnx, :, :) =  (-3.0*deltab2_1(1, lnx, :, :) + &
+                                         4.0*deltab2_1(1, lnx1, :, :) - &
+                                             deltab2_1(1, lnx2, :, :)) * idxh
+            deltab2_1(2, unx, :, :) =   (3.0*deltab2_1(1, unx, :, :) - &
+                                         4.0*deltab2_1(1, unx1, :, :) + &
+                                             deltab2_1(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                grad_deltab1(2, :, lny1:uny1, :) = (deltab1(:, lny2:uny, :) - &
-                                                    deltab1(:, lny:uny2, :)) * idyh
-                grad_deltab1(2, :, lny, :) =  (-3.0*deltab1(:, lny, :) + &
-                                                4.0*deltab1(:, lny1, :) - &
-                                                    deltab1(:, lny2, :)) * idyh
-                grad_deltab1(2, :, uny, :) =   (3.0*deltab1(:, uny, :) - &
-                                                4.0*deltab1(:, uny1, :) + &
-                                                    deltab1(:, uny2, :)) * idyh
+                deltab2_1(3, :, lny1:uny1, :) = (deltab2_1(1, :, lny2:uny, :) - &
+                                                 deltab2_1(1, :, lny:uny2, :)) * idyh
+                deltab2_1(3, :, lny, :) =  (-3.0*deltab2_1(1, :, lny, :) + &
+                                             4.0*deltab2_1(1, :, lny1, :) - &
+                                                 deltab2_1(1, :, lny2, :)) * idyh
+                deltab2_1(3, :, uny, :) =   (3.0*deltab2_1(1, :, uny, :) - &
+                                             4.0*deltab2_1(1, :, uny1, :) + &
+                                                 deltab2_1(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                grad_deltab1(3, :, :, lnz1:unz1) = (deltab1(:, :, lnz2:unz) - &
-                                                    deltab1(:, :, lnz:unz2)) * idzh
-                grad_deltab1(3, :, :, lnz) =  (-3.0*deltab1(:, :, lnz) + &
-                                                4.0*deltab1(:, :, lnz1) - &
-                                                    deltab1(:, :, lnz2)) * idzh
-                grad_deltab1(3, :, :, unz) =   (3.0*deltab1(:, :, unz) - &
-                                                4.0*deltab1(:, :, unz1) + &
-                                                    deltab1(:, :, unz2)) * idzh
+                deltab2_1(4, :, :, lnz1:unz1) = (deltab2_1(1, :, :, lnz2:unz) - &
+                                                 deltab2_1(1, :, :, lnz:unz2)) * idzh
+                deltab2_1(4, :, :, lnz) =  (-3.0*deltab2_1(1, :, :, lnz) + &
+                                             4.0*deltab2_1(1, :, :, lnz1) - &
+                                                 deltab2_1(1, :, :, lnz2)) * idzh
+                deltab2_1(4, :, :, unz) =   (3.0*deltab2_1(1, :, :, unz) - &
+                                             4.0*deltab2_1(1, :, :, unz1) + &
+                                                 deltab2_1(1, :, :, unz2)) * idzh
             endif
         else
             ! d/dx
-            grad_deltab2(1, lnx1:unx1, :, :) = (deltab2(lnx2:unx, :, :) - &
-                                                deltab2(lnx:unx2, :, :)) * idxh
-            grad_deltab2(1, lnx, :, :) =  (-3.0*deltab2(lnx, :, :) + &
-                                            4.0*deltab2(lnx1, :, :) - &
-                                                deltab2(lnx2, :, :)) * idxh
-            grad_deltab2(1, unx, :, :) =   (3.0*deltab2(unx, :, :) - &
-                                            4.0*deltab2(unx1, :, :) + &
-                                                deltab2(unx2, :, :)) * idxh
+            deltab2_2(2, lnx1:unx1, :, :) = (deltab2_2(1, lnx2:unx, :, :) - &
+                                             deltab2_2(1, lnx:unx2, :, :)) * idxh
+            deltab2_2(2, lnx, :, :) =  (-3.0*deltab2_2(1, lnx, :, :) + &
+                                         4.0*deltab2_2(1, lnx1, :, :) - &
+                                             deltab2_2(1, lnx2, :, :)) * idxh
+            deltab2_2(2, unx, :, :) =   (3.0*deltab2_2(1, unx, :, :) - &
+                                         4.0*deltab2_2(1, unx1, :, :) + &
+                                             deltab2_2(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                grad_deltab2(2, :, lny1:uny1, :) = (deltab2(:, lny2:uny, :) - &
-                                                    deltab2(:, lny:uny2, :)) * idyh
-                grad_deltab2(2, :, lny, :) =  (-3.0*deltab2(:, lny, :) + &
-                                                4.0*deltab2(:, lny1, :) - &
-                                                    deltab2(:, lny2, :)) * idyh
-                grad_deltab2(2, :, uny, :) =   (3.0*deltab2(:, uny, :) - &
-                                                4.0*deltab2(:, uny1, :) + &
-                                                    deltab2(:, uny2, :)) * idyh
+                deltab2_2(3, :, lny1:uny1, :) = (deltab2_2(1, :, lny2:uny, :) - &
+                                                 deltab2_2(1, :, lny:uny2, :)) * idyh
+                deltab2_2(3, :, lny, :) =  (-3.0*deltab2_2(1, :, lny, :) + &
+                                             4.0*deltab2_2(1, :, lny1, :) - &
+                                                 deltab2_2(1, :, lny2, :)) * idyh
+                deltab2_2(3, :, uny, :) =   (3.0*deltab2_2(1, :, uny, :) - &
+                                             4.0*deltab2_2(1, :, uny1, :) + &
+                                                 deltab2_2(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                grad_deltab2(3, :, :, lnz1:unz1) = (deltab2(:, :, lnz2:unz) - &
-                                                    deltab2(:, :, lnz:unz2)) * idzh
-                grad_deltab2(3, :, :, lnz) =  (-3.0*deltab2(:, :, lnz) + &
-                                                4.0*deltab2(:, :, lnz1) - &
-                                                    deltab2(:, :, lnz2)) * idzh
-                grad_deltab2(3, :, :, unz) =   (3.0*deltab2(:, :, unz) - &
-                                                4.0*deltab2(:, :, unz1) + &
-                                                    deltab2(:, :, unz2)) * idzh
+                deltab2_2(4, :, :, lnz1:unz1) = (deltab2_2(1, :, :, lnz2:unz) - &
+                                                 deltab2_2(1, :, :, lnz:unz2)) * idzh
+                deltab2_2(4, :, :, lnz) =  (-3.0*deltab2_2(1, :, :, lnz) + &
+                                             4.0*deltab2_2(1, :, :, lnz1) - &
+                                                 deltab2_2(1, :, :, lnz2)) * idzh
+                deltab2_2(4, :, :, unz) =   (3.0*deltab2_2(1, :, :, unz) - &
+                                             4.0*deltab2_2(1, :, :, unz1) + &
+                                                 deltab2_2(1, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
@@ -952,7 +819,6 @@ module mhd_data_parallel
     !< Calculate the gradients of magnetic fluctuation for nonuniform grid
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for grad_deltab1 and other numbers for grad_deltab2.
     !---------------------------------------------------------------------------
     subroutine calc_grad_deltab2_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
@@ -962,12 +828,12 @@ module mhd_data_parallel
         integer :: unx1, unx2, uny1, uny2, unz1, unz2
         integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
         integer :: ix, iy, iz
-        unx = ubound(deltab1, 1)
-        uny = ubound(deltab1, 2)
-        unz = ubound(deltab1, 3)
-        lnx = lbound(deltab1, 1)
-        lny = lbound(deltab1, 2)
-        lnz = lbound(deltab1, 3)
+        unx = ubound(deltab2_1, 2)
+        uny = ubound(deltab2_1, 3)
+        unz = ubound(deltab2_1, 4)
+        lnx = lbound(deltab2_1, 2)
+        lny = lbound(deltab2_1, 3)
+        lnz = lbound(deltab2_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -984,99 +850,99 @@ module mhd_data_parallel
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                grad_deltab1(1, lnx1:unx1, iy, iz) = &
-                    (deltab1(lnx2:unx, iy, iz) - &
-                     deltab1(lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                deltab2_1(2, lnx1:unx1, iy, iz) = &
+                    (deltab2_1(1, lnx2:unx, iy, iz) - &
+                     deltab2_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            grad_deltab1(1, lnx, :, :) =  (-3.0*deltab1(lnx, :, :) + &
-                                            4.0*deltab1(lnx1, :, :) - &
-                                                deltab1(lnx2, :, :)) * idxh_grid(lnx)
-            grad_deltab1(1, unx, :, :) =   (3.0*deltab1(unx, :, :) - &
-                                            4.0*deltab1(unx1, :, :) + &
-                                                deltab1(unx2, :, :)) * idxh_grid(unx)
+            deltab2_1(2, lnx, :, :) =  (-3.0*deltab2_1(1, lnx, :, :) + &
+                                         4.0*deltab2_1(1, lnx1, :, :) - &
+                                             deltab2_1(1, lnx2, :, :)) * idxh_grid(lnx)
+            deltab2_1(2, unx, :, :) =   (3.0*deltab2_1(1, unx, :, :) - &
+                                         4.0*deltab2_1(1, unx1, :, :) + &
+                                             deltab2_1(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    grad_deltab1(2, ix, lny1:uny1, iz) = &
-                        (deltab1(ix, lny2:uny, iz) - &
-                         deltab1(ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    deltab2_1(3, ix, lny1:uny1, iz) = &
+                        (deltab2_1(1, ix, lny2:uny, iz) - &
+                         deltab2_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                grad_deltab1(2, :, lny, :) =  (-3.0*deltab1(:, lny, :) + &
-                                                4.0*deltab1(:, lny1, :) - &
-                                                    deltab1(:, lny2, :)) * idyh_grid(lny)
-                grad_deltab1(2, :, uny, :) =   (3.0*deltab1(:, uny, :) - &
-                                                4.0*deltab1(:, uny1, :) + &
-                                                    deltab1(:, uny2, :)) * idyh_grid(uny)
+                deltab2_1(3, :, lny, :) =  (-3.0*deltab2_1(1, :, lny, :) + &
+                                             4.0*deltab2_1(1, :, lny1, :) - &
+                                                 deltab2_1(1, :, lny2, :)) * idyh_grid(lny)
+                deltab2_1(3, :, uny, :) =   (3.0*deltab2_1(1, :, uny, :) - &
+                                             4.0*deltab2_1(1, :, uny1, :) + &
+                                                 deltab2_1(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    grad_deltab1(3, ix, iy, lnz1:unz1) = &
-                        (deltab1(ix, iy, lnz2:unz) - &
-                         deltab1(ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    deltab2_1(4, ix, iy, lnz1:unz1) = &
+                        (deltab2_1(1, ix, iy, lnz2:unz) - &
+                         deltab2_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                grad_deltab1(3, :, :, lnz) =  (-3.0*deltab1(:, :, lnz) + &
-                                                4.0*deltab1(:, :, lnz1) - &
-                                                    deltab1(:, :, lnz2)) * idzh_grid(lnz)
-                grad_deltab1(3, :, :, unz) =   (3.0*deltab1(:, :, unz) - &
-                                                4.0*deltab1(:, :, unz1) + &
-                                                    deltab1(:, :, unz2)) * idzh_grid(unz)
+                deltab2_1(4, :, :, lnz) =  (-3.0*deltab2_1(1, :, :, lnz) + &
+                                             4.0*deltab2_1(1, :, :, lnz1) - &
+                                                 deltab2_1(1, :, :, lnz2)) * idzh_grid(lnz)
+                deltab2_1(4, :, :, unz) =   (3.0*deltab2_1(1, :, :, unz) - &
+                                             4.0*deltab2_1(1, :, :, unz1) + &
+                                                 deltab2_1(1, :, :, unz2)) * idzh_grid(unz)
             endif
         else
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                grad_deltab2(1, lnx1:unx1, iy, iz) = &
-                    (deltab2(lnx2:unx, iy, iz) - &
-                     deltab2(lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                deltab2_2(2, lnx1:unx1, iy, iz) = &
+                    (deltab2_2(1, lnx2:unx, iy, iz) - &
+                     deltab2_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            grad_deltab2(1, lnx, :, :) =  (-3.0*deltab2(lnx, :, :) + &
-                                            4.0*deltab2(lnx1, :, :) - &
-                                                deltab2(lnx2, :, :)) * idxh_grid(lnx)
-            grad_deltab2(1, unx, :, :) =   (3.0*deltab2(unx, :, :) - &
-                                            4.0*deltab2(unx1, :, :) + &
-                                                deltab2(unx2, :, :)) * idxh_grid(unx)
+            deltab2_2(2, lnx, :, :) =  (-3.0*deltab2_2(1, lnx, :, :) + &
+                                         4.0*deltab2_2(1, lnx1, :, :) - &
+                                             deltab2_2(1, lnx2, :, :)) * idxh_grid(lnx)
+            deltab2_2(2, unx, :, :) =   (3.0*deltab2_2(1, unx, :, :) - &
+                                         4.0*deltab2_2(1, unx1, :, :) + &
+                                             deltab2_2(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    grad_deltab2(2, ix, lny1:uny1, iz) = &
-                        (deltab2(ix, lny2:uny, iz) - &
-                         deltab2(ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    deltab2_2(3, ix, lny1:uny1, iz) = &
+                        (deltab2_2(1, ix, lny2:uny, iz) - &
+                         deltab2_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                grad_deltab2(2, :, lny, :) =  (-3.0*deltab2(:, lny, :) + &
-                                                4.0*deltab2(:, lny1, :) - &
-                                                    deltab2(:, lny2, :)) * idyh_grid(lny)
-                grad_deltab2(2, :, uny, :) =   (3.0*deltab2(:, uny, :) - &
-                                                4.0*deltab2(:, uny1, :) + &
-                                                    deltab2(:, uny2, :)) * idyh_grid(uny)
+                deltab2_2(3, :, lny, :) =  (-3.0*deltab2_2(1, :, lny, :) + &
+                                             4.0*deltab2_2(1, :, lny1, :) - &
+                                                 deltab2_2(1, :, lny2, :)) * idyh_grid(lny)
+                deltab2_2(3, :, uny, :) =   (3.0*deltab2_2(1, :, uny, :) - &
+                                             4.0*deltab2_2(1, :, uny1, :) + &
+                                                 deltab2_2(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    grad_deltab2(3, ix, iy, lnz1:unz1) = &
-                        (deltab2(ix, iy, lnz2:unz) - &
-                         deltab2(ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    deltab2_2(4, ix, iy, lnz1:unz1) = &
+                        (deltab2_2(1, ix, iy, lnz2:unz) - &
+                         deltab2_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                grad_deltab2(3, :, :, lnz) =  (-3.0*deltab2(:, :, lnz) + &
-                                                4.0*deltab2(:, :, lnz1) - &
-                                                    deltab2(:, :, lnz2)) * idzh_grid(lnz)
-                grad_deltab2(3, :, :, unz) =   (3.0*deltab2(:, :, unz) - &
-                                                4.0*deltab2(:, :, unz1) + &
-                                                    deltab2(:, :, unz2)) * idzh_grid(unz)
+                deltab2_2(4, :, :, lnz) =  (-3.0*deltab2_2(1, :, :, lnz) + &
+                                             4.0*deltab2_2(1, :, :, lnz1) - &
+                                                 deltab2_2(1, :, :, lnz2)) * idzh_grid(lnz)
+                deltab2_2(4, :, :, unz) =   (3.0*deltab2_2(1, :, :, unz) - &
+                                             4.0*deltab2_2(1, :, :, unz1) + &
+                                                 deltab2_2(1, :, :, unz2)) * idzh_grid(unz)
             endif
         endif
         if (mpi_rank == master) then
@@ -1088,7 +954,6 @@ module mhd_data_parallel
     !< Calculate the gradients of turbulence correlation length.
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for grad_correl1 and other numbers for grad_correl2.
     !---------------------------------------------------------------------------
     subroutine calc_grad_correl_length(var_flag)
         use mhd_config_module, only: mhd_config
@@ -1101,12 +966,12 @@ module mhd_data_parallel
         idxh = 0.5_dp / mhd_config%dx
         idyh = 0.5_dp / mhd_config%dy
         idzh = 0.5_dp / mhd_config%dz
-        unx = ubound(lc1, 1)
-        uny = ubound(lc1, 2)
-        unz = ubound(lc1, 3)
-        lnx = lbound(lc1, 1)
-        lny = lbound(lc1, 2)
-        lnz = lbound(lc1, 3)
+        unx = ubound(lcorr1, 2)
+        uny = ubound(lcorr1, 3)
+        unz = ubound(lcorr1, 4)
+        lnx = lbound(lcorr1, 2)
+        lny = lbound(lcorr1, 3)
+        lnz = lbound(lcorr1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -1121,71 +986,71 @@ module mhd_data_parallel
         lnz2 = lnz + 2
         if (var_flag == 0) then
             ! d/dx
-            grad_correl1(1, lnx1:unx1, :, :) = (lc1(lnx2:unx, :, :) - &
-                                                lc1(lnx:unx2, :, :)) * idxh
-            grad_correl1(1, lnx, :, :) =  (-3.0*lc1(lnx, :, :) + &
-                                            4.0*lc1(lnx1, :, :) - &
-                                                lc1(lnx2, :, :)) * idxh
-            grad_correl1(1, unx, :, :) =   (3.0*lc1(unx, :, :) - &
-                                            4.0*lc1(unx1, :, :) + &
-                                                lc1(unx2, :, :)) * idxh
+            lcorr1(2, lnx1:unx1, :, :) = (lcorr1(1, lnx2:unx, :, :) - &
+                                          lcorr1(1, lnx:unx2, :, :)) * idxh
+            lcorr1(2, lnx, :, :) =  (-3.0*lcorr1(1, lnx, :, :) + &
+                                      4.0*lcorr1(1, lnx1, :, :) - &
+                                          lcorr1(1, lnx2, :, :)) * idxh
+            lcorr1(2, unx, :, :) =   (3.0*lcorr1(1, unx, :, :) - &
+                                      4.0*lcorr1(1, unx1, :, :) + &
+                                          lcorr1(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                grad_correl1(2, :, lny1:uny1, :) = (lc1(:, lny2:uny, :) - &
-                                                    lc1(:, lny:uny2, :)) * idyh
-                grad_correl1(2, :, lny, :) =  (-3.0*lc1(:, lny, :) + &
-                                                4.0*lc1(:, lny1, :) - &
-                                                    lc1(:, lny2, :)) * idyh
-                grad_correl1(2, :, uny, :) =   (3.0*lc1(:, uny, :) - &
-                                                4.0*lc1(:, uny1, :) + &
-                                                    lc1(:, uny2, :)) * idyh
+                lcorr1(3, :, lny1:uny1, :) = (lcorr1(1, :, lny2:uny, :) - &
+                                              lcorr1(1, :, lny:uny2, :)) * idyh
+                lcorr1(3, :, lny, :) =  (-3.0*lcorr1(1, :, lny, :) + &
+                                          4.0*lcorr1(1, :, lny1, :) - &
+                                              lcorr1(1, :, lny2, :)) * idyh
+                lcorr1(3, :, uny, :) =   (3.0*lcorr1(1, :, uny, :) - &
+                                          4.0*lcorr1(1, :, uny1, :) + &
+                                              lcorr1(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                grad_correl1(3, :, :, lnz1:unz1) = (lc1(:, :, lnz2:unz) - &
-                                                    lc1(:, :, lnz:unz2)) * idzh
-                grad_correl1(3, :, :, lnz) =  (-3.0*lc1(:, :, lnz) + &
-                                                4.0*lc1(:, :, lnz1) - &
-                                                    lc1(:, :, lnz2)) * idzh
-                grad_correl1(3, :, :, unz) =   (3.0*lc1(:, :, unz) - &
-                                                4.0*lc1(:, :, unz1) + &
-                                                    lc1(:, :, unz2)) * idzh
+                lcorr1(4, :, :, lnz1:unz1) = (lcorr1(1, :, :, lnz2:unz) - &
+                                              lcorr1(1, :, :, lnz:unz2)) * idzh
+                lcorr1(4, :, :, lnz) =  (-3.0*lcorr1(1, :, :, lnz) + &
+                                          4.0*lcorr1(1, :, :, lnz1) - &
+                                              lcorr1(1, :, :, lnz2)) * idzh
+                lcorr1(4, :, :, unz) =   (3.0*lcorr1(1, :, :, unz) - &
+                                          4.0*lcorr1(1, :, :, unz1) + &
+                                              lcorr1(1, :, :, unz2)) * idzh
             endif
         else
             ! d/dx
-            grad_correl2(1, lnx1:unx1, :, :) = (lc2(lnx2:unx, :, :) - &
-                                                lc2(lnx:unx2, :, :)) * idxh
-            grad_correl2(1, lnx, :, :) =  (-3.0*lc2(lnx, :, :) + &
-                                            4.0*lc2(lnx1, :, :) - &
-                                                lc2(lnx2, :, :)) * idxh
-            grad_correl2(1, unx, :, :) =   (3.0*lc2(unx, :, :) - &
-                                            4.0*lc2(unx1, :, :) + &
-                                                lc2(unx2, :, :)) * idxh
+            lcorr2(2, lnx1:unx1, :, :) = (lcorr2(1, lnx2:unx, :, :) - &
+                                          lcorr2(1, lnx:unx2, :, :)) * idxh
+            lcorr2(2, lnx, :, :) =  (-3.0*lcorr2(1, lnx, :, :) + &
+                                      4.0*lcorr2(1, lnx1, :, :) - &
+                                          lcorr2(1, lnx2, :, :)) * idxh
+            lcorr2(2, unx, :, :) =   (3.0*lcorr2(1, unx, :, :) - &
+                                      4.0*lcorr2(1, unx1, :, :) + &
+                                          lcorr2(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                grad_correl2(2, :, lny1:uny1, :) = (lc2(:, lny2:uny, :) - &
-                                                    lc2(:, lny:uny2, :)) * idyh
-                grad_correl2(2, :, lny, :) =  (-3.0*lc2(:, lny, :) + &
-                                                4.0*lc2(:, lny1, :) - &
-                                                    lc2(:, lny2, :)) * idyh
-                grad_correl2(2, :, uny, :) =   (3.0*lc2(:, uny, :) - &
-                                                4.0*lc2(:, uny1, :) + &
-                                                    lc2(:, uny2, :)) * idyh
+                lcorr2(3, :, lny1:uny1, :) = (lcorr2(1, :, lny2:uny, :) - &
+                                              lcorr2(1, :, lny:uny2, :)) * idyh
+                lcorr2(3, :, lny, :) =  (-3.0*lcorr2(1, :, lny, :) + &
+                                          4.0*lcorr2(1, :, lny1, :) - &
+                                              lcorr2(1, :, lny2, :)) * idyh
+                lcorr2(3, :, uny, :) =   (3.0*lcorr2(1, :, uny, :) - &
+                                          4.0*lcorr2(1, :, uny1, :) + &
+                                              lcorr2(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                grad_correl2(3, :, :, lnz1:unz1) = (lc2(:, :, lnz2:unz) - &
-                                                    lc2(:, :, lnz:unz2)) * idzh
-                grad_correl2(3, :, :, lnz) =  (-3.0*lc2(:, :, lnz) + &
-                                                4.0*lc2(:, :, lnz1) - &
-                                                    lc2(:, :, lnz2)) * idzh
-                grad_correl2(3, :, :, unz) =   (3.0*lc2(:, :, unz) - &
-                                                4.0*lc2(:, :, unz1) + &
-                                                    lc2(:, :, unz2)) * idzh
+                lcorr2(4, :, :, lnz1:unz1) = (lcorr2(1, :, :, lnz2:unz) - &
+                                              lcorr2(1, :, :, lnz:unz2)) * idzh
+                lcorr2(4, :, :, lnz) =  (-3.0*lcorr2(1, :, :, lnz) + &
+                                          4.0*lcorr2(1, :, :, lnz1) - &
+                                              lcorr2(1, :, :, lnz2)) * idzh
+                lcorr2(4, :, :, unz) =   (3.0*lcorr2(1, :, :, unz) - &
+                                          4.0*lcorr2(1, :, :, unz1) + &
+                                              lcorr2(1, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
@@ -1198,7 +1063,6 @@ module mhd_data_parallel
     !< grid
     !< Args:
     !<  var_flag: indicating which set of variables.
-    !<            0 for grad_correl1 and other numbers for grad_correl2.
     !---------------------------------------------------------------------------
     subroutine calc_grad_correl_length_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
@@ -1208,12 +1072,12 @@ module mhd_data_parallel
         integer :: unx1, unx2, uny1, uny2, unz1, unz2
         integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
         integer :: ix, iy, iz
-        unx = ubound(lc1, 1)
-        uny = ubound(lc1, 2)
-        unz = ubound(lc1, 3)
-        lnx = lbound(lc1, 1)
-        lny = lbound(lc1, 2)
-        lnz = lbound(lc1, 3)
+        unx = ubound(lcorr1, 2)
+        uny = ubound(lcorr1, 3)
+        unz = ubound(lcorr1, 4)
+        lnx = lbound(lcorr1, 2)
+        lny = lbound(lcorr1, 3)
+        lnz = lbound(lcorr1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -1230,99 +1094,99 @@ module mhd_data_parallel
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                grad_correl1(1, lnx1:unx1, iy, iz) = &
-                    (lc1(lnx2:unx, iy, iz) - &
-                     lc1(lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                lcorr1(2, lnx1:unx1, iy, iz) = &
+                    (lcorr1(1, lnx2:unx, iy, iz) - &
+                     lcorr1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            grad_correl1(1, lnx, :, :) =  (-3.0*lc1(lnx, :, :) + &
-                                            4.0*lc1(lnx1, :, :) - &
-                                                lc1(lnx2, :, :)) * idxh_grid(lnx)
-            grad_correl1(1, unx, :, :) =   (3.0*lc1(unx, :, :) - &
-                                            4.0*lc1(unx1, :, :) + &
-                                                lc1(unx2, :, :)) * idxh_grid(unx)
+            lcorr1(2, lnx, :, :) =  (-3.0*lcorr1(1, lnx, :, :) + &
+                                      4.0*lcorr1(1, lnx1, :, :) - &
+                                          lcorr1(1, lnx2, :, :)) * idxh_grid(lnx)
+            lcorr1(2, unx, :, :) =   (3.0*lcorr1(1, unx, :, :) - &
+                                      4.0*lcorr1(1, unx1, :, :) + &
+                                          lcorr1(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    grad_correl1(2, ix, lny1:uny1, iz) = &
-                        (lc1(ix, lny2:uny, iz) - &
-                         lc1(ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    lcorr1(3, ix, lny1:uny1, iz) = &
+                        (lcorr1(1, ix, lny2:uny, iz) - &
+                         lcorr1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                grad_correl1(2, :, lny, :) =  (-3.0*lc1(:, lny, :) + &
-                                                4.0*lc1(:, lny1, :) - &
-                                                    lc1(:, lny2, :)) * idyh_grid(lny)
-                grad_correl1(2, :, uny, :) =   (3.0*lc1(:, uny, :) - &
-                                                4.0*lc1(:, uny1, :) + &
-                                                    lc1(:, uny2, :)) * idyh_grid(uny)
+                lcorr1(3, :, lny, :) =  (-3.0*lcorr1(1, :, lny, :) + &
+                                          4.0*lcorr1(1, :, lny1, :) - &
+                                              lcorr1(1, :, lny2, :)) * idyh_grid(lny)
+                lcorr1(3, :, uny, :) =   (3.0*lcorr1(1, :, uny, :) - &
+                                          4.0*lcorr1(1, :, uny1, :) + &
+                                              lcorr1(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    grad_correl1(3, ix, iy, lnz1:unz1) = &
-                        (lc1(ix, iy, lnz2:unz) - &
-                         lc1(ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    lcorr1(4, ix, iy, lnz1:unz1) = &
+                        (lcorr1(1, ix, iy, lnz2:unz) - &
+                         lcorr1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                grad_correl1(3, :, :, lnz) =  (-3.0*lc1(:, :, lnz) + &
-                                                4.0*lc1(:, :, lnz1) - &
-                                                    lc1(:, :, lnz2)) * idzh_grid(lnz)
-                grad_correl1(3, :, :, unz) =   (3.0*lc1(:, :, unz) - &
-                                                4.0*lc1(:, :, unz1) + &
-                                                    lc1(:, :, unz2)) * idzh_grid(unz)
+                lcorr1(4, :, :, lnz) =  (-3.0*lcorr1(1, :, :, lnz) + &
+                                          4.0*lcorr1(1, :, :, lnz1) - &
+                                              lcorr1(1, :, :, lnz2)) * idzh_grid(lnz)
+                lcorr1(4, :, :, unz) =   (3.0*lcorr1(1, :, :, unz) - &
+                                          4.0*lcorr1(1, :, :, unz1) + &
+                                              lcorr1(1, :, :, unz2)) * idzh_grid(unz)
             endif
         else
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                grad_correl2(1, lnx1:unx1, iy, iz) = &
-                    (lc2(lnx2:unx, iy, iz) - &
-                     lc2(lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                lcorr2(2, lnx1:unx1, iy, iz) = &
+                    (lcorr2(1, lnx2:unx, iy, iz) - &
+                     lcorr2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            grad_correl2(1, lnx, :, :) =  (-3.0*lc2(lnx, :, :) + &
-                                            4.0*lc2(lnx1, :, :) - &
-                                                lc2(lnx2, :, :)) * idxh_grid(lnx)
-            grad_correl2(1, unx, :, :) =   (3.0*lc2(unx, :, :) - &
-                                            4.0*lc2(unx1, :, :) + &
-                                                lc2(unx2, :, :)) * idxh_grid(unx)
+            lcorr2(2, lnx, :, :) =  (-3.0*lcorr2(1, lnx, :, :) + &
+                                      4.0*lcorr2(1, lnx1, :, :) - &
+                                          lcorr2(1, lnx2, :, :)) * idxh_grid(lnx)
+            lcorr2(2, unx, :, :) =   (3.0*lcorr2(1, unx, :, :) - &
+                                      4.0*lcorr2(1, unx1, :, :) + &
+                                          lcorr2(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    grad_correl2(2, ix, lny1:uny1, iz) = &
-                        (lc2(ix, lny2:uny, iz) - &
-                         lc2(ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    lcorr2(3, ix, lny1:uny1, iz) = &
+                        (lcorr2(1, ix, lny2:uny, iz) - &
+                         lcorr2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                grad_correl2(2, :, lny, :) =  (-3.0*lc2(:, lny, :) + &
-                                                4.0*lc2(:, lny1, :) - &
-                                                    lc2(:, lny2, :)) * idyh_grid(lny)
-                grad_correl2(2, :, uny, :) =   (3.0*lc2(:, uny, :) - &
-                                                4.0*lc2(:, uny1, :) + &
-                                                    lc2(:, uny2, :)) * idyh_grid(uny)
+                lcorr2(3, :, lny, :) =  (-3.0*lcorr2(1, :, lny, :) + &
+                                          4.0*lcorr2(1, :, lny1, :) - &
+                                              lcorr2(1, :, lny2, :)) * idyh_grid(lny)
+                lcorr2(3, :, uny, :) =   (3.0*lcorr2(1, :, uny, :) - &
+                                          4.0*lcorr2(1, :, uny1, :) + &
+                                              lcorr2(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    grad_correl2(3, ix, iy, lnz1:unz1) = &
-                        (lc2(ix, iy, lnz2:unz) - &
-                         lc2(ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    lcorr2(4, ix, iy, lnz1:unz1) = &
+                        (lcorr2(1, ix, iy, lnz2:unz) - &
+                         lcorr2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                grad_correl2(3, :, :, lnz) =  (-3.0*lc2(:, :, lnz) + &
-                                                4.0*lc2(:, :, lnz1) - &
-                                                    lc2(:, :, lnz2)) * idzh_grid(lnz)
-                grad_correl2(3, :, :, unz) =   (3.0*lc2(:, :, unz) - &
-                                                4.0*lc2(:, :, unz1) + &
-                                                    lc2(:, :, unz2)) * idzh_grid(unz)
+                lcorr2(4, :, :, lnz) =  (-3.0*lcorr2(1, :, :, lnz) + &
+                                          4.0*lcorr2(1, :, :, lnz1) - &
+                                              lcorr2(1, :, :, lnz2)) * idzh_grid(lnz)
+                lcorr2(4, :, :, unz) =   (3.0*lcorr2(1, :, :, unz) - &
+                                          4.0*lcorr2(1, :, :, unz1) + &
+                                              lcorr2(1, :, :, unz2)) * idzh_grid(unz)
             endif
         endif
         if (mpi_rank == master) then
@@ -1338,21 +1202,17 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
-    !<  fields(output): fields at particle position
-    !<  gradf(output): gradients of the fields at particle position
+    !<  fields(output): fields and their gradients at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_fields(pos, weights, rt, fields, gradf)
+    subroutine interp_fields(pos, weights, rt, fields)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        real(dp), dimension(nfields), intent(out) :: fields
-        real(dp), dimension(ngrads), intent(out) :: gradf
+        real(dp), dimension(nfields+ngrads), intent(out) :: fields
         integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
-        real(dp), dimension(nfields) :: fields2
-        real(dp), dimension(ngrads) :: gradf2
-        !dir$ attributes align:64 :: fields2
-        !dir$ attributes align:64 :: gradf2
+        real(dp), dimension(nfields+ngrads) :: fields2
+        !dir$ attributes align:256 :: fields2
 
         ix = pos(1)
         iy = pos(2)
@@ -1371,22 +1231,17 @@ module mhd_data_parallel
 
         fields = 0.0_dp
         fields2 = 0.0_dp
-        gradf = 0.0_dp
-        gradf2 = 0.0_dp
         do k = 0, ze
         do j = 0, ye
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
-            fields = fields + f_array1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            fields2 = fields2 + f_array2(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            gradf = gradf + fgrad_array1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            gradf2 = gradf2 + fgrad_array2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            fields = fields + farray1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            fields2 = fields2 + farray2(:, ix+i, iy+j, iz+k) * weights(index_1d)
         enddo
         enddo
         enddo
         !< Time interpolation
         fields = fields * (1.0 - rt) + fields2 * rt
-        gradf = gradf * (1.0 - rt) + gradf2 * rt
     end subroutine interp_fields
 
     !---------------------------------------------------------------------------
@@ -1397,19 +1252,17 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
-    !<  db2(output): turbulence variance at particle position
-    !<  grad_db2(output): gradients of db2 at particle position
+    !<  db2(output): turbulence variance and its gradients at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_magnetic_fluctuation(pos, weights, rt, db2, grad_db2)
+    subroutine interp_magnetic_fluctuation(pos, weights, rt, db2)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        real(dp), intent(out) :: db2
-        real(dp), dimension(3), intent(out) :: grad_db2
+        real(dp), dimension(4), intent(out) :: db2
         integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
-        real(dp), dimension(3) :: grad_db2_2
-        real(dp) :: db2_2
+        real(dp), dimension(4) :: db2_2
+        !dir$ attributes align:32 :: db2_2
 
         ix = pos(1)
         iy = pos(2)
@@ -1428,22 +1281,17 @@ module mhd_data_parallel
 
         db2 = 0.0_dp
         db2_2 = 0.0_dp
-        grad_db2 = 0.0_dp
-        grad_db2_2 = 0.0_dp
         do k = 0, ze
         do j = 0, ye
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
-            db2 = db2 + deltab1(ix+i, iy+j, iz+k) * weights(index_1d)
-            db2_2 = db2_2 + deltab2(ix+i, iy+j, iz+k) * weights(index_1d)
-            grad_db2 = grad_db2 + grad_deltab1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            grad_db2_2 = grad_db2_2 + grad_deltab2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            db2 = db2 + deltab2_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            db2_2 = db2_2 + deltab2_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
         enddo
         enddo
         enddo
         !< Time interpolation
         db2 = db2 * (1.0 - rt) + db2_2 * rt
-        grad_db2 = grad_db2 * (1.0 - rt) + grad_db2_2 * rt
     end subroutine interp_magnetic_fluctuation
 
     !---------------------------------------------------------------------------
@@ -1454,19 +1302,17 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
-    !<  lc0(output): turbulence correlation length at particle position
-    !<  grad_lc0(output): gradients of lc0 at particle position
+    !<  lc(output): turbulence correlation length and its graidents at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_correlation_length(pos, weights, rt, lc0, grad_lc0)
+    subroutine interp_correlation_length(pos, weights, rt, lc)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        real(dp), intent(out) :: lc0
-        real(dp), dimension(3), intent(out) :: grad_lc0
+        real(dp), dimension(4), intent(out) :: lc
         integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
-        real(dp), dimension(3) :: grad_lc0_2
-        real(dp) :: lc0_2
+        real(dp), dimension(4) :: lc2
+        !dir$ attributes align:32 :: lc2
 
         ix = pos(1)
         iy = pos(2)
@@ -1483,24 +1329,19 @@ module mhd_data_parallel
             ze = 0
         endif
 
-        lc0 = 0.0_dp
-        lc0_2 = 0.0_dp
-        grad_lc0 = 0.0_dp
-        grad_lc0_2 = 0.0_dp
+        lc = 0.0_dp
+        lc2 = 0.0_dp
         do k = 0, ze
         do j = 0, ye
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
-            lc0 = lc0 + lc1(ix+i, iy+j, iz+k) * weights(index_1d)
-            lc0_2 = lc0_2 + lc2(ix+i, iy+j, iz+k) * weights(index_1d)
-            grad_lc0 = grad_lc0 + grad_correl1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            grad_lc0_2 = grad_lc0_2 + grad_correl2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            lc = lc + lcorr1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            lc2 = lc2 + lcorr2(:, ix+i, iy+j, iz+k) * weights(index_1d)
         enddo
         enddo
         enddo
         !< Time interpolation
-        lc0 = lc0 * (1.0 - rt) + lc0_2 * rt
-        grad_lc0 = grad_lc0 * (1.0 - rt) + grad_lc0_2 * rt
+        lc = lc * (1.0 - rt) + lc2 * rt
     end subroutine interp_correlation_length
 
     !<--------------------------------------------------------------------------
@@ -1508,8 +1349,7 @@ module mhd_data_parallel
     !<--------------------------------------------------------------------------
     subroutine copy_fields
         implicit none
-        f_array1 = f_array2
-        fgrad_array1 = fgrad_array2
+        farray1 = farray2
     end subroutine copy_fields
 
     !<--------------------------------------------------------------------------
@@ -1517,8 +1357,7 @@ module mhd_data_parallel
     !<--------------------------------------------------------------------------
     subroutine copy_magnetic_fluctuation
         implicit none
-        deltab1 = deltab2
-        grad_deltab1 = grad_deltab2
+        deltab2_1 = deltab2_2
     end subroutine copy_magnetic_fluctuation
 
     !<--------------------------------------------------------------------------
@@ -1526,8 +1365,7 @@ module mhd_data_parallel
     !<--------------------------------------------------------------------------
     subroutine copy_correlation_length
         implicit none
-        lc1 = lc2
-        grad_correl1 = grad_correl2
+        lcorr1 = lcorr2
     end subroutine copy_correlation_length
 
     !---------------------------------------------------------------------------
@@ -1587,19 +1425,19 @@ module mhd_data_parallel
         implicit none
         integer, intent(in) :: interp_flag
         if (ndim_field == 1) then
-            shock_xpos1(1, 1) = maxloc(abs(fgrad_array1(1, :, 1, 1)), dim=1)
+            shock_xpos1(1, 1) = maxloc(abs(farray1(nfields+1, :, 1, 1)), dim=1)
         else if (ndim_field == 2) then
-            shock_xpos1(:, 1) = maxloc(abs(fgrad_array1(1, :, :, 1)), dim=1)
+            shock_xpos1(:, 1) = maxloc(abs(farray1(nfields+1, :, :, 1)), dim=1)
         else
-            shock_xpos1(:, :) = maxloc(abs(fgrad_array1(1, :, :, :)), dim=1)
+            shock_xpos1(:, :) = maxloc(abs(farray1(nfields+1, :, :, :)), dim=1)
         endif
         if (interp_flag == 1) then
             if (ndim_field == 1) then
-                shock_xpos2(1, 1) = maxloc(abs(fgrad_array2(1, :, 1, 1)), dim=1)
+                shock_xpos2(1, 1) = maxloc(abs(farray2(nfields+1, :, 1, 1)), dim=1)
             else if (ndim_field == 2) then
-                shock_xpos2(:, 1) = maxloc(abs(fgrad_array2(1, :, :, 1)), dim=1)
+                shock_xpos2(:, 1) = maxloc(abs(farray2(nfields+1, :, :, 1)), dim=1)
             else
-                shock_xpos2(:, :) = maxloc(abs(fgrad_array2(1, :, :, :)), dim=1)
+                shock_xpos2(:, :) = maxloc(abs(farray2(nfields+1, :, :, :)), dim=1)
             endif
         endif
     end subroutine locate_shock_xpos
@@ -1826,14 +1664,14 @@ module mhd_data_parallel
             do iz = 1, nz
                 do iy = 1, ny
                     abs_jz(:, iy, iz) = &
-                        abs(fgrad_array1(16, 1:nx, iy, iz) + &
-                            (f_array1(6, 1:nx, iy, iz) - &
-                             fgrad_array1(14, 1:nx, iy, iz)) / xpos_local(1:nx))
+                        abs(farray1(nfields+16, 1:nx, iy, iz) + &
+                            (farray1(6, 1:nx, iy, iz) - &
+                             farray1(nfields+14, 1:nx, iy, iz)) / xpos_local(1:nx))
                 enddo
             enddo
         else
-            abs_jz = abs(fgrad_array1(16, 1:nx, 1:ny, 1:nz) - &
-                         fgrad_array1(14, 1:nx, 1:ny, 1:nz))
+            abs_jz = abs(farray1(nfields+16, 1:nx, 1:ny, 1:nz) - &
+                         farray1(nfields+14, 1:nx, 1:ny, 1:nz))
         endif
         do iz = 1, nz
             if (ndim_field > 2) then
