@@ -678,10 +678,13 @@ module particle_module
     !<  dt: the time interval
     !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
     !<  ct_mhd: MHD simulation time frame
+    !<  inject_same_nptl: whether to inject the same of particles every step
     !<  jz_min: the minimum jz
+    !<  ncells_large_jz_norm ! Normalization for the number of cells with large jz
     !<  part_box: box to inject particles
     !---------------------------------------------------------------------------
-    subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, jz_min, part_box)
+    subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, &
+            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_fields
@@ -689,6 +692,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
         real(dp), intent(in) :: dt, jz_min
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
@@ -733,9 +737,15 @@ module particle_module
         !< to mpi_rank. That's why we need to redistribute the number of particles
         !< to inject.
         ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
-        call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
-            MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
-        nptl_inject = int(nptl * mpi_sub_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+        if (inject_same_nptl == 1) then
+            call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_jz) / dble(ncells_large_jz_g)))
+        else
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_jz) / dble(ncells_large_jz_norm)))
+        endif
 
         do i = 1, nptl_inject
             nptl_current = nptl_current + 1

@@ -53,6 +53,7 @@ program stochastic
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp), dimension(6) :: part_box
+    integer :: ncells_large_jz_norm ! Normalization for the number of cells with large jz
     integer :: nthreads, color
     integer :: t_start, t_end, tf, dist_flag, split_flag
     integer :: interp_flag, local_dist
@@ -61,6 +62,7 @@ program stochastic
     integer :: num_fine_steps     ! Number of the fine steps for diagnostics
     integer :: inject_new_ptl     ! Whether to inject new particles every MHD step
     integer :: inject_large_jz    ! Whether to inject where jz is large
+    integer :: inject_same_nptl   ! Whether to inject same of number particles every step
     integer :: inject_part_box    ! Whether to inject in part of the box
     integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
     integer :: dpp_shear          ! Whether to include momentum diffusion due to flow shear
@@ -275,7 +277,7 @@ program stochastic
             endif
             if (inject_large_jz == 1) then
                 call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
-                    jz_min, part_box)
+                    inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
             else
                 call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
             endif
@@ -376,7 +378,7 @@ program stochastic
                 if (inject_new_ptl == 1) then
                     if (inject_large_jz == 1) then
                         call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
-                            jz_min, part_box)
+                            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
                     else
                         call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
                     endif
@@ -410,11 +412,12 @@ program stochastic
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
                         '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
-                        '-df dist_flag -tf track_particle_flag '//&
+                        '-df dist_flag -sf split_flag -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
-                        '-in inject_new_ptl -ij inject_at_shock '//&
-                        '-ip inject_part_box -xs ptl_xmin -xe ptl_xmax '//&
+                        '-in inject_new_ptl -ij inject_large_jz '//&
+                        '-sn inject_same_nptl -ip inject_part_box -jz jz_min '//&
+                        '-nn ncells_large_jz_norm -xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
                         '-ds dpp_shear -t0 tau0_scattering '//&
@@ -486,6 +489,10 @@ program stochastic
             help='whether to inject where jz is large', required=.false., &
             act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--inject_same_nptl', switch_ab='-sn', &
+            help='whether to inject the same number of particles every step', &
+            required=.false., act='store', def='1', error=error)
+        if (error/=0) stop
         call cli%add(switch='--inject_part_box', switch_ab='-ip', &
             help='whether to inject in a part of the box', required=.false., &
             act='store', def='0', error=error)
@@ -493,6 +500,10 @@ program stochastic
         call cli%add(switch='--jz_min', switch_ab='-jz', &
             help='Minimum jz in regions to inject new particles', &
             required=.false., def='100.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ncells_large_jz_norm', switch_ab='-nn', &
+            help='Normalization for the number of cells with large jz', &
+            required=.false., def='800', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--ptl_xmin', switch_ab='-xs', &
             help='Minimum x of the region to inject new particles', &
@@ -618,9 +629,13 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ij', val=inject_large_jz, error=error)
         if (error/=0) stop
+        call cli%get(switch='-sn', val=inject_same_nptl, error=error)
+        if (error/=0) stop
         call cli%get(switch='-ip', val=inject_part_box, error=error)
         if (error/=0) stop
         call cli%get(switch='-jz', val=jz_min, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-nn', val=ncells_large_jz_norm, error=error)
         if (error/=0) stop
         call cli%get(switch='-xs', val=ptl_xmin, error=error)
         if (error/=0) stop
@@ -670,6 +685,7 @@ program stochastic
         if (error/=0) stop
 
         if (mpi_rank == master) then
+            print '(A)', '---------------Commandline Arguments:---------------'
             print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
@@ -679,15 +695,16 @@ program stochastic
             else
                 print '(A)', 'All particles with the same momentum initially'
             endif
-            print '(A,E14.7E2)', 'Time interval to push particles', dt
+            print '(A,E14.7E2)', 'Time interval to push particles: ', dt
             print '(A,I10.3)', 'Starting time frame: ', t_start
             print '(A,I10.3)', 'The last time frame: ', t_end
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
             endif
             if (track_particle_flag == 1) then
-                print '(A,I10.3)', 'Number of particles to track: ', nptl_selected
-                print '(A,I10.3)', 'Steps interval to track particles: ', nsteps_interval
+                print '(A)', 'The program will tracking high-energy particles' 
+                print '(A,I10.3)', ' * Number of particles to track: ', nptl_selected
+                print '(A,I10.3)', ' * Steps interval to track particles: ', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', trim(diagnostics_directory)
             print '(A,I10.3)', 'Number of fine steps: ', num_fine_steps
@@ -699,15 +716,21 @@ program stochastic
             endif
             if (inject_part_box == 1) then
                 print '(A)', 'Inject new particles in part of the simulation box'
-                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum x of the region to inject new particles', &
-                    ptl_xmin, ptl_xmax
-                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum y of the region to inject new particles', &
-                    ptl_ymin, ptl_ymax
-                print '(A,E14.7E2,E14.7E2)', 'Minimum and maximum z of the region to inject new particles', &
-                    ptl_zmin, ptl_zmax
+                print '(A)', 'The local region to injet new particles (in code unit):'
+                print '(A,E14.7E2,E14.7E2)', ' Min and Max x: ', ptl_xmin, ptl_xmax
+                print '(A,E14.7E2,E14.7E2)', ' Min and Max y: ', ptl_ymin, ptl_ymax
+                print '(A,E14.7E2,E14.7E2)', ' Min and Max z: ', ptl_zmin, ptl_zmax
             endif
             if (inject_large_jz == 1) then
                 print '(A)', 'Inject new particles where jz is large'
+                if (inject_same_nptl == 1) then
+                    print '(A)', 'Inject the same number of particles every step'
+                else
+                    print '(A, A)', 'Inject different number of particles every step, ', &
+                        'depending on the number of cells with |jz| > jz_min'
+                    print '(A,I10.3)', 'Normalization for the number of cells with large jz: ', &
+                        ncells_large_jz_norm
+                endif
                 print '(A,E14.7E2)', 'Minumum jz in regions to inject new particles', jz_min
             endif
             if (dpp_wave == 1) then
@@ -715,7 +738,7 @@ program stochastic
             endif
             if (dpp_shear == 1) then
                 print '(A)', 'Include momentum diffusion due to flow shear'
-                print '(A,E14.7E2)', 'The scattering time for initial particles', tau0_scattering
+                print '(A,E14.7E2)', 'The scattering time for initial particles: ', tau0_scattering
             endif
             if (weak_scattering == 1) then
                 print '(A)', 'Particle transport is in the weak-scattering regime (tau\Omega >> 1)'
@@ -734,9 +757,9 @@ program stochastic
             endif
             print '(A,I10.3)', 'MHD field dimension:', ndim_field
             if (ndim_field == 3 .or. (ndim_field == 2 .and. check_drift_2d == 1)) then
-                print '(A,E14.7E2,E14.7E2)', 'Parameters for particle drift', &
+                print '(A,E14.7E2,E14.7E2)', 'Parameters for particle drift: ', &
                     drift_param1, drift_param2
-                print '(A,I10.3)', 'Particle change in the unit of e:', charge
+                print '(A,I10.3)', 'Particle change in the unit of e: ', charge
             endif
             if (spherical_coord == 1) then
                 print '(A)', 'MHD simulations are in spherical coordinates'
@@ -752,6 +775,7 @@ program stochastic
             if (particle_data_dump == 1) then
                 print '(A)', 'Particle data will be dumped'
             endif
+            print '(A)', '----------------------------------------------------'
         endif
     end subroutine get_cmd_args
 end program stochastic
