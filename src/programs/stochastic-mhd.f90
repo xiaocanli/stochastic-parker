@@ -52,12 +52,14 @@ program stochastic
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
+    real(dp) :: power_index ! Power-law spectrum index for initial distribution
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm ! Normalization for the number of cells with large jz
     integer :: nthreads, color
-    integer :: t_start, t_end, tf, dist_flag, split_flag
+    integer :: t_start, t_end, tf, split_flag
     integer :: interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
+    integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
     integer :: inject_at_shock    ! Inject particles at shock location
     integer :: num_fine_steps     ! Number of the fine steps for diagnostics
     integer :: inject_new_ptl     ! Whether to inject new particles every MHD step
@@ -76,6 +78,7 @@ program stochastic
     integer :: check_drift_2d     ! Whether to check particle drift in 2D simulations
     integer :: particle_data_dump ! Whether to dump particle data
     integer :: size_mpi_sub       ! Size of a MPI sub-communicator
+    integer :: single_time_frame  ! Whether to use a single time frame of fields
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -214,19 +217,34 @@ program stochastic
         logical, intent(in) :: track_particles
         write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
         write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
-        call read_field_data_parallel(fname1, var_flag=0)
-        call read_field_data_parallel(fname2, var_flag=1)
+        if (single_time_frame == 1) then
+            call read_field_data_parallel(fname1, var_flag=1)
+            call copy_fields
+        else
+            call read_field_data_parallel(fname1, var_flag=0)
+            call read_field_data_parallel(fname2, var_flag=1)
+        endif
         if (deltab_flag == 1) then
             write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
             write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
-            call read_magnetic_fluctuation(fname1, var_flag=0)
-            call read_magnetic_fluctuation(fname2, var_flag=1)
+            if (single_time_frame == 1) then
+                call read_magnetic_fluctuation(fname1, var_flag=1)
+                call copy_magnetic_fluctuation
+            else
+                call read_magnetic_fluctuation(fname1, var_flag=0)
+                call read_magnetic_fluctuation(fname2, var_flag=1)
+            endif
         endif
         if (correlation_flag == 1) then
             write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
             write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
-            call read_correlation_length(fname1, var_flag=0)
-            call read_correlation_length(fname2, var_flag=1)
+            if (single_time_frame == 1) then
+                call read_correlation_length(fname1, var_flag=1)
+                call copy_correlation_length
+            else
+                call read_correlation_length(fname1, var_flag=0)
+                call read_correlation_length(fname2, var_flag=1)
+            endif
         endif
 
         if (uniform_grid == 1) then
@@ -258,7 +276,7 @@ program stochastic
         if (inject_at_shock == 1) then ! Whether it is a shock problem
             call init_shock_xpos(interp_flag)
             call locate_shock_xpos(interp_flag)
-            call inject_particles_at_shock(nptl, dt, dist_flag, t_start)
+            call inject_particles_at_shock(nptl, dt, dist_flag, t_start, power_index)
         else
             if (inject_part_box == 1) then
                 part_box(1) = ptl_xmin
@@ -277,9 +295,11 @@ program stochastic
             endif
             if (inject_large_jz == 1) then
                 call inject_particles_at_large_jz(nptl, dt, dist_flag, t_start, &
-                    inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
+                    inject_same_nptl, jz_min, ncells_large_jz_norm, part_box, &
+                    power_index)
             else
-                call inject_particles_spatial_uniform(nptl, dt, dist_flag, t_start, part_box)
+                call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
+                    t_start, part_box, power_index)
             endif
         endif
 
@@ -339,7 +359,7 @@ program stochastic
             if (mpi_rank == master) then
                 write(*, "(A)") " Finishing copying fields "
             endif
-            if (tf < t_end) then
+            if (single_time_frame == 0 .and. tf < t_end) then
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
                 call read_field_data_parallel(fname2, var_flag=1)
@@ -373,14 +393,16 @@ program stochastic
             endif
             if (inject_at_shock == 1) then
                 call locate_shock_xpos(interp_flag)
-                call inject_particles_at_shock(nptl, dt, dist_flag, tf+1)
+                call inject_particles_at_shock(nptl, dt, dist_flag, tf+1, power_index)
             else
                 if (inject_new_ptl == 1) then
                     if (inject_large_jz == 1) then
                         call inject_particles_at_large_jz(nptl, dt, dist_flag, tf+1, &
-                            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
+                            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box, &
+                            power_index)
                     else
-                        call inject_particles_spatial_uniform(nptl, dt, dist_flag, tf+1, part_box)
+                        call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
+                            tf+1, part_box, power_index)
                     endif
                 endif
             endif
@@ -412,7 +434,8 @@ program stochastic
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
                         '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
-                        '-df dist_flag -sf split_flag -tf track_particle_flag '//&
+                        '-st single_time_frame -df dist_flag -pi power_index '//&
+                        '-sf split_flag -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_large_jz '//&
@@ -453,9 +476,17 @@ program stochastic
             help='The last time frame', required=.false., &
             act='store', def='200', error=error)
         if (error/=0) stop
+        call cli%add(switch='--single_time_frame', switch_ab='-st', &
+            help='Whether to use a single time frame of fields', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
         call cli%add(switch='--dist_flag', switch_ab='-df', &
             help='Flag to indicate momentum distribution', required=.false., &
             act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--power_index', switch_ab='-pi', &
+            help='Power-law spectrum index for initial distribution', &
+            required=.false., act='store', def='7.0', error=error)
         if (error/=0) stop
         call cli%add(switch='--split_flag', switch_ab='-sf', &
             help='Flag to split the particles', required=.false., &
@@ -611,7 +642,11 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-te', val=t_end, error=error)
         if (error/=0) stop
+        call cli%get(switch='-st', val=single_time_frame, error=error)
+        if (error/=0) stop
         call cli%get(switch='-df', val=dist_flag, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-pi', val=power_index, error=error)
         if (error/=0) stop
         call cli%get(switch='-sf', val=split_flag, error=error)
         if (error/=0) stop
@@ -691,18 +726,25 @@ program stochastic
             print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
             print '(A,I10.3)', 'Initial number of particles: ', nptl
             if (dist_flag == 0) then
-                print '(A)', 'Initial distribution in Maxwellian'
-            else
+                print '(A)', 'Initial distribution is Maxwellian'
+            else if (dist_flag == 1) then
                 print '(A)', 'All particles with the same momentum initially'
+            else
+                print '(A,F14.7)', 'Initial distribution is a power-law with index: ', &
+                    power_index
             endif
             print '(A,E14.7E2)', 'Time interval to push particles: ', dt
             print '(A,I10.3)', 'Starting time frame: ', t_start
             print '(A,I10.3)', 'The last time frame: ', t_end
+            if (single_time_frame == 1) then
+                print '(A)', 'Use only one time of frame of fields data'
+            endif
+
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
             endif
             if (track_particle_flag == 1) then
-                print '(A)', 'The program will tracking high-energy particles' 
+                print '(A)', 'The program will tracking high-energy particles'
                 print '(A,I10.3)', ' * Number of particles to track: ', nptl_selected
                 print '(A,I10.3)', ' * Steps interval to track particles: ', nsteps_interval
             endif

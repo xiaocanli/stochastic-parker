@@ -382,24 +382,27 @@ module particle_module
     !< Args:
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
-    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
     !<  ct_mhd: MHD simulation time frame
     !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
-    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, part_box)
+    subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, &
+            part_box, power_index)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
-        real(dp), intent(in) :: dt
+        real(dp), intent(in) :: dt, power_index
         real(dp), intent(in), dimension(6) :: part_box
         integer :: i, imod2
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xmax_box, ymax_box, zmax_box
         real(dp) :: rands(2)
+        real(dp) :: r01, norm
         real(dp) :: jz_min, xtmp, ytmp, ztmp
         integer :: ncells_large_jz, ncells_large_jz_g
         logical :: inbox
@@ -443,8 +446,17 @@ module particle_module
                 imod2 = mod(i, 2)
                 if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
-            else
+            else if (dist_flag == 1) then
                 ptls(nptl_current)%p = p0
+            else if (dist_flag == 2) then
+                r01 = unif_01(0)
+                if (int(power_index) == 1) then
+                    ptls(nptl_current)%p = (pmax / p0)**r01 * p0
+                else
+                    norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
+                    ptls(nptl_current)%p = &
+                        (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
+                endif
             endif
             ptls(nptl_current)%weight = 1.0
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
@@ -466,21 +478,23 @@ module particle_module
     !< Args:
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
-    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
     !<  ct_mhd: MHD simulation time frame
+    !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
-    subroutine inject_particles_at_shock(nptl, dt, dist_flag, ct_mhd)
+    subroutine inject_particles_at_shock(nptl, dt, dist_flag, ct_mhd, power_index)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_shock_location
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
-        real(dp), intent(in) :: dt
+        real(dp), intent(in) :: dt, power_index
         integer :: i, iy, iz, imod2
         real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
         real(dp) :: ry, rz, dpy, dpz, shock_xpos
         real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
         integer, dimension(2) :: pos
         real(dp), dimension(4) :: weights
 
@@ -515,8 +529,17 @@ module particle_module
                 imod2 = mod(i, 2)
                 if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
-            else
+            else if (dist_flag == 1) then
                 ptls(nptl_current)%p = p0
+            else if (dist_flag == 2) then
+                r01 = unif_01(0)
+                if (int(power_index) == 1) then
+                    ptls(nptl_current)%p = (pmax / p0)**r01 * p0
+                else
+                    norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
+                    ptls(nptl_current)%p = &
+                        (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
+                endif
             endif
             ptls(nptl_current)%weight = 1.0
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
@@ -676,15 +699,16 @@ module particle_module
     !< Args:
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
-    !<  dist_flag: momentum distribution flag. 0 for Maxwellian, 1 for delta.
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
     !<  ct_mhd: MHD simulation time frame
     !<  inject_same_nptl: whether to inject the same of particles every step
     !<  jz_min: the minimum jz
     !<  ncells_large_jz_norm ! Normalization for the number of cells with large jz
     !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
     subroutine inject_particles_at_large_jz(nptl, dt, dist_flag, ct_mhd, &
-            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box)
+            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box, power_index)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_fields
@@ -693,7 +717,7 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
-        real(dp), intent(in) :: dt, jz_min
+        real(dp), intent(in) :: dt, jz_min, power_index
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
@@ -702,6 +726,7 @@ module particle_module
         real(dp) :: dxm, dym, dzm, dby_dx, dbx_dy
         real(dp) :: rt, jz, by
         real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
@@ -787,8 +812,17 @@ module particle_module
                 imod2 = mod(i, 2)
                 if (imod2 == 1) rands = two_normals(0)
                 ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
-            else
+            else if (dist_flag == 1) then
                 ptls(nptl_current)%p = p0
+            else if (dist_flag == 2) then
+                r01 = unif_01(0)
+                if (int(power_index) == 1) then
+                    ptls(nptl_current)%p = (pmax / p0)**r01 * p0
+                else
+                    norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
+                    ptls(nptl_current)%p = &
+                        (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
+                endif
             endif
             ptls(nptl_current)%weight = 1.0
             ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
