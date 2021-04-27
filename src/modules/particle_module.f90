@@ -27,7 +27,7 @@ module particle_module
         get_pmax_global, set_flag_check_drift_2d, dump_particles, &
         init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
-        record_tracked_particle_init
+        record_tracked_particle_init, inject_particles_at_large_db2
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -378,6 +378,53 @@ module particle_module
     end subroutine free_particle_datatype_mpi
 
     !---------------------------------------------------------------------------
+    !< Inject one particle
+    !< Args:
+    !<  xpos, ypos, zpos: particle position
+    !<  nptl_current: current number of particles
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
+    !<  ct_mhd: MHD simulation time frame
+    !<  dt: the time interval
+    !<  power_index: power-law index if dist_flag==2
+    !---------------------------------------------------------------------------
+    subroutine inject_one_particle(xpos, ypos, zpos, nptl_current, dist_flag, &
+            ct_mhd, dt, power_index)
+        use mhd_config_module, only: mhd_config
+        use random_number_generator, only: unif_01, two_normals
+        implicit none
+        real(dp), intent(in) :: xpos, ypos, zpos, dt, power_index
+        integer, intent(in) :: nptl_current, dist_flag, ct_mhd
+        real(dp) :: rands(2)
+        real(dp) :: r01, norm
+        ptls(nptl_current)%x = xpos
+        ptls(nptl_current)%y = ypos
+        ptls(nptl_current)%z = zpos
+        if (dist_flag == 0) then
+            rands = two_normals(0)
+            ptls(nptl_current)%p = abs(rands(1)) * p0
+        else if (dist_flag == 1) then
+            ptls(nptl_current)%p = p0
+        else if (dist_flag == 2) then
+            r01 = unif_01(0)
+            if (int(power_index) == 1) then
+                ptls(nptl_current)%p = (pmax / p0)**r01 * p0
+            else
+                norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
+                ptls(nptl_current)%p = &
+                    (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
+            endif
+        endif
+        ptls(nptl_current)%weight = 1.0
+        ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
+        ptls(nptl_current)%dt = dt
+        ptls(nptl_current)%split_times = 0
+        ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
+        tag_max = tag_max + 1
+        ptls(nptl_current)%tag = tag_max
+        ptls(nptl_current)%nsteps_tracking = 0
+    end subroutine inject_one_particle
+
+    !---------------------------------------------------------------------------
     !< Inject particles which are spatially uniform
     !< Args:
     !<  nptl: number of particles to be injected
@@ -390,9 +437,8 @@ module particle_module
     subroutine inject_particles_spatial_uniform(nptl, dt, dist_flag, ct_mhd, &
             part_box, power_index)
         use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: get_ncells_large_jz
-        use random_number_generator, only: unif_01, two_normals
+        use random_number_generator, only: unif_01
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index
@@ -401,8 +447,6 @@ module particle_module
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xmax_box, ymax_box, zmax_box
-        real(dp) :: rands(2)
-        real(dp) :: r01, norm
         real(dp) :: jz_min, xtmp, ytmp, ztmp
         integer :: ncells_large_jz, ncells_large_jz_g
         logical :: inbox
@@ -439,33 +483,8 @@ module particle_module
                         ytmp > ymin_box .and. ytmp < ymax_box .and. &
                         ztmp > zmin_box .and. ztmp < zmax_box
             enddo
-            ptls(nptl_current)%x = xtmp
-            ptls(nptl_current)%y = ytmp
-            ptls(nptl_current)%z = ztmp
-            if (dist_flag == 0) then
-                imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals(0)
-                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
-            else if (dist_flag == 1) then
-                ptls(nptl_current)%p = p0
-            else if (dist_flag == 2) then
-                r01 = unif_01(0)
-                if (int(power_index) == 1) then
-                    ptls(nptl_current)%p = (pmax / p0)**r01 * p0
-                else
-                    norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
-                    ptls(nptl_current)%p = &
-                        (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
-                endif
-            endif
-            ptls(nptl_current)%weight = 1.0
-            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
-            ptls(nptl_current)%dt = dt
-            ptls(nptl_current)%split_times = 0
-            ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
-            tag_max = tag_max + 1
-            ptls(nptl_current)%tag = tag_max
-            ptls(nptl_current)%nsteps_tracking = 0
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, ct_mhd, dt, power_index)
         enddo
 
         if (mpi_rank == master) then
@@ -713,7 +732,7 @@ module particle_module
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_fields
         use mhd_data_parallel, only: get_ncells_large_jz
-        use random_number_generator, only: unif_01, two_normals
+        use random_number_generator, only: unif_01
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
@@ -805,38 +824,128 @@ module particle_module
                     jz = -3.0_dp
                 endif
             enddo
-            ptls(nptl_current)%x = xtmp
-            ptls(nptl_current)%y = ytmp
-            ptls(nptl_current)%z = ztmp
-            if (dist_flag == 0) then
-                imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals(0)
-                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
-            else if (dist_flag == 1) then
-                ptls(nptl_current)%p = p0
-            else if (dist_flag == 2) then
-                r01 = unif_01(0)
-                if (int(power_index) == 1) then
-                    ptls(nptl_current)%p = (pmax / p0)**r01 * p0
-                else
-                    norm = pmax**(-power_index + 1) - p0**(-power_index + 1)
-                    ptls(nptl_current)%p = &
-                        (r01 * norm + p0**(-power_index + 1))**(1.0 / (-power_index + 1))
-                endif
-            endif
-            ptls(nptl_current)%weight = 1.0
-            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
-            ptls(nptl_current)%dt = dt
-            ptls(nptl_current)%split_times = 0
-            ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
-            tag_max = tag_max + 1
-            ptls(nptl_current)%tag = tag_max
-            ptls(nptl_current)%nsteps_tracking = 0
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, ct_mhd, dt, power_index)
         enddo
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles where jz is large"
         endif
     end subroutine inject_particles_at_large_jz
+
+    !---------------------------------------------------------------------------
+    !< Inject particles where the turbulence variance is large
+    !< Note that this might not work if each MPI rank only handle part of the
+    !< MHD simulation, because jz is always close to 0 in some part of the MHD
+    !< simulations. Therefore, be smart on how to participate the simulation.
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
+    !<  ct_mhd: MHD simulation time frame
+    !<  inject_same_nptl: whether to inject the same of particles every step
+    !<  db2_min: the minimum db2
+    !<  ncells_large_db2_norm ! Normalization for the number of cells with large db2
+    !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_large_db2(nptl, dt, dist_flag, ct_mhd, &
+            inject_same_nptl, db2_min, ncells_large_db2_norm, part_box, power_index)
+        use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_magnetic_fluctuation
+        use mhd_data_parallel, only: get_ncells_large_db2
+        use random_number_generator, only: unif_01
+        implicit none
+        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer, intent(in) :: inject_same_nptl, ncells_large_db2_norm
+        real(dp), intent(in) :: dt, db2_min, power_index
+        real(dp), intent(in), dimension(6) :: part_box
+        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
+        real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
+        real(dp) :: xtmp, ytmp, ztmp, px, py, pz
+        real(dp) :: dxm, dym, dzm
+        real(dp) :: rt, db2, by
+        real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
+        real(dp), dimension(4) :: db2_array
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
+        integer :: i, imod2
+        integer :: ncells_large_db2, ncells_large_db2_g
+        !dir$ attributes align:32 :: db2_array
+
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+        dzm = mhd_config%dz
+
+        xtmp = xmin_box
+        ytmp = ymin_box
+        ztmp = zmin_box
+        px = 0.0_dp
+        py = 0.0_dp
+        pz = 0.0_dp
+
+        !< When each MPI only reads part of the MHD data, the number of cells
+        !< with larger db2 in the local domain will be different from mpi_rank
+        !< to mpi_rank. That's why we need to redistribute the number of particles
+        !< to inject.
+        ncells_large_db2 = get_ncells_large_db2(db2_min, spherical_coord_flag, part_box)
+        if (inject_same_nptl == 1) then
+            call MPI_ALLREDUCE(ncells_large_db2, ncells_large_db2_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_db2) / dble(ncells_large_db2_g)))
+        else
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_db2) / dble(ncells_large_db2_norm)))
+        endif
+
+        do i = 1, nptl_inject
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            db2 = -2.0_dp
+            do while (db2 < db2_min)
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
+                if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
+                    ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
+                    ztmp >= zmin_box .and. ztmp <= zmax_box) then
+                    px = (xtmp - xmin) / dxm
+                    py = (ytmp - ymin) / dym
+                    pz = (ztmp - zmin) / dzm
+                    rt = 0.0_dp
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
+                    call interp_magnetic_fluctuation(pos, weights, rt, db2_array)
+                    db2 = db2_array(1)
+                else ! not in part_box
+                    db2 = -3.0_dp
+                endif
+            enddo
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, ct_mhd, dt, power_index)
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles where db2 is large"
+        endif
+    end subroutine inject_particles_at_large_db2
 
     !---------------------------------------------------------------------------
     !< Particle mover in one cycle

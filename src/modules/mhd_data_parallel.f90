@@ -21,7 +21,8 @@ module mhd_data_parallel
            copy_correlation_length, calc_grad_correl_length, &
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
-           set_local_grid_positions, get_ncells_large_jz
+           set_local_grid_positions, get_ncells_large_jz, &
+           get_ncells_large_db2
     public xpos_local, ypos_local, zpos_local
     public nfields, ngrads
 
@@ -1696,4 +1697,46 @@ module mhd_data_parallel
         enddo
         deallocate(abs_jz)
     end function get_ncells_large_jz
+
+    !---------------------------------------------------------------------------
+    !< Get the number of cells with current density db2 > db2_min
+    !< Args:
+    !<  db2_min: the minimum db2
+    !<  part_box: box to inject particles
+    !---------------------------------------------------------------------------
+    function get_ncells_large_db2(db2_min, spherical_coord_flag, part_box) result (ncells_large_db2)
+        implicit none
+        real(dp), intent(in) :: db2_min
+        logical, intent(in) :: spherical_coord_flag
+        real(dp), intent(in), dimension(6) :: part_box
+        integer :: nx, ny, nz, ix, iy, iz, ncells_large_db2
+        logical :: inbox_x, inbox_y, inbox_z, inbox
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        ncells_large_db2 = 0
+        do iz = 1, nz
+            if (ndim_field > 2) then
+                inbox_z = zpos_local(iz) > part_box(3) .and. zpos_local(iz) < part_box(6)
+            else
+                inbox_z = .true.
+            endif
+            do iy = 1, ny
+                if (ndim_field > 1) then
+                    inbox_y = ypos_local(iy) > part_box(2) .and. ypos_local(iy) < part_box(5)
+                else
+                    inbox_y = .true.
+                endif
+                do ix = 1, nx
+                    inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
+                    inbox = inbox_z .and. inbox_y .and. inbox_x
+                    if (inbox .and. deltab2_1(1, ix, iy, iz) > db2_min) then
+                        ncells_large_db2 = ncells_large_db2 + 1
+                    endif
+                enddo
+            enddo
+        enddo
+    end function get_ncells_large_db2
 end module mhd_data_parallel
