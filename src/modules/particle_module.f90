@@ -2271,7 +2271,9 @@ module particle_module
             if (gshear > 0) then
                 deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+                if (.not. dpp_wave_flag) then
+                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+                endif
                 deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
@@ -2327,6 +2329,7 @@ module particle_module
         real(dp) :: skperp, skpara_perp, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: vflow ! Alfven speed + background flow
         real(dp) :: rands(2)
         real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm, ctheta, istheta, ir, ir2
         real(dp) :: qtmp1, qtmp2, atmp
@@ -2534,6 +2537,9 @@ module particle_module
         if (dpp_wave_flag) then
             rho = fields(4)
             va = b / dsqrt(rho)
+            vx = vx + sign(va * bx * ib, vx)
+            vy = vy + sign(va * by * ib, vy)
+            vflow = dsqrt(vx**2 + vy**2)
             if (momentum_dependency == 1) then
                 deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
             else
@@ -2564,7 +2570,9 @@ module particle_module
             if (gshear > 0) then
                 deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+                if (.not. dpp_wave_flag) then
+                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+                endif
                 deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                     ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
             endif
@@ -2814,7 +2822,9 @@ module particle_module
             endif
             deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+            if (.not. dpp_wave_flag) then
+                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+            endif
             deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
                 ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
         endif
@@ -2889,16 +2899,19 @@ module particle_module
     !---------------------------------------------------------------------------
     !< When a particle get to a certain energy, split it to two particles
     !< to increase statistics at high energy
+    !< Args:
+    !<  split_ratio: momentum increase ratio for particle splitting
     !---------------------------------------------------------------------------
-    subroutine split_particle
+    subroutine split_particle(split_ratio)
         implicit none
+        real(dp), intent(in) :: split_ratio
         integer :: i, nptl
         real(dp) :: p_threshold
         type(particle_type) :: ptl, ptl_new
         nptl = nptl_current
         do i = 1, nptl
             ptl = ptls(i)
-            p_threshold = (1+2.72**ptl%split_times)*p0
+            p_threshold = (1 + split_ratio**ptl%split_times)*p0
             if (ptl%p > p_threshold .and. ptl%p <= pmax) then
                 nptl_current = nptl_current + 1
                 if (nptl_current > nptl_max) then

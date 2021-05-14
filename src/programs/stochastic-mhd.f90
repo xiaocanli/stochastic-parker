@@ -53,6 +53,7 @@ program stochastic
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp) :: power_index ! Power-law spectrum index for initial distribution
+    real(dp) :: split_ratio ! Momentum increase ratio for particle splitting
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm ! Normalization for the number of cells with large jz
     integer :: ncells_large_db2_norm ! Normalization for the number of cells with large db2
@@ -340,7 +341,7 @@ program stochastic
                 write(*, "(A)") " Finishing moving particles "
             endif
             if (split_flag == 1) then
-                call split_particle
+                call split_particle(split_ratio)
             endif
             if (.not. track_particles) then
                 call quick_check(tf+1, .false., diagnostics_directory)
@@ -445,7 +446,7 @@ program stochastic
             examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
                         '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
                         '-st single_time_frame -df dist_flag -pi power_index '//&
-                        '-sf split_flag -tf track_particle_flag '//&
+                        '-sf split_flag -sr split_ratio -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_large_jz '//&
@@ -503,6 +504,10 @@ program stochastic
         call cli%add(switch='--split_flag', switch_ab='-sf', &
             help='Flag to split the particles', required=.false., &
             act='store', def='1', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--split_ratio', switch_ab='-sr', &
+            help='momentum increase ratio for particle splitting', &
+            required=.false., act='store', def='2.72', error=error)
         if (error/=0) stop
         call cli%add(switch='--track_particle_flag', switch_ab='-tf', &
             help='Flag to track some particles', required=.false., &
@@ -674,6 +679,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-sf', val=split_flag, error=error)
         if (error/=0) stop
+        call cli%get(switch='-sr', val=split_ratio, error=error)
+        if (error/=0) stop
         call cli%get(switch='-tf', val=track_particle_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-ns', val=nptl_selected, error=error)
@@ -772,6 +779,8 @@ program stochastic
 
             if (split_flag == 1) then
                 print '(A)', 'Particles will be splitted when reaching certain energies'
+                print '(A,E14.7)', ' Momentum increase ratio for particle splitting: ', &
+                    split_ratio
             endif
             if (track_particle_flag == 1) then
                 print '(A)', 'The program will tracking high-energy particles'
