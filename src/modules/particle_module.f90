@@ -1910,9 +1910,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    dt1 = dxm/(80.0*tmp40)
+                    dt1 = dxm/(10.0*tmp40)
                 endif
             else
                 dt1 = dt_min
@@ -1929,9 +1929,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    dt2 = dym/(80.0*tmp40)
+                    dt2 = dym/(10.0*tmp40)
                 endif
             else
                 dt2 = dt_min
@@ -2026,9 +2026,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt1 = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    dt1 = dxm/(80.0*tmp40)
+                    dt1 = dxm/(10.0*tmp40)
                 endif
             else
                 dt1 = dt_min
@@ -2047,9 +2047,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt2 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    dt2 = dym/(80.0*tmp40)
+                    dt2 = dym/(10.0*tmp40)
                 endif
             else
                 dt2 = dt_min
@@ -2066,9 +2066,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt3 = min(dym/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt3 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    dt3 = dym/(80.0*tmp40)
+                    dt3 = dym/(10.0*tmp40)
                 endif
             else
                 dt3 = dt_min
@@ -2111,14 +2111,14 @@ module particle_module
         iny = .true.
         inz = .true.
         xnorm = (ptl%x - mhd_config%xmin) / mhd_config%lx
-        inx = (xnorm >= acc_region(1)) .and. ((1.0d0-xnorm) <= acc_region(2))
+        inx = (xnorm >= acc_region(1)) .and. (xnorm <= acc_region(2))
         if (ndim_field > 1) then
             ynorm = (ptl%y - mhd_config%ymin) / mhd_config%ly
-            iny = (ynorm >= acc_region(3)) .and. ((1.0d0-ynorm) <= acc_region(4))
+            iny = (ynorm >= acc_region(3)) .and. (ynorm <= acc_region(4))
         endif
         if (ndim_field == 3) then
             znorm = (ptl%z - mhd_config%zmin) / mhd_config%lz
-            inz = (znorm >= acc_region(5)) .and. ((1.0d0-znorm) <= acc_region(6))
+            inz = (znorm >= acc_region(5)) .and. (znorm <= acc_region(6))
         endif
         ptl_in_region = inx .and. iny .and. inz
     end function particle_in_acceleration_region
