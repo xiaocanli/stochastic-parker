@@ -27,7 +27,8 @@ module particle_module
         get_pmax_global, set_flag_check_drift_2d, dump_particles, &
         init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
-        record_tracked_particle_init, inject_particles_at_large_db2
+        record_tracked_particle_init, inject_particles_at_large_db2, &
+        inject_particles_at_large_divv
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -946,6 +947,142 @@ module particle_module
             write(*, "(A)") "Finished injecting particles where db2 is large"
         endif
     end subroutine inject_particles_at_large_db2
+
+    !---------------------------------------------------------------------------
+    !< Inject particles where the turbulence variance is large
+    !< Note that this might not work if each MPI rank only handle part of the
+    !< MHD simulation, because jz is always close to 0 in some part of the MHD
+    !< simulations. Therefore, be smart on how to participate the simulation.
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
+    !<  ct_mhd: MHD simulation time frame
+    !<  inject_same_nptl: whether to inject the same of particles every step
+    !<  divv_min: the minimum divv
+    !<  ncells_large_divv_norm ! Normalization for the number of cells with large divv
+    !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_large_divv(nptl, dt, dist_flag, ct_mhd, &
+            inject_same_nptl, divv_min, ncells_large_divv_norm, part_box, power_index)
+        use constants, only: pi
+        use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_fields
+        use mhd_data_parallel, only: get_ncells_large_divv
+        use random_number_generator, only: unif_01
+        implicit none
+        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer, intent(in) :: inject_same_nptl, ncells_large_divv_norm
+        real(dp), intent(in) :: dt, divv_min, power_index
+        real(dp), intent(in), dimension(6) :: part_box
+        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
+        real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
+        real(dp) :: xtmp, ytmp, ztmp, px, py, pz
+        real(dp) :: dxm, dym, dzm
+        real(dp) :: rt, divv, by
+        real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
+        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
+        real(dp) :: ctheta, istheta
+        integer :: i, imod2
+        integer :: ncells_large_divv, ncells_large_divv_g
+        !dir$ attributes align:256 :: fields
+
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+        dzm = mhd_config%dz
+
+        xtmp = xmin_box
+        ytmp = ymin_box
+        ztmp = zmin_box
+        px = 0.0_dp
+        py = 0.0_dp
+        pz = 0.0_dp
+
+        !< When each MPI only reads part of the MHD data, the number of cells
+        !< with larger divv in the local domain will be different from mpi_rank
+        !< to mpi_rank. That's why we need to redistribute the number of particles
+        !< to inject.
+        ncells_large_divv = get_ncells_large_divv(divv_min, spherical_coord_flag, part_box)
+        if (inject_same_nptl == 1) then
+            call MPI_ALLREDUCE(ncells_large_divv, ncells_large_divv_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_divv) / dble(ncells_large_divv_g)))
+        else
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_divv) / dble(ncells_large_divv_norm)))
+        endif
+
+        do i = 1, nptl_inject
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            divv = 2.0_dp
+            do while (-divv < divv_min)
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
+                if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
+                    ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
+                    ztmp >= zmin_box .and. ztmp <= zmax_box) then
+                    px = (xtmp - xmin) / dxm
+                    py = (ytmp - ymin) / dym
+                    pz = (ztmp - zmin) / dzm
+                    rt = 0.0_dp
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
+                    call interp_fields(pos, weights, rt, fields)
+                    if (spherical_coord_flag) then
+                        divv = fields(nfields+1) + 2.0 * fields(1) / xtmp
+                        if (ndim_field > 1) then
+                            ctheta = cos(ytmp + 0.5*pi)
+                            istheta = 1.0 / sin(ytmp + 0.5*pi)
+                            divv = divv + (fields(nfields+5) + &
+                                           fields(2)*ctheta*istheta) / xtmp
+                            if (ndim_field > 2) then
+                                divv = divv + fields(3)*istheta / xtmp
+                            endif
+                        endif
+                    else
+                        divv = fields(nfields+1)
+                        if (ndim_field > 1) then
+                            divv = divv + fields(nfields+5)
+                            if (ndim_field > 2) then
+                                divv = divv + fields(nfields+9)
+                            endif
+                        endif
+                    endif
+                else ! not in part_box
+                    divv = 3.0_dp
+                endif
+            enddo
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, ct_mhd, dt, power_index)
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles where divv is negatively large"
+        endif
+    end subroutine inject_particles_at_large_divv
 
     !---------------------------------------------------------------------------
     !< Particle mover in one cycle
@@ -2229,9 +2366,9 @@ module particle_module
 
         ! Momentum
         if (spherical_coord_flag) then
-            divv = dvx_dx
-        else
             divv = dvx_dx + 2.0*vx/ptl%x
+        else
+            divv = dvx_dx
         endif
             deltap = -ptl%p * divv * ptl%dt / 3.0d0
         ! Momentum diffusion due to wave scattering

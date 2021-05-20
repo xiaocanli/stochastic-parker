@@ -23,7 +23,8 @@ program stochastic
         set_drift_parameters, get_pmax_global, set_flag_check_drift_2d, &
         dump_particles, init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
-        record_tracked_particle_init, inject_particles_at_large_db2
+        record_tracked_particle_init, inject_particles_at_large_db2, &
+        inject_particles_at_large_divv
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, calc_fields_gradients, &
@@ -48,15 +49,16 @@ program stochastic
     character(len=128) :: diagnostics_directory
     character(len=32) :: conf_file
     integer :: nptl_max, nptl
-    real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min
+    real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp) :: power_index ! Power-law spectrum index for initial distribution
     real(dp) :: split_ratio ! Momentum increase ratio for particle splitting
     real(dp), dimension(6) :: part_box
-    integer :: ncells_large_jz_norm ! Normalization for the number of cells with large jz
-    integer :: ncells_large_db2_norm ! Normalization for the number of cells with large db2
+    integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
+    integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
+    integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
     integer :: interp_flag, local_dist
@@ -67,6 +69,7 @@ program stochastic
     integer :: inject_new_ptl     ! Whether to inject new particles every MHD step
     integer :: inject_large_jz    ! Whether to inject where jz is large
     integer :: inject_large_db2   ! Whether to inject where db2 is large
+    integer :: inject_large_divv  ! Whether to inject where divv is negatively large
     integer :: inject_same_nptl   ! Whether to inject same of number particles every step
     integer :: inject_part_box    ! Whether to inject in part of the box
     integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
@@ -304,6 +307,10 @@ program stochastic
                 call inject_particles_at_large_db2(nptl, dt, dist_flag, t_start, &
                     inject_same_nptl, db2_min, ncells_large_db2_norm, part_box, &
                     power_index)
+            else if (inject_large_divv == 1) then
+                call inject_particles_at_large_divv(nptl, dt, dist_flag, t_start, &
+                    inject_same_nptl, divv_min, ncells_large_divv_norm, part_box, &
+                    power_index)
             else
                 call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
                     t_start, part_box, power_index)
@@ -411,6 +418,10 @@ program stochastic
                         call inject_particles_at_large_db2(nptl, dt, dist_flag, tf+1, &
                             inject_same_nptl, db2_min, ncells_large_db2_norm, part_box, &
                             power_index)
+                    else if (inject_large_divv == 1) then
+                        call inject_particles_at_large_divv(nptl, dt, dist_flag, tf+1, &
+                            inject_same_nptl, divv_min, ncells_large_divv_norm, part_box, &
+                            power_index)
                     else
                         call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
                             tf+1, part_box, power_index)
@@ -453,6 +464,8 @@ program stochastic
                         '-sn inject_same_nptl -ip inject_part_box -jz jz_min '//&
                         '-nn ncells_large_jz_norm -ib inject_large_db2 '//&
                         '-db2 db2_min --nb ncells_large_db2_norm '//&
+                        '-iv inject_large_divv -dv divv_min '//&
+                        '--nv ncells_large_divv_norm '//&
                         '-xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
@@ -559,10 +572,22 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--db2_min', switch_ab='-db2', &
             help='Minimum db2 in regions to inject new particles', &
-            required=.false., def='100.0', act='store', error=error)
+            required=.false., def='0.03', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--ncells_large_db2_norm', switch_ab='-nb', &
             help='Normalization for the number of cells with large db2', &
+            required=.false., def='800', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--inject_large_divv', switch_ab='-iv', &
+            help='whether to inject where divv is large', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--divv_min', switch_ab='-dv', &
+            help='Minimum divv in regions to inject new particles', &
+            required=.false., def='10.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ncells_large_divv_norm', switch_ab='-nv', &
+            help='Normalization for the number of cells with large divv', &
             required=.false., def='800', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--ptl_xmin', switch_ab='-xs', &
@@ -709,6 +734,12 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-nb', val=ncells_large_db2_norm, error=error)
         if (error/=0) stop
+        call cli%get(switch='-iv', val=inject_large_divv, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-dv', val=divv_min, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-nv', val=ncells_large_divv_norm, error=error)
+        if (error/=0) stop
         call cli%get(switch='-xs', val=ptl_xmin, error=error)
         if (error/=0) stop
         call cli%get(switch='-xe', val=ptl_xmax, error=error)
@@ -825,6 +856,18 @@ program stochastic
                         ncells_large_db2_norm
                 endif
                 print '(A,E14.7E2)', 'Minumum db2 in regions to inject new particles', db2_min
+            endif
+            if (inject_large_divv == 1) then
+                print '(A)', 'Inject new particles where divv is negatively large'
+                if (inject_same_nptl == 1) then
+                    print '(A)', 'Inject the same number of particles every step'
+                else
+                    print '(A, A)', 'Inject different number of particles every step, ', &
+                        'depending on the number of cells with -divv > divv_min'
+                    print '(A,I10.3)', 'Normalization for the number of cells with large divv: ', &
+                        ncells_large_divv_norm
+                endif
+                print '(A,E14.7E2)', 'Minumum divv in regions to inject new particles', divv_min
             endif
             if (dpp_wave == 1) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'

@@ -22,7 +22,7 @@ module mhd_data_parallel
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz, &
-           get_ncells_large_db2
+           get_ncells_large_db2, get_ncells_large_divv
     public xpos_local, ypos_local, zpos_local
     public nfields, ngrads
 
@@ -1739,4 +1739,82 @@ module mhd_data_parallel
             enddo
         enddo
     end function get_ncells_large_db2
+
+    !---------------------------------------------------------------------------
+    !< Get the number of cells with compression -divv < divv_min
+    !< Args:
+    !<  divv_min: the minimum divv
+    !<  part_box: box to inject particles
+    !---------------------------------------------------------------------------
+    function get_ncells_large_divv(divv_min, spherical_coord_flag, part_box) result (ncells_large_divv)
+        use constants, only: pi
+        implicit none
+        real(dp), intent(in) :: divv_min
+        logical, intent(in) :: spherical_coord_flag
+        real(dp), intent(in), dimension(6) :: part_box
+        integer :: nx, ny, nz, ix, iy, iz, ncells_large_divv
+        logical :: inbox_x, inbox_y, inbox_z, inbox
+        real(dp), allocatable, dimension(:, :, :) :: divv
+        real(dp), allocatable, dimension(:) :: ctheta, istheta
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        ncells_large_divv = 0
+        allocate(divv(nx, ny, nz))
+        allocate(ctheta(ny))
+        allocate(istheta(ny))
+        if (spherical_coord_flag) then
+            ctheta = cos(ypos_local + 0.5 * pi)
+            istheta = 1.0 / sin(ypos_local + 0.5*pi)
+            do iz = 1, nz
+                do iy = 1, ny
+                    divv(:, iy, iz) = farray1(nfields+1, 1:nx, iy, iz) + &
+                        2.0 * farray1(1, 1:nx, iy, iz) / xpos_local(1:nx)
+                    if (ndim_field > 1) then
+                        divv(:, iy, iz) = divv(:, iy, iz) + &
+                            (farray1(nfields+5, 1:nx, iy, iz) + &
+                             farray1(2, 1:nx, iy, iz)*ctheta(iy)*istheta(iy)) / xpos_local(1:nx)
+                    endif
+                    if (ndim_field > 1) then
+                        divv(:, iy, iz) = divv(:, iy, iz) + &
+                            farray1(nfields+9, 1:nx, iy, iz)*istheta(iy) / xpos_local(1:nx)
+                    endif
+                enddo
+            enddo
+        else
+            divv = farray1(nfields+1, :, :, :)
+            if (ndim_field > 1) then
+                divv = divv + farray1(nfields+5, :, :, :)
+                if (ndim_field > 2) then
+                    divv = divv + farray1(nfields+9, :, :, :)
+                endif
+            endif
+        endif
+        do iz = 1, nz
+            if (ndim_field > 2) then
+                inbox_z = zpos_local(iz) > part_box(3) .and. zpos_local(iz) < part_box(6)
+            else
+                inbox_z = .true.
+            endif
+            do iy = 1, ny
+                if (ndim_field > 1) then
+                    inbox_y = ypos_local(iy) > part_box(2) .and. ypos_local(iy) < part_box(5)
+                else
+                    inbox_y = .true.
+                endif
+                do ix = 1, nx
+                    inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
+                    inbox = inbox_z .and. inbox_y .and. inbox_x
+                    if (inbox .and. -divv(ix, iy, iz) > divv_min) then
+                        ncells_large_divv = ncells_large_divv + 1
+                    endif
+                enddo
+            enddo
+        enddo
+        deallocate(divv)
+        deallocate(ctheta)
+        deallocate(istheta)
+    end function get_ncells_large_divv
 end module mhd_data_parallel
