@@ -1996,9 +1996,9 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    ptl%dt = min(dxm/(80.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    ptl%dt = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
                 else
-                    ptl%dt = dxm/(80.0*tmp40)
+                    ptl%dt = dxm/(10.0*tmp40)
                 endif
             else
                 ptl%dt = dt_min
@@ -2047,7 +2047,8 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    ! dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt1 = min((tmp30/tmp40)**2, dxm**2/tmp30**2) * 0.3
                 else
                     dt1 = dxm/(10.0*tmp40)
                 endif
@@ -2066,7 +2067,8 @@ module particle_module
             endif
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
-                    dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    ! dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
+                    dt2 = min((tmp30/tmp40)**2, dym**2/tmp30**2) * 0.3
                 else
                     dt2 = dym/(10.0*tmp40)
                 endif
@@ -2577,85 +2579,13 @@ module particle_module
         ! rands = two_normals(thread_id)
         ! ran3 = rands(1)
 
-        !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
-        !< but decreasing the time step does not necessarily make the moving distance smaller.
-        !< Therefore, we switch between first-order and second-order method.
-        if (xtmp < xmin1 .or. xtmp > xmax1 .or. ytmp < ymin1 .or. ytmp > ymax1) then
-            !< First-order method
-            if (spherical_coord_flag) then
-                deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
-                deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
-            else
-                deltax = deltax + ran1*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*bx*ib
-                deltay = deltay + ran2*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*by*ib
-            endif
+        !< First-order method
+        if (spherical_coord_flag) then
+            deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
+            deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
         else
-            !< Second-order method. It requires xtmp and ytmp are in the local domain.
-            px = (xtmp - xmin) / dxm
-            py = (ytmp - ymin) / dym
-            if (spherical_coord_flag) then
-                call get_interp_paramters_spherical(ptl%x, ptl%y, 0.0_dp, pos, weights)
-            else
-                call get_interp_paramters(px, py, 0.0_dp, pos, weights)
-            endif
-            call interp_fields(pos, weights, rt, fields)
-            if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt, db2)
-            endif
-            if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt, lc)
-            endif
-
-            skperp = kappa%skperp
-            skpara_perp = kappa%skpara_perp
-
-            call calc_spatial_diffusion_coefficients(ptl, fields, &
-                db2, lc, kappa)
-
-            if (spherical_coord_flag) then
-                ir = 1.0 / xtmp
-                ir2 = ir * ir
-                a1_1 = kappa%kxx
-                b1_1 = kappa%kxy * ir
-                c1_1 = kappa%kyy * ir2
-                atmp = dsqrt((a1_1-c1_1)**2 + 4*b1_1**2)
-                Qpp_1 = atmp + (a1_1 + c1_1)
-                Qmp_1 = atmp - (a1_1 + c1_1)
-                Qpm_1 = atmp + (a1_1 - c1_1)
-                Qmm_1 = atmp - (a1_1 - c1_1)
-                qtmp1_1 = dsqrt(-Qmp_1/(Qmm_1**2+4*b1_1**2))
-                qtmp2_1 = dsqrt(Qpp_1/(Qpm_1**2+4*b1_1**2))
-            endif
-
-            !< Magnetic field at the predicted position
-            bx1 = fields(5)
-            by1 = fields(6)
-            btot1 = fields(8)
-
-            skperp1 = kappa%skperp
-            skpara_perp1 = kappa%skpara_perp
-
-            if (btot1 == 0) then
-                ib1 = 0.0
-            else
-                ib1 = 1.0 / btot1
-            endif
-
-            if (spherical_coord_flag) then
-                deltax = deltax - Qmm*qtmp1*ran1*sdt + Qpm*qtmp2*ran2*sdt + &
-                         (-Qmm_1*qtmp1_1 + Qmm*qtmp1)*(ran1*ran1-1.0)*sdt/2.0 + &
-                         (Qpm_1*qtmp2_1 - Qpm*qtmp2)*(ran2*ran2-1.0)*sdt/2.0
-                deltay = deltay + 2*b1*qtmp1*ran1*sdt + 2*b1*qtmp2*ran2*sdt + &
-                         (2*b1_1*qtmp1_1 - 2*b1_1*qtmp1_1)*(ran1*ran1-1.0)*sdt/2.0 + &
-                         (2*b1_1*qtmp2_1 - 2*b1_1*qtmp2_1)*(ran2*ran2-1.0)*sdt/2.0
-            else
-                deltax = deltax + ran1*kappa%skperp*sdt + ran3*skpara_perp*sdt*bx*ib + &
-                         (skperp1-skperp)*(ran1*ran1-1.0)*sdt/2.0 + &
-                         (skpara_perp1*bx1*ib1-skpara_perp*bx*ib)*(ran3*ran3-1.0)*sdt/2.0
-                deltay = deltay + ran2*kappa%skperp*sdt + ran3*skpara_perp*sdt*by*ib + &
-                         (skperp1-skperp)*(ran2*ran2-1.0)*sdt/2.0 + &
-                         (skpara_perp1*by1*ib1-skpara_perp*by*ib)*(ran3*ran3-1.0)*sdt/2.0
-            endif
+            deltax = deltax + ran1*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*bx*ib
+            deltay = deltay + ran2*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*by*ib
         endif
 
         ptl%x = ptl%x + deltax

@@ -180,7 +180,6 @@ program stochastic
         call save_tracked_particle_points(nptl_selected, diagnostics_directory)
         call free_tracked_particle_points
         call free_particle_tracking
-        call delete_prng
     endif
 
     if (inject_at_shock == 1) then
