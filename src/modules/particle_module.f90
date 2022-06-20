@@ -1739,11 +1739,9 @@ module particle_module
                 ((dbx_dx*by+bx*dby_dx)*ib2 - 2.0*bx*by*db_dx*ib3)
             kappa%dkxy_dy = kpp*dkdy*bx*by*ib2 + kpp * &
                 ((dbx_dy*by+bx*dby_dy)*ib2 - 2.0*bx*by*db_dy*ib3)
-            if (spherical_coord_flag) then
-                kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
-                kappa%kyy = kappa%kperp + kpp * by * by * ib2
-                kappa%kxy = kpp * bx * by * ib2
-            endif
+            kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
+            kappa%kyy = kappa%kperp + kpp * by * by * ib2
+            kappa%kxy = kpp * bx * by * ib2
         else
             dbx_dx = fields(nfields+13)
             dbx_dy = fields(nfields+14)
@@ -1794,14 +1792,12 @@ module particle_module
                 ((dby_dy*bz+by*dbz_dy)*ib2 - 2.0*by*bz*db_dy*ib3)
             kappa%dkyz_dz = kpp*dkdz*by*bz*ib2 + kpp * &
                 ((dby_dz*bz+by*dbz_dz)*ib2 - 2.0*by*bz*db_dz*ib3)
-            if (spherical_coord_flag) then
-                kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
-                kappa%kyy = kappa%kperp + kpp * by * by * ib2
-                kappa%kzz = kappa%kperp + kpp * bz * bz * ib2
-                kappa%kxy = kpp * bx * by * ib2
-                kappa%kxz = kpp * bx * bz * ib2
-                kappa%kyz = kpp * by * bz * ib2
-            endif
+            kappa%kxx = kappa%kperp + kpp * bx * bx * ib2
+            kappa%kyy = kappa%kperp + kpp * by * by * ib2
+            kappa%kzz = kappa%kperp + kpp * bz * bz * ib2
+            kappa%kxy = kpp * bx * by * ib2
+            kappa%kxz = kpp * bx * bz * ib2
+            kappa%kyz = kpp * by * bz * ib2
         endif
     end subroutine calc_spatial_diffusion_coefficients
 
@@ -2008,7 +2004,8 @@ module particle_module
             vy = fields(2)
             bx = fields(5)
             by = fields(6)
-            b = dsqrt(bx**2 + by**2)
+            bz = fields(7)
+            b = dsqrt(bx**2 + by**2 + bz**2)
             if (b == 0.0d0) then
                 ib = 0.0_dp
             else
@@ -2048,7 +2045,9 @@ module particle_module
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     ! dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                    dt1 = min((tmp30/tmp40)**2, dxm**2/tmp30**2) * 0.3
+                    ! dt1 = min((tmp30/tmp40)**2, dxm**2/tmp30**2) * 0.3
+                    dt1 = min(2 * kappa%kxx/tmp40**2, 0.5 * dxm**2/kappa%kxx) * 0.3
+                    ! dt1 = min(dxm**2/kappa%kxx, dxm/tmp40) * 0.3
                 else
                     dt1 = dxm/(10.0*tmp40)
                 endif
@@ -2068,7 +2067,9 @@ module particle_module
             if (tmp40 .ne. 0.0d0) then
                 if (tmp30 > 0) then
                     ! dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                    dt2 = min((tmp30/tmp40)**2, dym**2/tmp30**2) * 0.3
+                    ! dt2 = min((tmp30/tmp40)**2, dym**2/tmp30**2) * 0.3
+                    dt2 = min(2 * kappa%kyy/tmp40**2, 0.5 * dym**2/kappa%kyy) * 0.3
+                    ! dt2 = min(dym**2/kappa%kyy, dym/tmp40) * 0.3
                 else
                     dt2 = dym/(10.0*tmp40)
                 endif
@@ -2427,6 +2428,11 @@ module particle_module
         else
             ptl%p = ptl%p + deltap
         endif
+        if (ptl%p < 0.5 * p0) then
+            ptl%p = ptl%p - deltap
+            deltap = 0.5 * p0 - ptl%p
+            ptl%p = 0.5 * p0
+        endif
     end subroutine push_particle_1d
 
     !---------------------------------------------------------------------------
@@ -2653,6 +2659,11 @@ module particle_module
             endif
         else
             ptl%p = ptl%p + deltap
+        endif
+        if (ptl%p < 0.5 * p0) then
+            ptl%p = ptl%p - deltap
+            deltap = 0.5 * p0 - ptl%p
+            ptl%p = 0.5 * p0
         endif
     end subroutine push_particle_2d
 
@@ -2904,6 +2915,11 @@ module particle_module
             endif
         else
             ptl%p = ptl%p + deltap
+        endif
+        if (ptl%p < 0.5 * p0) then
+            ptl%p = ptl%p - deltap
+            deltap = 0.5 * p0 - ptl%p
+            ptl%p = 0.5 * p0
         endif
     end subroutine push_particle_3d
 
