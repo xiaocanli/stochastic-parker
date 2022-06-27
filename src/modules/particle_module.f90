@@ -59,7 +59,7 @@ module particle_module
     integer :: nptl_current         !< Number of particles currently in the box
     integer :: nptl_old             !< Number of particles without receivers
     integer :: nptl_max             !< Maximum number of particles allowed
-    integer :: nptl_new             !< Number of particles from splitting
+    integer :: nptl_split           !< Number of particles from splitting
     integer :: nptl_inject          !< Number of injected particles
     integer :: tag_max              !< Maximum particle tag
     real(dp) :: leak                !< Leaking particles from boundary considering weight
@@ -164,7 +164,7 @@ module particle_module
         ptls%tag = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0     ! No particle initially
-        nptl_new = 0
+        nptl_split = 0
         tag_max = 0
 
         !< Particles crossing domain boundaries
@@ -1338,7 +1338,6 @@ module particle_module
         type(particle_type) :: ptl
         all_particles_in_box = .false.
         nptl_old = 0
-        nptl_new = 0
 
         t0 = mhd_config%dt_out * mhd_tframe
 
@@ -3001,7 +3000,7 @@ module particle_module
                     nptl_current = nptl_max
                     return
                 endif
-                nptl_new = nptl_new + 1
+                nptl_split = nptl_split + 1
                 ptl%weight = 0.5**(1.0 + ptl%split_times)
                 ptl%split_times = ptl%split_times + 1
                 ptls(nptl_current) = ptl
@@ -3041,7 +3040,7 @@ module particle_module
         pdt_min_g = 0.0_dp
         pdt_max_g = 0.0_dp
         var_local(1) = nptl_current
-        var_local(2) = nptl_new
+        var_local(2) = nptl_split
         var_local(4) = leak
         var_local(5) = leak_negp
         do i = 1, nptl_current
@@ -3067,7 +3066,7 @@ module particle_module
             endif
             if (if_create_file) then
                 open (17, file=trim(file_path)//'quick.dat', status='unknown')
-                write(17, "(A6,8A13)") "iframe", "nptl_current", "nptl_new", &
+                write(17, "(A6,8A13)") "iframe", "nptl_current", "nptl_split", &
                     "ntot", "leak", "leak_negp", "pdt_min", "pdt_max", "pdt_avg"
             else
                 open (17, file=trim(file_path)//'quick.dat', status="old", &
