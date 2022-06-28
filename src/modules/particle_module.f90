@@ -1685,10 +1685,6 @@ module particle_module
         kappa%kpara = kpara0 * knorm
         kappa%kperp = kappa%kpara * kret
 
-        if (deltab_flag) then
-            kappa%kperp = kappa%kperp * db2(1)
-        endif
-
         kappa%skpara = dsqrt(2.0 * kappa%kpara)
         kappa%skperp = dsqrt(2.0 * kappa%kperp)
         kappa%skpara_perp = dsqrt(2.0 * (kappa%kpara - kappa%kperp))
