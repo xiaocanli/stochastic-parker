@@ -47,7 +47,7 @@ program stochastic
     character(len=256) :: dir_mhd_data
     character(len=256) :: fname1, fname2
     character(len=128) :: diagnostics_directory
-    character(len=32) :: conf_file
+    character(len=64) :: conf_file, mhd_config_filename
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
@@ -85,6 +85,7 @@ program stochastic
     integer :: particle_data_dump ! Whether to dump particle data
     integer :: size_mpi_sub       ! Size of a MPI sub-communicator
     integer :: single_time_frame  ! Whether to use a single time frame of fields
+    integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -123,7 +124,7 @@ program stochastic
     call init_prng(mpi_rank, nthreads)
 
     !< Configurations
-    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_config.dat'
+    fname2 = trim(dir_mhd_data)//trim(mhd_config_filename)
     call load_mhd_config(fname2)
     if (mpi_rank == master) then
         call echo_mhd_config
@@ -148,12 +149,14 @@ program stochastic
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
-    call set_flags_params(deltab_flag, correlation_flag)
+    call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim)
     if (ndim_field == 3) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
     else if (ndim_field == 2 .and. check_drift_2d == 1) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
         call set_flag_check_drift_2d(check_drift_2d)
+    else if (ndim_field == 2 .and. include_3rd_dim == 1) then
+        call set_drift_parameters(drift_param1, drift_param2, charge)
     endif
 
     call init_particles(nptl_max)
@@ -453,7 +456,8 @@ program stochastic
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['stochastic-mhd.exec -sm size_mpi_sub -dm dir_mhd_data '//&
+            examples = ['stochastic-mhd.exec -sm size_mpi_sub '//&
+                        '-dm dir_mhd_data -mc mhd_config_filename '//&
                         '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
                         '-st single_time_frame -df dist_flag -pi power_index '//&
                         '-sf split_flag -sr split_ratio -tf track_particle_flag '//&
@@ -472,7 +476,8 @@ program stochastic
                         '-db deltab_flag -co correlation_flag '//&
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
-                        '-cd check_drift_2d -pd particle_data_dump'])
+                        '-cd check_drift_2d -pd particle_data_dump '//&
+                        '-i3 include_3rd_dim'])
         call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
             help='Size of the a MPI sub-communicator', required=.false., &
             act='store', def='1', error=error)
@@ -480,6 +485,10 @@ program stochastic
         call cli%add(switch='--dir_mhd_data', switch_ab='-dm', &
             help='MHD simulation data file directory', required=.true., &
             act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--mhd_config_filename', switch_ab='-mc', &
+            help='MHD configuration filename', required=.false., &
+            act='store', def='mhd_config.dat', error=error)
         if (error/=0) stop
         call cli%add(switch='--nptl_max', switch_ab='-nm', &
             help='Maximum number of particles', required=.false., &
@@ -681,9 +690,15 @@ program stochastic
             help='whether to dump particle data', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--include_3rd_dim', switch_ab='-i3', &
+            help='whether to include 3rd-dim transport in 2D runs', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
         call cli%get(switch='-sm', val=size_mpi_sub, error=error)
         if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-mc', val=mhd_config_filename, error=error)
         if (error/=0) stop
         call cli%get(switch='-nm', val=nptl_max, error=error)
         if (error/=0) stop
@@ -785,11 +800,14 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-pd', val=particle_data_dump, error=error)
         if (error/=0) stop
+        call cli%get(switch='-i3', val=include_3rd_dim, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A)', '---------------Commandline Arguments:---------------'
             print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
+            print '(A,A)', 'MHD configuration filename: ', trim(mhd_config_filename)
             print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
             print '(A,I10.3)', 'Initial number of particles: ', nptl
             if (dist_flag == 0) then
@@ -909,6 +927,9 @@ program stochastic
             endif
             if (particle_data_dump == 1) then
                 print '(A)', 'Particle data will be dumped'
+            endif
+            if (ndim_field == 2 .and. include_3rd_dim == 1) then
+                print '(A)', 'Include transport along the 3rd-dim in 2D simulations'
             endif
             print '(A)', '----------------------------------------------------'
         endif
