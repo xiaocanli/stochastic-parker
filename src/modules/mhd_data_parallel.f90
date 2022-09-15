@@ -29,7 +29,7 @@ module mhd_data_parallel
     integer, parameter :: nfields=8
     integer, parameter :: ngrads=24
 
-    !< 80 variables in total
+    !< 80 variables in total if there are two time frames
     real(fp), allocatable, dimension(:, :, :, :) :: farray1, farray2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: deltab2_1, deltab2_2 ! Current,next
     real(fp), allocatable, dimension(:, :, :, :) :: lcorr1, lcorr2 ! Current,next
@@ -39,6 +39,8 @@ module mhd_data_parallel
     !dir$ attributes align:16 :: deltab2_2
     !dir$ attributes align:16 :: lcorr1
     !dir$ attributes align:16 :: lcorr2
+
+    logical :: time_interp
 
     integer, allocatable, dimension(:, :) :: shock_xpos1, shock_xpos2  ! Shock x-position indices
 
@@ -51,11 +53,11 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     !< Initialize MHD field data arrays and their gradients
     !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
+    !<  time_interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_field_data(interp_flag)
+    subroutine init_field_data(time_interp_flag)
         implicit none
-        integer, intent(in) :: interp_flag
+        integer, intent(in) :: time_interp_flag
         integer :: nx, ny, nz
 
         nx = fconfig%nx
@@ -76,7 +78,9 @@ module mhd_data_parallel
         endif
         farray1 = 0.0
         ! Next time step
-        if (interp_flag == 1) then
+        time_interp = .false.
+        if (time_interp_flag == 1) then
+            time_interp = .true.
             if (ndim_field == 1) then
                 allocate(farray2(nfields+ngrads, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
@@ -91,12 +95,9 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     !< Initialize the magnetic fluctuation, defined as deltaB**2 / B0**2, and
     !< its gradients.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_magnetic_fluctuation(interp_flag)
+    subroutine init_magnetic_fluctuation
         implicit none
-        integer, intent(in) :: interp_flag
         integer :: nx, ny, nz
 
         nx = fconfig%nx
@@ -112,7 +113,7 @@ module mhd_data_parallel
         endif
         deltab2_1 = 1.0
         ! Next time step
-        if (interp_flag == 1) then
+        if (time_interp) then
             if (ndim_field == 1) then
                 allocate(deltab2_2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
@@ -126,12 +127,9 @@ module mhd_data_parallel
 
     !---------------------------------------------------------------------------
     !< Initialize the turbulence correlation length and its gradients
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_correlation_length(interp_flag)
+    subroutine init_correlation_length
         implicit none
-        integer, intent(in) :: interp_flag
         integer :: nx, ny, nz
 
         nx = fconfig%nx
@@ -147,7 +145,7 @@ module mhd_data_parallel
         endif
         lcorr1 = 1.0
         ! Next time step
-        if (interp_flag == 1) then
+        if (time_interp) then
             if (ndim_field == 1) then
                 allocate(lcorr2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
@@ -161,42 +159,33 @@ module mhd_data_parallel
 
     !---------------------------------------------------------------------------
     !< Free MHD field data arrays
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_field_data(interp_flag)
+    subroutine free_field_data
         implicit none
-        integer, intent(in) :: interp_flag
         deallocate(farray1)
-        if (interp_flag == 1) then
+        if (time_interp) then
             deallocate(farray2)
         endif
     end subroutine free_field_data
 
     !---------------------------------------------------------------------------
     !< Free the data array for magnetic fluctuation
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_magnetic_fluctuation(interp_flag)
+    subroutine free_magnetic_fluctuation
         implicit none
-        integer, intent(in) :: interp_flag
         deallocate(deltab2_1)
-        if (interp_flag == 1) then
+        if (time_interp) then
             deallocate(deltab2_2)
         endif
     end subroutine free_magnetic_fluctuation
 
     !---------------------------------------------------------------------------
     !< Free the data array for turbulence correlation length
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_correlation_length(interp_flag)
+    subroutine free_correlation_length
         implicit none
-        integer, intent(in) :: interp_flag
         deallocate(lcorr1)
-        if (interp_flag == 1) then
+        if (time_interp) then
             deallocate(lcorr2)
         endif
     end subroutine free_correlation_length
@@ -1197,7 +1186,6 @@ module mhd_data_parallel
 
     !---------------------------------------------------------------------------
     !< Interpolate the MHD fields and their gradients on one position
-    !< nz is assumed to be 1.
     !< Args:
     !<  pos: the lower-left corner of the grid in grid indices.
     !<  weights: for linear interpolation
@@ -1237,12 +1225,16 @@ module mhd_data_parallel
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
             fields = fields + farray1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            fields2 = fields2 + farray2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            if (time_interp) then
+                fields2 = fields2 + farray2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            endif
         enddo
         enddo
         enddo
         !< Time interpolation
-        fields = fields * (1.0 - rt) + fields2 * rt
+        if (time_interp) then
+            fields = fields * (1.0 - rt) + fields2 * rt
+        endif
     end subroutine interp_fields
 
     !---------------------------------------------------------------------------
@@ -1287,12 +1279,16 @@ module mhd_data_parallel
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
             db2 = db2 + deltab2_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            db2_2 = db2_2 + deltab2_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            if (time_interp) then
+                db2_2 = db2_2 + deltab2_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            endif
         enddo
         enddo
         enddo
         !< Time interpolation
-        db2 = db2 * (1.0 - rt) + db2_2 * rt
+        if (time_interp) then
+            db2 = db2 * (1.0 - rt) + db2_2 * rt
+        endif
     end subroutine interp_magnetic_fluctuation
 
     !---------------------------------------------------------------------------
@@ -1337,12 +1333,16 @@ module mhd_data_parallel
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
             lc = lc + lcorr1(:, ix+i, iy+j, iz+k) * weights(index_1d)
-            lc2 = lc2 + lcorr2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            if (time_interp) then
+                lc2 = lc2 + lcorr2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            endif
         enddo
         enddo
         enddo
         !< Time interpolation
-        lc = lc * (1.0 - rt) + lc2 * rt
+        if (time_interp) then
+            lc = lc * (1.0 - rt) + lc2 * rt
+        endif
     end subroutine interp_correlation_length
 
     !<--------------------------------------------------------------------------
@@ -1371,12 +1371,9 @@ module mhd_data_parallel
 
     !---------------------------------------------------------------------------
     !< Initialize shock x-position indices
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine init_shock_xpos(interp_flag)
+    subroutine init_shock_xpos
         implicit none
-        integer, intent(in) :: interp_flag
         integer :: ny, nz
 
         ny = fconfig%ny
@@ -1391,7 +1388,7 @@ module mhd_data_parallel
         endif
         shock_xpos1 = 0
         ! Next time step
-        if (interp_flag == 1) then
+        if (time_interp) then
             if (ndim_field == 1) then
                 allocate(shock_xpos2(1, 1))
             else if (ndim_field == 2) then
@@ -1405,26 +1402,20 @@ module mhd_data_parallel
 
     !---------------------------------------------------------------------------
     !< Free shock x-position indices
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine free_shock_xpos(interp_flag)
+    subroutine free_shock_xpos
         implicit none
-        integer, intent(in) :: interp_flag
         deallocate(shock_xpos1)
-        if (interp_flag == 1) then
+        if (time_interp) then
             deallocate(shock_xpos2)
         endif
     end subroutine free_shock_xpos
 
     !---------------------------------------------------------------------------
     !< Locate shock x-position indices. We use Vx to locate the shock here.
-    !< Args:
-    !<  interp_flag: whether two time steps are needed for interpolation
     !---------------------------------------------------------------------------
-    subroutine locate_shock_xpos(interp_flag)
+    subroutine locate_shock_xpos
         implicit none
-        integer, intent(in) :: interp_flag
         if (ndim_field == 1) then
             shock_xpos1(1, 1) = maxloc(abs(farray1(nfields+1, :, 1, 1)), dim=1)
         else if (ndim_field == 2) then
@@ -1432,7 +1423,7 @@ module mhd_data_parallel
         else
             shock_xpos1(:, :) = maxloc(abs(farray1(nfields+1, :, :, :)), dim=1)
         endif
-        if (interp_flag == 1) then
+        if (time_interp) then
             if (ndim_field == 1) then
                 shock_xpos2(1, 1) = maxloc(abs(farray2(nfields+1, :, 1, 1)), dim=1)
             else if (ndim_field == 2) then

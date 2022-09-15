@@ -138,6 +138,9 @@ module particle_module
     !< Whether to include transport along the 3rd dimension in 2D simulations
     logical :: include_3rd_dim_in2d_flag
 
+    !< Whether the acceleration region is separated by a time-varying surface
+    logical :: acc_by_surface_flag
+
     interface write_ptl_element
         module procedure &
             write_integer_element, write_double_element
@@ -314,16 +317,22 @@ module particle_module
     !<  deltab_flag_int(integer): flag for magnetic fluctuation
     !<  correlation_flag_int(integer): flag for turbulence correlation length
     !<  include_3rd_dim(integer): flag for whether to include 3rd-dim transport
+    !<  acc_by_surface(integer): flag for whether to separate the acceleration
+    !<      region by a time-varying surface
     !---------------------------------------------------------------------------
-    subroutine set_flags_params(deltab_flag_int, correlation_flag_int, include_3rd_dim)
+    subroutine set_flags_params(deltab_flag_int, correlation_flag_int, &
+            include_3rd_dim, acc_by_surface)
         implicit none
-        integer, intent(in) :: deltab_flag_int, correlation_flag_int, include_3rd_dim
+        integer, intent(in) :: deltab_flag_int, correlation_flag_int, &
+            include_3rd_dim, acc_by_surface
         deltab_flag = .false.
         correlation_flag = .false.
         include_3rd_dim_in2d_flag = .false.
+        acc_by_surface_flag = .false.
         if (deltab_flag_int == 1) deltab_flag = .true.
         if (correlation_flag_int == 1) correlation_flag = .true.
         if (include_3rd_dim == 1) include_3rd_dim_in2d_flag = .true.
+        if (acc_by_surface == 1) acc_by_surface_flag = .true.
     end subroutine set_flags_params
 
     !---------------------------------------------------------------------------
@@ -1105,6 +1114,7 @@ module particle_module
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, interp_magnetic_fluctuation, &
             interp_correlation_length
+        use acc_region_surface, only: interp_acc_surface
         implicit none
         real(dp), intent(in) :: t0
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
@@ -1119,6 +1129,7 @@ module particle_module
         integer :: i, tracking_step, offset, step, thread_id
         type(particle_type) :: ptl
         type(kappa_type) :: kappa
+        real(dp) :: surface_height1, surface_height2
         real(dp), dimension(nfields+ngrads) :: fields
         real(dp), dimension(4) :: db2, lc
         !dir$ attributes align:256 :: fields
@@ -1144,7 +1155,7 @@ module particle_module
         zmax1 = zmax + dzm * 0.5
 
         !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ptl, kappa, &
-        !$OMP& fields, db2, lc, &
+        !$OMP& fields, db2, lc, surface_height1, surface_height2, &
         !$OMP& deltax, deltay, deltaz, deltap, &
         !$OMP& dt_target, pos, weights, px, py, pz, rt, &
         !$OMP& tracking_step, offset, step, thread_id)
@@ -1237,8 +1248,11 @@ module particle_module
                                 lc, kappa, deltax, deltay, deltap)
                         endif
                     else
-                        call push_particle_3d(thread_id, rt, ptl, fields, db2, &
-                            lc, kappa, deltax, deltay, deltaz, deltap)
+                        if (acc_by_surface_flag) then
+                            call interp_acc_surface(pos, weights, rt, surface_height1, surface_height2)
+                        endif
+                        call push_particle_3d(thread_id, rt, surface_height1, surface_height2, &
+                            ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
                     endif
 
                     ! Number of particle tracking steps
@@ -1297,8 +1311,11 @@ module particle_module
                                     lc, kappa, deltax, deltay, deltap)
                             endif
                         else
-                            call push_particle_3d(thread_id, rt, ptl, fields, db2, &
-                                lc, kappa, deltax, deltay, deltaz, deltap)
+                            if (acc_by_surface_flag) then
+                                call interp_acc_surface(pos, weights, rt, surface_height1, surface_height2)
+                            endif
+                            call push_particle_3d(thread_id, rt, surface_height1, surface_height2, &
+                                ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
                         endif
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
 
@@ -2302,7 +2319,7 @@ module particle_module
     end subroutine set_time_step
 
     !---------------------------------------------------------------------------
-    !< Check whether particle in the in the acceleration region
+    !< Check whether particle in the in the acceleration region (rectangular box)
     !< Args:
     !<  ptl: one particle
     !---------------------------------------------------------------------------
@@ -2978,6 +2995,8 @@ module particle_module
     !<  thread_id: thread ID staring from 0
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
+    !<  surface_height1: the height of surface 1 separating the acceleration region
+    !<  surface_height2: the height of surface 2 separating the acceleration region
     !<  ptl: particle structure
     !<  fields: fields and their gradients at particle position
     !<  db2: turbulence variance and its gradients at particle position
@@ -2985,17 +3004,18 @@ module particle_module
     !<  kappa: kappa and related variables
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
-    subroutine push_particle_3d(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltay, deltaz, deltap)
+    subroutine push_particle_3d(thread_id, rt, surface_height1, surface_height2, &
+            ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, &
             interp_magnetic_fluctuation, interp_correlation_length
+        use acc_region_surface, only: check_above_acc_surface
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
-        real(dp), intent(in) :: rt
+        real(dp), intent(in) :: rt, surface_height1, surface_height2
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
         real(dp), dimension(*), intent(inout) :: db2, lc
@@ -3024,6 +3044,7 @@ module particle_module
         real(dp) :: bbsigma ! b_ib_jsigma_ij
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
+        logical :: in_acc_region
 
         vx = fields(1)
         vy = fields(2)
@@ -3154,11 +3175,6 @@ module particle_module
             deltaz = deltaz + (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
         endif
 
-        ptl%x = ptl%x + deltax
-        ptl%y = ptl%y + deltay
-        ptl%z = ptl%z + deltaz
-        ptl%t = ptl%t + ptl%dt
-
         ! Momentum
         if (spherical_coord_flag) then
             divv = dvx_dx + &
@@ -3213,7 +3229,12 @@ module particle_module
         endif
 
         if (acc_region_flag == 1) then
-            if (particle_in_acceleration_region(ptl)) then
+            in_acc_region = particle_in_acceleration_region(ptl)
+            if (acc_by_surface_flag) then
+                in_acc_region = in_acc_region .and. &
+                    check_above_acc_surface(ptl%x, ptl%y, ptl%z, surface_height1, surface_height2)
+            endif
+            if (in_acc_region) then
                 ptl%p = ptl%p + deltap
             else
                 deltap = 0.0
@@ -3226,6 +3247,11 @@ module particle_module
             deltap = 0.5 * p0 - ptl%p
             ptl%p = 0.5 * p0
         endif
+
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
+        ptl%t = ptl%t + ptl%dt
     end subroutine push_particle_3d
 
     !---------------------------------------------------------------------------

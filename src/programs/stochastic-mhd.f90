@@ -41,13 +41,16 @@ program stochastic
     use simulation_setup_module, only: read_simuation_mpi_topology, &
         set_field_configuration, fconfig, read_particle_boundary_conditions, &
         set_neighbors, check_particle_can_escape
+    use acc_region_surface, only: init_acc_surface, free_acc_surface, &
+        read_acc_surface, copy_acc_surface
     use flap, only : command_line_interface !< FLAP package
     use penf
     implicit none
-    character(len=256) :: dir_mhd_data
-    character(len=256) :: fname1, fname2
+    character(len=256) :: dir_mhd_data, filename
     character(len=128) :: diagnostics_directory
     character(len=64) :: conf_file, mhd_config_filename
+    character(len=64) :: surface_filename1, surface_filename2
+    character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
     integer :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
@@ -61,7 +64,7 @@ program stochastic
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
-    integer :: interp_flag, local_dist
+    integer :: time_interp_flag, local_dist
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
     integer :: inject_at_shock    ! Inject particles at shock location
@@ -86,6 +89,8 @@ program stochastic
     integer :: size_mpi_sub       ! Size of a MPI sub-communicator
     integer :: single_time_frame  ! Whether to use a single time frame of fields
     integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
+    integer :: acc_by_surface     ! Whether the acceleration region is separated by surfaces
+    logical :: surface2_existed   ! Whether surface 2 is existed
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -94,6 +99,10 @@ program stochastic
     start = MPI_Wtime()
 
     call get_cmd_args
+
+    if (single_time_frame == 1) then
+        time_interp_flag = 0  ! no time interpolation for a single time frame
+    endif
 
     ! Split the communicator based on the color and use the original rank for ordering
     color = mpi_rank / size_mpi_sub
@@ -124,8 +133,8 @@ program stochastic
     call init_prng(mpi_rank, nthreads)
 
     !< Configurations
-    fname2 = trim(dir_mhd_data)//trim(mhd_config_filename)
-    call load_mhd_config(fname2)
+    filename = trim(dir_mhd_data)//trim(mhd_config_filename)
+    call load_mhd_config(filename)
     if (mpi_rank == master) then
         call echo_mhd_config
     endif
@@ -139,17 +148,24 @@ program stochastic
     call set_local_grid_positions(dir_mhd_data)
 
     !< Initialization
-    interp_flag = 1 ! Two time are needed for interpolation
-    call init_field_data(interp_flag)
+    call init_field_data(time_interp_flag)
     if (deltab_flag == 1) then
-        call init_magnetic_fluctuation(interp_flag)
+        call init_magnetic_fluctuation
     endif
     if (correlation_flag == 1) then
-        call init_correlation_length(interp_flag)
+        call init_correlation_length
+    endif
+    if (acc_by_surface == 1) then
+        if (surface2_existed) then
+            call init_acc_surface(time_interp_flag, surface_norm1, surface_norm2)
+        else
+            call init_acc_surface(time_interp_flag, surface_norm1)
+        endif
     endif
     call read_particle_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
-    call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim)
+    call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim, &
+        acc_by_surface)
     if (ndim_field == 3) then
         call set_drift_parameters(drift_param1, drift_param2, charge)
     else if (ndim_field == 2 .and. check_drift_2d == 1) then
@@ -186,7 +202,7 @@ program stochastic
     endif
 
     if (inject_at_shock == 1) then
-        call free_shock_xpos(interp_flag)
+        call free_shock_xpos
     endif
 
     call free_particle_datatype_mpi
@@ -196,12 +212,15 @@ program stochastic
     endif
     call free_particles
     call free_escaped_particles
-    call free_field_data(interp_flag)
+    if (acc_by_surface == 1) then
+        call free_acc_surface
+    endif
+    call free_field_data
     if (deltab_flag == 1) then
-        call free_magnetic_fluctuation(interp_flag)
+        call free_magnetic_fluctuation
     endif
     if (correlation_flag == 1) then
-        call free_correlation_length(interp_flag)
+        call free_correlation_length
     endif
 
     call free_grid_positions
@@ -223,67 +242,115 @@ program stochastic
     subroutine solve_transport_equation(track_particles)
         implicit none
         logical, intent(in) :: track_particles
-        write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
-        write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
+        character(len=256) :: mhd_fname1, mhd_fname2
+        character(len=256) :: acc_surface_fname11, acc_surface_fname12
+        character(len=256) :: acc_surface_fname21, acc_surface_fname22
+        write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
+        write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start + 1
+        write(acc_surface_fname11, "(A,I4.4,A)") &
+            trim(dir_mhd_data)//trim(surface_filename1)//'_', t_start, ".dat"
+        write(acc_surface_fname12, "(A,I4.4,A)") &
+            trim(dir_mhd_data)//trim(surface_filename1)//'_', t_start + 1, ".dat"
+        if (surface2_existed) then
+            write(acc_surface_fname21, "(A,I4.4,A)") &
+                trim(dir_mhd_data)//trim(surface_filename2)//'_', t_start, ".dat"
+            write(acc_surface_fname22, "(A,I4.4,A)") &
+                trim(dir_mhd_data)//trim(surface_filename2)//'_', t_start + 1, ".dat"
+        endif
         if (single_time_frame == 1) then
-            call read_field_data_parallel(fname1, var_flag=1)
-            call copy_fields
+            call read_field_data_parallel(mhd_fname1, 0)
+            if (acc_by_surface == 1) then
+                if (surface2_existed) then
+                    call read_acc_surface(0, acc_surface_fname11, acc_surface_fname21)
+                else
+                    call read_acc_surface(0, acc_surface_fname11)
+                endif
+            endif
         else
-            call read_field_data_parallel(fname1, var_flag=0)
-            call read_field_data_parallel(fname2, var_flag=1)
+            call read_field_data_parallel(mhd_fname1, 0)
+            if (time_interp_flag == 1) then
+                call read_field_data_parallel(mhd_fname2, 1)
+            endif
+            if (acc_by_surface == 1) then
+                if (surface2_existed) then
+                    call read_acc_surface(0, acc_surface_fname11, acc_surface_fname21)
+                    if (time_interp_flag == 1) then
+                        call read_acc_surface(1, acc_surface_fname12, acc_surface_fname22)
+                    endif
+                else
+                    call read_acc_surface(0, acc_surface_fname11)
+                    if (time_interp_flag == 1) then
+                        call read_acc_surface(1, acc_surface_fname12)
+                    endif
+                endif
+            endif
         endif
         if (deltab_flag == 1) then
-            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
+            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
+            write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start + 1
             if (single_time_frame == 1) then
-                call read_magnetic_fluctuation(fname1, var_flag=1)
-                call copy_magnetic_fluctuation
+                call read_magnetic_fluctuation(mhd_fname1, 0)
             else
-                call read_magnetic_fluctuation(fname1, var_flag=0)
-                call read_magnetic_fluctuation(fname2, var_flag=1)
+                call read_magnetic_fluctuation(mhd_fname1, 0)
+                if (time_interp_flag == 1) then
+                    call read_magnetic_fluctuation(mhd_fname2, 1)
+                endif
             endif
         endif
         if (correlation_flag == 1) then
-            write(fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
-            write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
+            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
+            write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start + 1
             if (single_time_frame == 1) then
-                call read_correlation_length(fname1, var_flag=1)
-                call copy_correlation_length
+                call read_correlation_length(mhd_fname1, 0)
             else
-                call read_correlation_length(fname1, var_flag=0)
-                call read_correlation_length(fname2, var_flag=1)
+                call read_correlation_length(mhd_fname1, 0)
+                if (time_interp_flag == 1) then
+                    call read_correlation_length(mhd_fname2, 1)
+                endif
             endif
         endif
 
         if (uniform_grid == 1) then
-            call calc_fields_gradients(var_flag=0)
-            call calc_fields_gradients(var_flag=1)
+            call calc_fields_gradients(0)
+            if (time_interp_flag == 1) then
+                call calc_fields_gradients(1)
+            endif
         else
-            call calc_fields_gradients_nonuniform(var_flag=0)
-            call calc_fields_gradients_nonuniform(var_flag=1)
+            call calc_fields_gradients_nonuniform(0)
+            if (time_interp_flag == 1) then
+                call calc_fields_gradients_nonuniform(1)
+            endif
         endif
         if (deltab_flag == 1) then
             if (uniform_grid == 1) then
-                call calc_grad_deltab2(var_flag=0)
-                call calc_grad_deltab2(var_flag=1)
+                call calc_grad_deltab2(0)
+                if (time_interp_flag == 1) then
+                    call calc_grad_deltab2(1)
+                endif
             else
-                call calc_grad_deltab2_nonuniform(var_flag=0)
-                call calc_grad_deltab2_nonuniform(var_flag=1)
+                call calc_grad_deltab2_nonuniform(0)
+                if (time_interp_flag == 1) then
+                    call calc_grad_deltab2_nonuniform(1)
+                endif
             endif
         endif
         if (correlation_flag == 1) then
             if (uniform_grid == 1) then
-                call calc_grad_correl_length(var_flag=0)
-                call calc_grad_correl_length(var_flag=1)
+                call calc_grad_correl_length(0)
+                if (time_interp_flag == 1) then
+                    call calc_grad_correl_length(1)
+                endif
             else
-                call calc_grad_correl_length_nonuniform(var_flag=0)
-                call calc_grad_correl_length_nonuniform(var_flag=1)
+                call calc_grad_correl_length_nonuniform(0)
+                if (time_interp_flag == 1) then
+                    call calc_grad_correl_length_nonuniform(1)
+                endif
             endif
         endif
 
         if (inject_at_shock == 1) then ! Whether it is a shock problem
-            call init_shock_xpos(interp_flag)
-            call locate_shock_xpos(interp_flag)
+            call init_shock_xpos
+            call locate_shock_xpos
             call inject_particles_at_shock(nptl, dt, dist_flag, t_start, power_index)
         else
             if (inject_part_box == 1) then
@@ -365,50 +432,66 @@ program stochastic
                 call dump_escaped_particles(tf+1, diagnostics_directory)
                 call reset_escaped_particles
             endif
-            call copy_fields
-            if (deltab_flag == 1) then
-                call copy_magnetic_fluctuation
-            endif
-            if (correlation_flag == 1) then
-                call copy_correlation_length
-            endif
-            if (mpi_rank == master) then
-                write(*, "(A)") " Finishing copying fields "
+            if (time_interp_flag == 1) then
+                call copy_fields
+                if (acc_by_surface == 1) then
+                    call copy_acc_surface
+                endif
+                if (deltab_flag == 1) then
+                    call copy_magnetic_fluctuation
+                endif
+                if (correlation_flag == 1) then
+                    call copy_correlation_length
+                endif
+                if (mpi_rank == master) then
+                    write(*, "(A)") " Finishing copying fields "
+                endif
             endif
             if (single_time_frame == 0 .and. tf < t_end) then
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-                write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
-                call read_field_data_parallel(fname2, var_flag=1)
+                write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf + 1
+                call read_field_data_parallel(mhd_fname2, var_flag=time_interp_flag)
+                if (acc_by_surface == 1) then
+                    write(acc_surface_fname12, "(A,I4.4,A)") &
+                        trim(dir_mhd_data)//trim(surface_filename1)//'_', tf + 1, ".dat"
+                    write(acc_surface_fname22, "(A,I4.4,A)") &
+                        trim(dir_mhd_data)//trim(surface_filename2)//'_', tf + 1, ".dat"
+                    if (surface2_existed) then
+                        call read_acc_surface(time_interp_flag, acc_surface_fname12, acc_surface_fname22)
+                    else
+                        call read_acc_surface(time_interp_flag, acc_surface_fname12)
+                    endif
+                endif
                 if (deltab_flag == 1) then
-                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
-                    call read_magnetic_fluctuation(fname2, var_flag=1)
+                    write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tf + 1
+                    call read_magnetic_fluctuation(mhd_fname2, var_flag=time_interp_flag)
                 endif
                 if (correlation_flag == 1) then
-                    write(fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
-                    call read_correlation_length(fname2, var_flag=1)
+                    write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tf + 1
+                    call read_correlation_length(mhd_fname2, var_flag=time_interp_flag)
                 endif
                 if (uniform_grid == 1) then
-                    call calc_fields_gradients(var_flag=1)
+                    call calc_fields_gradients(var_flag=time_interp_flag)
                 else
-                    call calc_fields_gradients_nonuniform(var_flag=1)
+                    call calc_fields_gradients_nonuniform(var_flag=time_interp_flag)
                 endif
                 if (deltab_flag == 1) then
                     if (uniform_grid == 1) then
-                        call calc_grad_deltab2(var_flag=1)
+                        call calc_grad_deltab2(var_flag=time_interp_flag)
                     else
-                        call calc_grad_deltab2_nonuniform(var_flag=1)
+                        call calc_grad_deltab2_nonuniform(var_flag=time_interp_flag)
                     endif
                 endif
                 if (correlation_flag == 1) then
                     if (uniform_grid == 1) then
-                        call calc_grad_correl_length(var_flag=1)
+                        call calc_grad_correl_length(var_flag=time_interp_flag)
                     else
-                        call calc_grad_correl_length_nonuniform(var_flag=1)
+                        call calc_grad_correl_length_nonuniform(var_flag=time_interp_flag)
                     endif
                 endif
             endif
             if (inject_at_shock == 1) then
-                call locate_shock_xpos(interp_flag)
+                call locate_shock_xpos
                 call inject_particles_at_shock(nptl, dt, dist_flag, tf+1, power_index)
             else
                 if (inject_new_ptl == 1) then
@@ -458,7 +541,8 @@ program stochastic
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec -sm size_mpi_sub '//&
                         '-dm dir_mhd_data -mc mhd_config_filename '//&
-                        '-nm nptl_max -np nptl -dt dt -ts t_start -te t_end '//&
+                        '-nm nptl_max -np nptl '//&
+                        '-ti time_interp_flag -dt dt -ts t_start -te t_end '//&
                         '-st single_time_frame -df dist_flag -pi power_index '//&
                         '-sf split_flag -sr split_ratio -tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
@@ -477,7 +561,9 @@ program stochastic
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
                         '-cd check_drift_2d -pd particle_data_dump '//&
-                        '-i3 include_3rd_dim'])
+                        '-i3 include_3rd_dim -as acc_by_surface '//&
+                        '-sf1 surface_filename1 -sn1 surface_norm1 '//&
+                        '-sf2 surface_filename2 -sn2 surface_norm2'])
         call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
             help='Size of the a MPI sub-communicator', required=.false., &
             act='store', def='1', error=error)
@@ -497,6 +583,10 @@ program stochastic
         call cli%add(switch='--nptl', switch_ab='-np', &
             help='Number of particles', required=.false., &
             act='store', def='1E4', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--time_interp_flag', switch_ab='-ti', &
+            help='Flag for time interpolation', required=.false., &
+            act='store', def='0', error=error)
         if (error/=0) stop
         call cli%add(switch='--tinterval', switch_ab='-dt', &
             help='Time interval to push particles', required=.false., &
@@ -694,6 +784,30 @@ program stochastic
             help='whether to include 3rd-dim transport in 2D runs', &
             required=.false., act='store', def='0', error=error)
         if (error/=0) stop
+        call cli%add(switch='--acc_by_surface', switch_ab='-as', &
+            help='whether the acceleration region is separated by a surface', &
+            required=.false., act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--surface_filename1', switch_ab='-sf1', &
+            help='the filename for the surface 1 data', required=.false., &
+            act='store', def="sname_default", error=error)
+        if (error/=0) stop
+        call cli%add(switch='--surface_norm1', switch_ab='-sn1', &
+            help='the norm direction of surface 1', required=.false., &
+            act='store', def='+y', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--surface2_existed', switch_ab='-s2e', &
+            help='whether there is a surface 2', required=.false., &
+            act='store', def='.false.', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--surface_filename2', switch_ab='-sf2', &
+            help='the filename for the surface 2 data', required=.false., &
+            act='store', def="sname_default", error=error)
+        if (error/=0) stop
+        call cli%add(switch='--surface_norm2', switch_ab='-sn2', &
+            help='the norm direction of surface 2', required=.false., &
+            act='store', def='-y', error=error)
+        if (error/=0) stop
         call cli%get(switch='-sm', val=size_mpi_sub, error=error)
         if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
@@ -703,6 +817,8 @@ program stochastic
         call cli%get(switch='-nm', val=nptl_max, error=error)
         if (error/=0) stop
         call cli%get(switch='-np', val=nptl, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ti', val=time_interp_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-dt', val=dt, error=error)
         if (error/=0) stop
@@ -802,6 +918,18 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-i3', val=include_3rd_dim, error=error)
         if (error/=0) stop
+        call cli%get(switch='-as', val=acc_by_surface, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-sf1', val=surface_filename1, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-sn1', val=surface_norm1, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-s2e', val=surface2_existed, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-sf2', val=surface_filename2, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-sn2', val=surface_norm2, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A)', '---------------Commandline Arguments:---------------'
@@ -823,6 +951,14 @@ program stochastic
             print '(A,I10.3)', 'The last time frame: ', t_end
             if (single_time_frame == 1) then
                 print '(A)', 'Use only one time of frame of fields data'
+                print '(A,I10.3)', 'We will use the data from starting time frame: ', t_start
+            else
+                print '(A)', 'Use multiple time frames of fields data'
+                if (time_interp_flag == 1) then
+                    print '(A)', 'Interpolate the fields data inbetween time frames'
+                else
+                    print '(A)', 'Do not interpolate the fields data inbetween time frames'
+                endif
             endif
 
             if (split_flag == 1) then
@@ -930,6 +1066,19 @@ program stochastic
             endif
             if (ndim_field == 2 .and. include_3rd_dim == 1) then
                 print '(A)', 'Include transport along the 3rd-dim in 2D simulations'
+            endif
+            if (acc_by_surface == 1) then
+                if (surface2_existed) then
+                    print '(A)', 'The acceleration region is separated by two surfaces'
+                    print '(A,A)', 'The filename of the surface 1 data is ', surface_filename1
+                    print '(A,A)', 'The norm of surface 1 is along ', surface_norm1
+                    print '(A,A)', 'The filename of the surface 2 data is ', surface_filename2
+                    print '(A,A)', 'The norm of surface 2 is along ', surface_norm2
+                else
+                    print '(A)', 'The acceleration region is separated by a surface'
+                    print '(A,A)', 'The filename of the the surface data is ', surface_filename1
+                    print '(A,A)', 'The surface norm is along ', surface_norm1
+                endif
             endif
             print '(A)', '----------------------------------------------------'
         endif
