@@ -564,6 +564,7 @@ program stochastic
                         '-sc spherical_coord -ug uniform_grid '//&
                         '-cd check_drift_2d -pd particle_data_dump '//&
                         '-i3 include_3rd_dim -as acc_by_surface '//&
+                        '-s2e surface2_existed -ii is_intersection '//&
                         '-sf1 surface_filename1 -sn1 surface_norm1 '//&
                         '-sf2 surface_filename2 -sn2 surface_norm2'])
         call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
