@@ -15,7 +15,7 @@ module acc_region_surface
     real(dp), allocatable, dimension(:, :) :: acc_surface11, acc_surface12 ! Current,next
     real(dp), allocatable, dimension(:, :) :: acc_surface21, acc_surface22 ! second surface
     character(len=2) :: surface_norm1, surface_norm2
-    logical :: surface2_existed, time_interp
+    logical :: surface2_existed, time_interp, is_intersection
 
     contains
     !---------------------------------------------------------------------------
@@ -24,12 +24,15 @@ module acc_region_surface
     !<  interp_flag: whether two time steps are needed for interpolation
     !<  surface_norm_flag1: the norm direction of the surface 1
     !<  surface_norm_flag2(optional): the norm direction of the surface 2
+    !<  is_intersection_flag(optional): whether it is the intersection of union of the two regions
     !---------------------------------------------------------------------------
-    subroutine init_acc_surface(interp_flag, surface_norm_flag1, surface_norm_flag2)
+    subroutine init_acc_surface(interp_flag, surface_norm_flag1, surface_norm_flag2, &
+            is_intersection_flag)
         implicit none
         integer, intent(in) :: interp_flag
         character(*), intent(in) :: surface_norm_flag1
         character(*), intent(in), optional :: surface_norm_flag2
+        logical, intent(in), optional :: is_intersection_flag
         integer :: nx, ny, nz
 
         surface_norm1 = surface_norm_flag1
@@ -61,6 +64,7 @@ module acc_region_surface
         endif
 
         surface2_existed = .false.
+        is_intersection = .false.
         if (present(surface_norm_flag2)) then
             surface_norm2 = surface_norm_flag2
             surface2_existed = .true.
@@ -82,6 +86,9 @@ module acc_region_surface
                     allocate(acc_surface22(-1:nx+2, -1:ny+2))
                 endif
                 acc_surface22 = 0.0_dp
+            endif
+            if (present(is_intersection_flag)) then
+                is_intersection = is_intersection_flag
             endif
         endif
     end subroutine init_acc_surface
@@ -332,13 +339,13 @@ module acc_region_surface
     !<  x, y, z: location of the particle
     !<  surface_height1, surface_height2: the heights on the two surfaces
     !---------------------------------------------------------------------------
-    function check_above_acc_surface(x, y, z, surface_height1, surface_height2) result (above_surface)
+    function check_above_acc_surface(x, y, z, surface_height1, surface_height2) result (in_acc_region)
         implicit none
         real(dp), intent(in) :: x, y, z, surface_height1, surface_height2
         real(dp) :: ptl_height
-        logical :: above_surface
+        logical :: in_acc_region
 
-        above_surface = .true.
+        in_acc_region = .true.
 
         if (surface_norm1(2:2) == "x") then
             ptl_height = x
@@ -348,9 +355,9 @@ module acc_region_surface
             ptl_height = z
         endif
         if (surface_norm1(1:1) == "+") then
-            above_surface = ptl_height > surface_height1
+            in_acc_region = ptl_height > surface_height1
         else
-            above_surface = ptl_height < surface_height1
+            in_acc_region = ptl_height < surface_height1
         endif
 
         if (surface2_existed) then
@@ -361,10 +368,18 @@ module acc_region_surface
             else
                 ptl_height = z
             endif
-            if (surface_norm2(1:1) == "+") then
-                above_surface = above_surface .and. (ptl_height > surface_height2)
-            else
-                above_surface = above_surface .and. (ptl_height < surface_height2)
+            if (is_intersection) then ! interaction of the two
+                if (surface_norm2(1:1) == "+") then
+                    in_acc_region = in_acc_region .and. (ptl_height > surface_height2)
+                else
+                    in_acc_region = in_acc_region .and. (ptl_height < surface_height2)
+                endif
+            else ! union of the two
+                if (surface_norm2(1:1) == "+") then
+                    in_acc_region = in_acc_region .or. (ptl_height > surface_height2)
+                else
+                    in_acc_region = in_acc_region .or. (ptl_height < surface_height2)
+                endif
             endif
         endif
     end function check_above_acc_surface

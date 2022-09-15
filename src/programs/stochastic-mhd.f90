@@ -91,6 +91,7 @@ program stochastic
     integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
     integer :: acc_by_surface     ! Whether the acceleration region is separated by surfaces
     logical :: surface2_existed   ! Whether surface 2 is existed
+    logical :: is_intersection    ! Intersection or Union of the two surfaces
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -157,7 +158,8 @@ program stochastic
     endif
     if (acc_by_surface == 1) then
         if (surface2_existed) then
-            call init_acc_surface(time_interp_flag, surface_norm1, surface_norm2)
+            call init_acc_surface(time_interp_flag, surface_norm1, surface_norm2, &
+                is_intersection)
         else
             call init_acc_surface(time_interp_flag, surface_norm1)
         endif
@@ -800,6 +802,10 @@ program stochastic
             help='whether there is a surface 2', required=.false., &
             act='store', def='.false.', error=error)
         if (error/=0) stop
+        call cli%add(switch='--is_intersection', switch_ab='-ii', &
+            help='whether it is the intersection of the two regions', &
+            required=.false., act='store', def='.true.', error=error)
+        if (error/=0) stop
         call cli%add(switch='--surface_filename2', switch_ab='-sf2', &
             help='the filename for the surface 2 data', required=.false., &
             act='store', def="sname_default", error=error)
@@ -925,6 +931,8 @@ program stochastic
         call cli%get(switch='-sn1', val=surface_norm1, error=error)
         if (error/=0) stop
         call cli%get(switch='-s2e', val=surface2_existed, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ii', val=is_intersection, error=error)
         if (error/=0) stop
         call cli%get(switch='-sf2', val=surface_filename2, error=error)
         if (error/=0) stop
@@ -1070,6 +1078,11 @@ program stochastic
             if (acc_by_surface == 1) then
                 if (surface2_existed) then
                     print '(A)', 'The acceleration region is separated by two surfaces'
+                    if (is_intersection) then
+                        print '(A)', 'The acceleration is the intersection of the two regions'
+                    else
+                        print '(A)', 'The acceleration is the union of the two regions'
+                    endif
                     print '(A,A)', 'The filename of the surface 1 data is ', surface_filename1
                     print '(A,A)', 'The norm of surface 1 is along ', surface_norm1
                     print '(A,A)', 'The filename of the surface 2 data is ', surface_filename2
