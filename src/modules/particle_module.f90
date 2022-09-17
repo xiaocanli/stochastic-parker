@@ -3359,10 +3359,6 @@ module particle_module
         integer :: i
         logical :: dir_e
 
-        inquire(file='./data/.', exist=dir_e)
-        if (.not. dir_e) then
-            call system('mkdir -p ./data')
-        endif
         var_local = 0.0_dp
         var_global = 0.0_dp
         pdt_min = 1.0_dp
@@ -3657,11 +3653,6 @@ module particle_module
         integer :: mpi_datatype
         logical :: dir_e
 
-        inquire(file='./data/.', exist=dir_e)
-        if (.not. dir_e) then
-            call system('mkdir -p ./data')
-        endif
-
         call calc_particle_distributions(local_dist)
 
         write (ctime,'(i4.4)') iframe
@@ -3741,10 +3732,6 @@ module particle_module
         integer :: i
         logical :: dir_e
 
-        inquire(file='./data/.', exist=dir_e)
-        if (.not. dir_e) then
-            call system('mkdir -p ./data')
-        endif
         pmax_local = 0.0_dp
         do i = 1, nptl_current
             if (ptls(i)%p > pmax_local) then
@@ -4038,11 +4025,6 @@ module particle_module
         integer :: error
         logical :: dir_e
 
-        inquire(file='./data/.', exist=dir_e)
-        if (.not. dir_e) then
-            call system('mkdir -p ./data')
-        endif
-
         CALL h5open_f(error)
 
         write (ctime,'(i4.4)') iframe
@@ -4098,11 +4080,6 @@ module particle_module
         integer(hid_t) :: file_id
         integer :: error
         logical :: dir_e
-
-        inquire(file='./data/.', exist=dir_e)
-        if (.not. dir_e) then
-            call system('mkdir -p ./data')
-        endif
 
         nptl_local = nptl_escaped
         call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
