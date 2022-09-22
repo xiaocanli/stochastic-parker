@@ -261,7 +261,7 @@ module mpi_io_module
 
         call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
-                product(subsizes), MPI_REAL, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_read_error
     end subroutine read_data_mpi_io_double_4d
 
@@ -278,7 +278,7 @@ module mpi_io_module
 
         call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
-                product(subsizes), MPI_REAL, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_read_error
     end subroutine read_data_mpi_io_double_3d
 
@@ -295,7 +295,7 @@ module mpi_io_module
 
         call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
-                product(subsizes), MPI_REAL, status, ierror)
+                product(subsizes), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_read_error
     end subroutine read_data_mpi_io_double_2d
 
@@ -312,7 +312,7 @@ module mpi_io_module
 
         call set_file_view_double(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
-                subsizes(1), MPI_REAL, status, ierror)
+                subsizes(1), MPI_DOUBLE_PRECISION, status, ierror)
         call handle_read_error
     end subroutine read_data_mpi_io_double_1d
 
