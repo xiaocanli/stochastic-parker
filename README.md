@@ -1,11 +1,11 @@
-Solving Parker's transport equation using stochastic method
+Solving Parker's transport equation and its extensions using stochastic method
 ================
 
 This is a code to solve Parker's cosmic ray transport equation using the
 stochastic method.
 
 ## Status
-[![Build Status](https://travis-ci.com/xiaocanli/stochastic-parker.svg?branch=master)](https://travis-ci.com/xiaocanli/stochastic-parker)
+[![Build Status](https://app.travis-ci.com/xiaocanli/stochastic-parker.svg?branch=master)](https://app.travis-ci.com/github/xiaocanli/stochastic-parker)
 
 ## Install
 See our note in [INSTALL.md](INSTALL.md)
