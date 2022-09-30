@@ -4,7 +4,7 @@
 
 project = 'stochastic-parker'
 copyright = '2015-2022, Xiaocan Li'
-author = 'Graziella'
+author = 'Xiaocan Li'
 
 release = '0.1'
 version = '0.1.0'

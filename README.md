@@ -7,9 +7,6 @@ stochastic method.
 ## Status
 [![Build Status](https://app.travis-ci.com/xiaocanli/stochastic-parker.svg?branch=master)](https://app.travis-ci.com/github/xiaocanli/stochastic-parker)
 
-## Install
-See our note in [INSTALL.md](INSTALL.md)
-
 ## License
 
 This software is licensed under the GNU General Public License (GPL)
