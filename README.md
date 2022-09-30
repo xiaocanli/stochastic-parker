@@ -1,7 +1,7 @@
-Solving Parker's transport equation and its extensions using stochastic method
+stochastic-parker
 ================
 
-This is a code to solve Parker's cosmic ray transport equation using the
+This is a code solving Parker's cosmic ray transport equation and its extensions using the
 stochastic method.
 
 ## Status
