@@ -56,6 +56,7 @@ foreach(GIT_SUBMODULE ${GIT_SUBMODULES})
 
 endforeach(${GIT_SUBMODULE})
 
+
 foreach(GIT_SUBMODULE ${GIT_SUBMODULES})
     if( ${GIT_SUBMODULE} STREQUAL "FLAP" )
         if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
@@ -64,6 +65,11 @@ foreach(GIT_SUBMODULE ${GIT_SUBMODULES})
                 WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
             )
         elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
+            execute_process(
+                COMMAND             FoBiS.py build -mode static-intel
+                WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
+            )
+        elseif (Fortran_COMPILER_NAME MATCHES "ftn.*")
             execute_process(
                 COMMAND             FoBiS.py build -mode static-intel
                 WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
