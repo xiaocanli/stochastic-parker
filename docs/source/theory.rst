@@ -1,5 +1,5 @@
-Theory
-=====
+Algorithm & Theory
+==================
 
 .. autosummary::
    :toctree: generated
@@ -14,11 +14,11 @@ Theory
 Parker’s transport equation
 
 .. math::
+   :name: equ_parker
 
    \frac{\partial f}{\partial t} + (\boldsymbol{v}+\boldsymbol{v}_d)\cdot\nabla f
      - \frac{1}{3}\nabla\cdot\boldsymbol{v}\frac{\partial f}{\partial\ln p}
      = \nabla\cdot(\boldsymbol{\kappa}\nabla f) + Q,
-     \label{equ:parker}
 
 where :math:`f(x_i, p, t)` is the particle distribution function as a
 function of the particle position :math:`x_i`, momentum :math:`p`
@@ -37,29 +37,29 @@ coefficient tensor is given by
 where :math:`\kappa_\parallel` and :math:`\kappa_\perp` are the parallel
 and perpendicular diffusion coefficients. Here :math:`\kappa_\parallel`
 can be calculated from the quasi-linear
-theory :raw-latex:`\citep{Jokipii1971Propagation}`. Assuming that
+theory [8]_. Assuming that
 magnetic turbulence is well developed and has an isotropic power
 spectrum :math:`P\sim k^{-5/3}`, the resulting
 :math:`\kappa_\parallel\sim p^{4/3}` when the particle gyroradius is
 much smaller than the correlation length of turbulence. In particular,
 we use the following expression for
-:math:`\kappa_\parallel` :raw-latex:`\citep{Giacalone1999Transport}`,
+:math:`\kappa_\parallel` [7]_,
 
 .. math::
+   :name: equ_kpara_qlt
 
    \begin{aligned}
      \kappa_\parallel(v) & = \frac{3v^3}{20L_c\Omega_0^2\sigma^2}
      \csc\left(\frac{3\pi}{5}\right)\left[1+\frac{72}{7}
      \left(\frac{\Omega_0L_c}{v}\right)^{5/3}\right]\\
      & \approx1.622\frac{v^{4/3}L_c^{2/3}}{\Omega_0^{1/3}\sigma^2}
-     \label{equ:kpara_qlt}
    \end{aligned}
 
 where :math:`v` is the particle speed, :math:`L_c` is the turbulence
 correlation length, :math:`\Omega_0` is the particle gyrofrequency, and
 :math:`\sigma^2=\left<\delta B^2\right>/B_0^2` is the normalized wave
-variance of turbulence. :raw-latex:`\citet{Giacalone1999Transport}` gave
-a derivation of Equ. `[equ:kpara_qlt] <#equ:kpara_qlt>`__. Below is
+variance of turbulence. Reference [7]_ gave
+a derivation of equ_kpara_qlt_ . Below is
 summary of it with some missing details. The velocity-dependent parallel
 diffusion coefficient is
 
@@ -77,8 +77,8 @@ above equation is strictly applicable only for the case of 1D turbulence
 in which the wavevectors are aligned with the mean field. For
 anisotropic turbulence (e.g., 2D + slab), only the slab turbulence
 (about 20% of all turbulent
-fluctuations :raw-latex:`\citep{BieberJW1996Dominant}`) affect particle
-parallel transport :raw-latex:`\citep{FlorinskiV2003Galactic}`. The
+fluctuations [1]_) affect particle
+parallel transport [6]_. The
 turbulence power is usually expressed as
 
 .. math:: P(k) = \frac{\left<\delta B^2\right>}{1+(kL_c)^\gamma}\left[\int_{k_\text{min}}^{k_\text{max}}\frac{dk}{1+(kL_c)^\gamma}\right]^{-1}
@@ -105,23 +105,23 @@ The parallel diffusion coefficient is
 
 where we assume :math:`v>0` and :math:`\gamma<2`. When
 :math:`\gamma=5/3` (Kolmogorov), we can get
-Equ. `[equ:kpara_qlt] <#equ:kpara_qlt>`__. (**What will happen when
-:math:`\gamma>2`?**).
+equ_kpara_qlt_. (What will happen when
+:math:`\gamma>2`?).
 
 Test-particle simulations have suggested that
 :math:`\kappa_\perp/\kappa_\parallel` is about 0.02-0.04 and is nearly
 independent of particle
-energy :raw-latex:`\citep{Giacalone1999Transport}`. There is also
+energy [7]_. There is also
 observational evidence suggesting that
 :math:`\kappa_\perp/\kappa_\parallel` can be quite
-large :raw-latex:`\citep[e.g.,][]{Dwyer1997Perp, Zhang2003Perp}`.
+large [3]_ [21]_.
 
 The Parker transport equation can be solved by integrating the
 stochastic differential equation corresponding to the Fokker–Planck form
 of the transport
-equation :raw-latex:`\citep{Zhang1999Markov, Florinski2009Four, Pei2010General,Kong2017Acceleration}`.
+equation [20]_ [5]_ [12]_ [10]_.
 Neglecting the source term :math:`Q` in
-Equation `[equ:parker] <#equ:parker>`__ and assuming :math:`F=fp^2`,
+equ_parker_ and assuming :math:`F=fp^2`,
 
 .. math::
 
@@ -225,7 +225,7 @@ of :math:`B_x`, :math:`B_y` and :math:`B`, so
 :math:`\partial B_x/\partial x`, :math:`\partial B_x/\partial y`,
 :math:`\partial B_y/\partial x`, and :math:`\partial B_y/\partial y`.
 The detailed expressions depend on the diffusion model to choose. Using
-equation `[equ:kpara_qlt] <#equ:kpara_qlt>`__,
+equ_parker_,
 
 .. math::
 
@@ -238,7 +238,7 @@ equation `[equ:kpara_qlt] <#equ:kpara_qlt>`__,
    \end{aligned}
 
 In this work, we use a derivative-free Milstein
-method :raw-latex:`\citep{Burrage2004Numerical}` to solve the stochastic
+method [2]_ to solve the stochastic
 differential equation. It is different from the usual method due to one
 more term, which makes it become a higher-order method:
 
@@ -260,7 +260,7 @@ distribution, which is substituted with a uniform distribution
 :math:`[-\sqrt{3}, \sqrt{3}]` in our simulations to speed up the
 computation. For a 1D problem, the particle moves a distance satisfying
 :math:`l_x^2=\text{max}\left(\left<\Delta x\right>^2,
-\left<\Delta x^2\right>\right)` :raw-latex:`\citep{Strauss2017Hitch}`,
+\left<\Delta x^2\right>\right)` [16]_,
 where
 
 .. math::
@@ -505,19 +505,19 @@ Momentum Diffusion
 ------------------
 
 We can include an momentum diffusion term to the right side of
-Equation `[equ:parker] <#equ:parker>`__.
+equ_parker_.
 
 .. math::
+   :name: equ_parker_2nd
 
    \frac{\partial f}{\partial t} + (\boldsymbol{v}+\boldsymbol{v}_d)\cdot\nabla f
      - \frac{1}{3}\nabla\cdot\boldsymbol{v}\frac{\partial f}{\partial\ln p}
      = \nabla\cdot(\boldsymbol{\kappa}\nabla f) +
      \frac{1}{p^2}\frac{\partial}{\partial p}
      \left(p^2D_{pp}\frac{\partial f}{\partial p}\right) + Q,
-     \label{equ:parker_2nd}
 
 Neglecting the source term :math:`Q` in
-Equation `[equ:parker] <#equ:parker>`__ and assuming :math:`F=fp^2`,
+equ_parker_2nd_ and assuming :math:`F=fp^2`,
 
 .. math::
 
@@ -551,7 +551,7 @@ step for stochastic integration. This corresponds to a Wiener process.
 Numerical approximation is often used for the Wiener process to replace
 the normal distribution. We use a uniform distribution in
 :math:`[-\sqrt{3}, \sqrt{3}]` in the code. For a 2D problem,
-:raw-latex:`\citet{Skilling1975Cosmic}` shows that for forward and
+reference [15]_ shows that for forward and
 backward propagating Alfvén waves,
 
 .. math::
@@ -574,8 +574,7 @@ waves and backward waves, respectively. If :math:`\nu^+` is equal to
 
 where :math:`p=\gamma mv` is particle momentum. Depending on the plasma
 parameter and wave properties, we may have to use more complicated
-models :raw-latex:`\citep{Schlickeiser1989Cosmic,
-Schlickeiser1998Quasi, leRoux2007Nonlinear}`. The corresponding SDE is
+models [13]_ [14]_ [11]_. The corresponding SDE is
 
 .. math::
 
@@ -607,7 +606,7 @@ with :math:`p_0` in the code (e.g., 0.1 as often used),
 
 For isotropic particle distributions, the flow shear introduces another
 momentum diffusion term. If there is no average magnetic
-field :raw-latex:`\citep{Earl1988Cosmic}`.
+field [4]_.
 
 .. math::
 
@@ -622,7 +621,7 @@ field :raw-latex:`\citep{Earl1988Cosmic}`.
 where :math:`\Gamma` is the coefficient of viscous momentum transfer,
 :math:`\sigma_{ij}=(\partial_iU_j + \partial_jU_i - 2\nabla\cdot\boldsymbol{U}\delta_{ij}/3)/2`
 is the shear tensor, :math:`\tau` is the relaxation time for particle
-scattering. According to :raw-latex:`\citet{Webb2018ApJ}`, :math:`\tau`
+scattering. According to [17]_, :math:`\tau`
 is related particle diffusion coefficient
 :math:`\kappa_\parallel=v^2\tau/3`. The corresponding SDE is
 
@@ -658,7 +657,7 @@ with :math:`p_0` in the code (e.g., 0.1 as often used),
 :math:`\tilde{\boldsymbol{v}}=\boldsymbol{v}/v_{A0}`,
 :math:`\tilde{\Gamma}=\Gamma t_0^2`, :math:`\tilde{\tau}_0=\tau_0/t_0`,
 :math:`\tilde{s}=s/t_0`, and :math:`t_0=L_0/v_{A0}`. For
-:math:`\tau\sim\tau_0(p_0/p)^2` :raw-latex:`\citep{Earl1988Cosmic}`,
+:math:`\tau\sim\tau_0(p_0/p)^2` [4]_,
 
 .. math::
 
@@ -667,7 +666,7 @@ with :math:`p_0` in the code (e.g., 0.1 as often used),
    \end{aligned}
 
 For
-:math:`\tau\sim\tau_0(p_0/p)^{2/3}` :raw-latex:`\citep{Giacalone1999Transport}`,
+:math:`\tau\sim\tau_0(p_0/p)^{2/3}` [7]_,
 
 .. math::
 
@@ -677,7 +676,7 @@ For
    \end{aligned}
 
 If there is an average magnetic field, the equation is more complicated
-(see :raw-latex:`\citep{Williams1991, Williams1993}`).
+(see [18]_ [19]_).
 
 Spherical Coordinates
 ---------------------
@@ -824,7 +823,7 @@ Taking :math:`\boldsymbol{V}=\boldsymbol{v}+\boldsymbol{v}_d`,
 so there is 2 additional terms (2nd and 4th) if we want to write the
 equation Fokker–Planck form. It turns out that we need to change
 :math:`F` to
-:math:`F_1=F\sin\theta r^2` :raw-latex:`\citep{Jokipii1977Effects, Pei2010General}`.
+:math:`F_1=F\sin\theta r^2` [9]_ [12]_.
 Multiplying the above equation by :math:`r^2\sin\theta`, we get
 
 .. math::
@@ -994,7 +993,7 @@ where
      \end{bmatrix}
    \end{aligned}
 
-According to :raw-latex:`\citet{Pei2010General}`, one possibility for
+According to [12]_, one possibility for
 :math:`P` is
 
 .. math::
@@ -1088,3 +1087,24 @@ where
 where :math:`a=\kappa_{rr}`, :math:`b=\kappa_{r\theta}/r`,
 :math:`c=\kappa_{\theta\theta}/r^2`.
 
+.. [1] Bieber, J.W., Wanner, W. and Matthaeus, W.H., 1996. Dominant two‐dimensional solar wind turbulence with implications for cosmic ray transport. Journal of Geophysical Research: Space Physics, 101(A2), pp.2511-2522.
+.. [2] Burrage, K., Burrage, P.M. and Tian, T., 2004. Numerical methods for strong solutions of stochastic differential equations: an overview. Proceedings of the Royal Society of London. Series A: Mathematical, Physical and Engineering Sciences, 460(2041), pp.373-402.
+.. [3] Dwyer, J.R., Mason, G.M., Mazur, J.E., Jokipii, J.R., Von Rosenvinge, T.T. and Lepping, R.P., 1997. Perpendicular transport of low-energy corotating interaction region-associated nuclei. The Astrophysical Journal, 490(1), p.L115.
+.. [4] Earl, J.A., Jokipii, J.R. and Morfill, G., 1988. Cosmic-ray viscosity. The Astrophysical Journal, 331, pp.L91-L94.
+.. [5] Florinski, V. and Pogorelov, N.V., 2009. Four-dimensional transport of galactic cosmic rays in the outer heliosphere and heliosheath. The Astrophysical Journal, 701(1), p.642.
+.. [6] Florinski, V., Zank, G.P. and Pogorelov, N.V., 2003. Galactic cosmic ray transport in the global heliosphere. Journal of Geophysical Research: Space Physics, 108(A6).
+.. [7] Giacalone, J. and Jokipii, J.R., 1999. The transport of cosmic rays across a turbulent magnetic field. The Astrophysical Journal, 520(1), p.204.
+.. [8] Jokipii, J.R., 1971. Propagation of cosmic rays in the solar wind. Reviews of Geophysics, 9(1), pp.27-87.
+.. [9] Jokipii, J.R. and Levy, E.H., 1977. Effects of particle drifts on the solar modulation of galactic cosmic rays. The Astrophysical Journal, 213, pp.L85-L88.
+.. [10] Kong, X., Guo, F., Giacalone, J., Li, H. and Chen, Y., 2017. The acceleration of high-energy protons at coronal shocks: the effect of large-scale streamer-like magnetic field structures. The Astrophysical Journal, 851(1), p.38.
+.. [11] Le Roux, J.A. and Webb, G.M., 2007. Nonlinear cosmic-ray diffusive transport in combined two-dimensional and slab magnetohydrodynamic turbulence: a BGK-Boltzmann approach. The Astrophysical Journal, 667(2), p.930.
+.. [12] Pei, C., Bieber, J. W., Burger, R. A., & Clem, J. 2010, Journal of Geophysical Research (Space Physics), 115, A12107
+.. [13] Schlickeiser, R., 1989. Cosmic-ray transport and acceleration. I-Derivation of the kinetic equation and application to cosmic rays in static cold media. II-Cosmic rays in moving cold media with application to diffusive shock wave acceleration. The Astrophysical Journal, 336, pp.243-293.
+.. [14] Schlickeiser, R. and Miller, J.A., 1998. Quasi-linear theory of cosmic ray transport and acceleration: the role of oblique magnetohydrodynamic waves and transit-time damping. The Astrophysical Journal, 492(1), p.352.
+.. [15] Skilling, J., 1975. Cosmic Ray Streaming—II effect of particles on alfvén waves. Monthly Notices of the Royal Astronomical Society, 173(2), pp.245-254.
+.. [16] Strauss, R. and Effenberger, F., 2017. A hitch-hiker’s guide to stochastic differential equations. Space Science Reviews, 212(1), pp.151-192.
+.. [17] Webb, G. M., Barghouty, A. F., Hu, Q., & le Roux, J. A. 2018, The Astrophysical Journal, 855, 31
+.. [18] Williams, L.L. and Jokipii, J.R., 1991. Viscosity and inertia in cosmic-ray transport-Effects of an average magnetic field. The Astrophysical Journal, 371, pp.639-647.
+.. [19] Williams, L.L., Schwadron, N., Jokipii, J.R. and Gombosi, T.I., 1993. A unified transport equation for both cosmic rays and thermal particles. The Astrophysical Journal, 405, pp.L79-L81.
+.. [20] Zhang, M., 1999. A Markov stochastic process theory of cosmic-ray modulation. The Astrophysical Journal, 513(1), p.409.
+.. [21] Zhang, M., Jokipii, J.R. and McKibben, R.B., 2003. Perpendicular transport of solar energetic particles in heliospheric magnetic fields. The Astrophysical Journal, 595(1), p.493.

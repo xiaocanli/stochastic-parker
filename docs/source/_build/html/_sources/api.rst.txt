@@ -1,7 +1,0 @@
-Theory
-=====
-
-.. autosummary::
-   :toctree: generated
-
-   stochastic-parker
