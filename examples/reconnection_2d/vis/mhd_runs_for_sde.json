@@ -1,0 +1,10 @@
+{
+    "test_periodic_bc": {
+        "run_name"          : "test_periodic_bc",
+        "run_dir"           : "/global/cscratch1/sd/xiaocan/athena_reconnection_test/test_periodic_bc/",
+        "tmin"              : 0,
+        "tmax"              : 200,
+        "config_name"       : "athinput.reconnection",
+        "nghost"            : 2
+    }
+}

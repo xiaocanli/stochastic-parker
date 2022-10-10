@@ -1,0 +1,63 @@
+!*******************************************************************************
+!< Configuration file for the simulation
+!*******************************************************************************
+
+!< Initial magnetic field strength
+b0 = 1.0
+
+!< the standard deviation of the Gaussian distribution of momentum
+p0 = 0.1
+
+!< Maximum particle momentum
+pmin = 1.0E-2
+
+!< Maximum particle momentum
+pmax = 1.0E1
+
+!< Wether kappa depends on particle momentum
+momentum_dependency = 1
+
+!< power index for the momentum dependency
+pindex = 1.3333333
+
+!< Wether kappa ~ 1/B
+mag_dependency = 1
+
+!< The normalization for kappa parallel
+kpara0 = 0.01
+
+!< The ratio of kpara and kperp
+kret = 0.03
+
+!< Minimum time step allowed
+dt_min = 1E-6
+
+!< Minimum relative time step w.r.t. one field time interval
+dt_min_rel = 1E-4
+
+!< Maximum relative time step w.r.t. one field time interval
+dt_max_rel = 1E-2
+
+!< Sizes of distributions
+nreduce = 8
+npp = 128
+
+!< Region to turn on particle acceleration when the flag is 1
+acc_region_flag = 0
+acc_xmin = -1.0
+acc_xmax = -0.5
+acc_ymin = 0.04
+acc_ymax = 1.0
+acc_zmin = 0.0
+acc_zmax = 1.0
+
+!< Particle boundary conditions
+!< 0: periodic, 1: open
+pbcx = 0
+pbcy = 0
+pbcz = 0
+
+!< Simulation MPI topology
+mpi_sizex = 1
+mpi_sizey = 1
+mpi_sizez = 1
