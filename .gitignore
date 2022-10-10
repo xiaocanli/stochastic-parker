@@ -21,4 +21,4 @@ conf[0-9]*.dat
 start-gr[0-9]
 *.pyc
 .vscode
-doc/source/_build
+docs/source/_build

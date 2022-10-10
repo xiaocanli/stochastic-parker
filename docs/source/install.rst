@@ -38,9 +38,9 @@ Requirments
 
       .. code:: sh
 
-         $ tar zxvf mt_stream_f90.tar.gz
-         $ cd mt_stream_f90-1.11
-         $ make
+         tar zxvf mt_stream_f90.tar.gz
+         cd mt_stream_f90-1.11
+         make
 
    -  Its ``Makefile`` uses Intel compiler as default. To use GCC
       compilers, you have to modify the ``Makefile``.
@@ -56,7 +56,7 @@ Download
 
 .. code:: sh
 
-   $ git clone https://github.com/xiaocanli/stochastic-parker 
+   git clone https://github.com/xiaocanli/stochastic-parker 
 
 Install
 -------
@@ -65,10 +65,10 @@ In the directory ``stochastic-parker``,
 
 .. code:: sh
 
-   $ mkdir build
-   $ cd build
-   $ cmake ..
-   $ make
-   $ make install
+   mkdir build
+   cd build
+   cmake ..
+   make
+   make install
 
-To turn on OpenMP parallelization, please use ``cmake -DUSE_OPENMP="On" ..`` You can link the executable to the scratch filesystem for running the code.
+To turn on OpenMP parallelization, please use ``cmake -DUSE_OPENMP="On" ..`` You can link the executable ``stochastic-mhd.exec`` to the scratch filesystem for running the code.
