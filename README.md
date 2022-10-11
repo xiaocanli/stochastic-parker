@@ -6,6 +6,7 @@ stochastic method.
 
 ## Status
 [![Build Status](https://app.travis-ci.com/xiaocanli/stochastic-parker.svg?branch=master)](https://app.travis-ci.com/github/xiaocanli/stochastic-parker)
+[![Documentation Status](https://readthedocs.org/projects/stochastic-parker/badge/?version=latest)](https://stochastic-parker.readthedocs.io/en/latest/?badge=latest)
 
 ## License
 
