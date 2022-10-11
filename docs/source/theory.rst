@@ -1080,7 +1080,7 @@ where
    \begin{aligned}
      Q_{++} &=\sqrt{(a-c)^2+4b^2} + (a + c) \\
      Q_{-+} &=\sqrt{(a-c)^2+4b^2} - (a + c) \\
-     Q_{+1} &=\sqrt{(a-c)^2+4b^2} + (a - c) \\
+     Q_{+-} &=\sqrt{(a-c)^2+4b^2} + (a - c) \\
      Q_{--} &=\sqrt{(a-c)^2+4b^2} - (a - c)
    \end{aligned}
 
