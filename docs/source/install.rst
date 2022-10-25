@@ -51,6 +51,10 @@ Requirments
 
          export MT_STREAM=$HOME/local/mt_stream_f90-1.11
 
+      .. note::
+
+       On Cori@NERSC, please set ``MT_STREAM_KNL`` or ``MT_STREAM_HSW``, depending on whether KNL nodes (``USE_AVX512`` is used during compiling ``stochastic-parker``) or Haswell nodes are used.
+
 Download
 --------
 
@@ -71,4 +75,9 @@ In the directory ``stochastic-parker``,
    make
    make install
 
-To turn on OpenMP parallelization, please use ``cmake -DUSE_OPENMP="On" ..`` You can link the executable ``stochastic-mhd.exec`` to the scratch filesystem for running the code.
+To turn on OpenMP parallelization, please use ``cmake -DUSE_OPENMP="On" ..``. To turn on ``AVX512`` for the KNL nodes, please also include ``-DUSE_AVX512="On"``.
+
+.. note::
+   The code is not carefully optimized for the KNL nodes. Please use it in caution.
+
+You can link the executable ``stochastic-mhd.exec`` to the scratch filesystem for running the code.
