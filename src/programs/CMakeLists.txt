@@ -15,9 +15,15 @@ elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
         $ENV{MT_STREAM}/mt_stream.o $ENV{MT_STREAM}/f_jump_ahead_coeff/gf2xe.o
         $ENV{MT_STREAM}/f_jump_ahead_coeff/f_get_coeff.o)
 elseif (Fortran_COMPILER_NAME MATCHES "ftn*")
-    add_executable(stochastic-mhd.exec stochastic-mhd.f90
-        $ENV{MT_STREAM_HSW}/mt_stream.o $ENV{MT_STREAM_HSW}/f_jump_ahead_coeff/gf2xe.o
-        $ENV{MT_STREAM_HSW}/f_jump_ahead_coeff/f_get_coeff.o)
+    if(USE_AVX512)
+        add_executable(stochastic-mhd.exec stochastic-mhd.f90
+            $ENV{MT_STREAM_KNL}/mt_stream.o $ENV{MT_STREAM_KNL}/f_jump_ahead_coeff/gf2xe.o
+            $ENV{MT_STREAM_KNL}/f_jump_ahead_coeff/f_get_coeff.o)
+    else ()
+        add_executable(stochastic-mhd.exec stochastic-mhd.f90
+            $ENV{MT_STREAM_HSW}/mt_stream.o $ENV{MT_STREAM_HSW}/f_jump_ahead_coeff/gf2xe.o
+            $ENV{MT_STREAM_HSW}/f_jump_ahead_coeff/f_get_coeff.o)
+    endif(USE_AVX512)
 endif()
 
 target_link_libraries(stochastic-mhd.exec PRIVATE stochastic MPI::MPI_Fortran flap)
