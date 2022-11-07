@@ -501,6 +501,9 @@ re-normalized numerical momentum
 :math:`\tilde{p} = \tilde{p}_n/\tilde{p}_{n0}` in simulations, and we
 need provide :math:`d_1` and :math:`d_2` based on the normalization.
 
+.. note::
+  The velocity normalization :math:`v_A` should be changed to :math:`v_0` if :math:`v_0\neq v_A`
+
 Momentum Diffusion
 ------------------
 
