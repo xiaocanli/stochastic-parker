@@ -670,7 +670,6 @@ module particle_module
         real(dp) :: rx, ry, rz, rx1, ry1, rz1, dv
         real(dp) :: ctheta1, ctheta2, ctheta
         real(dp) :: x3_1, x3_2, x3, one_third
-        real(dp) :: half_pi
 
         ! The lbound of the position array is -1, so -2
         pos(1) = binarySearch_R(xpos_local, x) - 2
@@ -684,11 +683,10 @@ module particle_module
         else
             pos(2) = 1
         endif
-        half_pi = pi * 0.5
-        ! We assume here theta is from -pi/2 to pi/2
-        ctheta1 = cos(ypos_local(pos(2)) + half_pi)
-        ctheta2 = cos(ypos_local(pos(2)+1) + half_pi)
-        ctheta = cos(y + half_pi)
+        ! We assume here theta is from 0 to pi
+        ctheta1 = cos(ypos_local(pos(2)))
+        ctheta2 = cos(ypos_local(pos(2)+1))
+        ctheta = cos(y)
         one_third = 1.0_dp / 3.0_dp
         x3 = x**3 * one_third
         x3_1 = xpos_local(pos(1))**3 * one_third
@@ -1070,8 +1068,8 @@ module particle_module
                     if (spherical_coord_flag) then
                         divv = fields(nfields+1) + 2.0 * fields(1) / xtmp
                         if (ndim_field > 1) then
-                            ctheta = cos(ytmp + 0.5*pi)
-                            istheta = 1.0 / sin(ytmp + 0.5*pi)
+                            ctheta = cos(ytmp)
+                            istheta = 1.0 / sin(ytmp)
                             divv = divv + (fields(nfields+5) + &
                                            fields(2)*ctheta*istheta) / xtmp
                             if (ndim_field > 2) then
@@ -2100,8 +2098,8 @@ module particle_module
             dym = mhd_config%dy
 
             if (spherical_coord_flag) then
-                ctheta = cos(ptl%y + 0.5*pi)
-                istheta = 1.0 / sin(ptl%y + 0.5*pi)
+                ctheta = cos(ptl%y)
+                istheta = 1.0 / sin(ptl%y)
                 ir = 1.0 / ptl%x
                 ir2 = 1.0 / ptl%x**2
                 a1 = kappa%kxx
@@ -2120,7 +2118,7 @@ module particle_module
             if (spherical_coord_flag) then
                 tmp30 = abs(-Qmm * qtmp1) + abs(Qpm * qtmp2)
                 tmp40 = abs(vx + kappa%dkxx_dx + &
-                    (2.0*kappa%kxx + kappa%dkxy_dy*ir + kappa%kxy*ctheta*istheta)*ir)
+                    (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*ctheta*istheta)*ir)
             else
                 tmp30 = kappa%skperp + kappa%skpara_perp * abs(bxn)
                 tmp40 = abs(vx + kappa%dkxx_dx + kappa%dkxy_dy)
@@ -2187,8 +2185,8 @@ module particle_module
             dzm = mhd_config%dz
 
             if (spherical_coord_flag) then
-                ctheta = cos(ptl%y + 0.5*pi)
-                istheta = 1.0 / sin(ptl%y + 0.5*pi)
+                ctheta = cos(ptl%y)
+                istheta = 1.0 / sin(ptl%y)
                 ir = 1.0 / ptl%x
                 ir2 = ir**2
                 p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
@@ -2456,7 +2454,7 @@ module particle_module
         else
             divv = dvx_dx
         endif
-            deltap = -ptl%p * divv * ptl%dt / 3.0d0
+        deltap = -ptl%p * divv * ptl%dt / 3.0d0
         ! Momentum diffusion due to wave scattering
         if (dpp_wave_flag) then
             rho = fields(4)
@@ -2605,8 +2603,8 @@ module particle_module
         endif
 
         if (spherical_coord_flag) then
-            ctheta = cos(ptl%y + 0.5*pi)
-            istheta = 1.0 / sin(ptl%y + 0.5*pi)
+            ctheta = cos(ptl%y)
+            istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
             a1 = kappa%kxx
@@ -2646,7 +2644,7 @@ module particle_module
 
         if (spherical_coord_flag) then
             deltax = (vx + kappa%dkxx_dx + &
-                (2.0*kappa%kxx + kappa%dkxy_dy*ir + kappa%kxy*ctheta*istheta)*ir)*ptl%dt
+                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*ctheta*istheta)*ir)*ptl%dt
             deltay = ((vy + kappa%dkxy_dx)*ir + &
                 (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta)*ir2)*ptl%dt
             xtmp = ptl%x + deltax + (-Qmm*qtmp1 + Qpm*qtmp2)*sdt
@@ -2828,8 +2826,8 @@ module particle_module
         dvz_dz = 0.0_dp
 
         if (spherical_coord_flag) then
-            ctheta = cos(ptl%y + 0.5*pi)
-            istheta = 1.0 / sin(ptl%y + 0.5*pi)
+            ctheta = cos(ptl%y)
+            istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
             p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
@@ -3084,8 +3082,8 @@ module particle_module
         dzmh = 0.5 * dzm
 
         if (spherical_coord_flag) then
-            ctheta = cos(ptl%y + 0.5*pi)
-            istheta = 1.0 / sin(ptl%y + 0.5*pi)
+            ctheta = cos(ptl%y)
+            istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
             p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
@@ -3591,6 +3589,14 @@ module particle_module
             iz = floor((ptl%z - zmin)/dz_diag) + 1
             p = ptl%p
             weight = ptl%weight
+            if (spherical_coord_flag) then
+                ! For spherical coordinates, we solve for F=f*p^2*r^2 for 1D and
+                ! f*p^2*r^2*sin(theta) for 2D and 3D
+                weight = weight / (ptl%x)**2
+                if (ndim_field >= 2) then
+                    weight = weight / sin(ptl%y)
+                endif
+            endif
 
             !< Different momentum band
             if (ix >= 1 .and. ix <= nx .and. &

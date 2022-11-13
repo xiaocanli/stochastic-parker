@@ -1757,8 +1757,8 @@ module mhd_data_parallel
         allocate(ctheta(ny))
         allocate(istheta(ny))
         if (spherical_coord_flag) then
-            ctheta = cos(ypos_local + 0.5 * pi)
-            istheta = 1.0 / sin(ypos_local + 0.5*pi)
+            ctheta = cos(ypos_local)
+            istheta = 1.0 / sin(ypos_local)
             do iz = 1, nz
                 do iy = 1, ny
                     divv(:, iy, iz) = farray1(nfields+1, 1:nx, iy, iz) + &

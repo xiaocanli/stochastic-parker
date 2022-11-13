@@ -12,7 +12,7 @@ module random_number_generator
     public init_prng, delete_prng, unif_01, two_normals
     type(mt_state) :: mts
     type(mt_state), allocatable, dimension(:) :: mtss
-    integer :: iseeda(4) = (/ Z'123', Z'234', Z'345', Z'456' /)
+    integer :: iseeda(4) = (/ int(Z'123'), int(Z'234'), int(Z'345'), int(Z'456') /)
 
     contains
 

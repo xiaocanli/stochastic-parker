@@ -1090,7 +1090,7 @@ program stochastic
                     print '(A,A)', 'The norm of surface 2 is along ', surface_norm2
                 else
                     print '(A)', 'The acceleration region is separated by a surface'
-                    print '(A,A)', 'The filename of the the surface data is ', surface_filename1
+                    print '(A,A)', 'The filename of the surface data is ', surface_filename1
                     print '(A,A)', 'The surface norm is along ', surface_norm1
                 endif
             endif
