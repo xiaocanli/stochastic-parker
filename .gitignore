@@ -1,6 +1,6 @@
 bin/
 build/
-build_gcc/
+build_*/
 data/
 data_double_layer/
 data_vdist_1d/

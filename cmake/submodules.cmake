@@ -70,10 +70,17 @@ foreach(GIT_SUBMODULE ${GIT_SUBMODULES})
                 WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
             )
         elseif (Fortran_COMPILER_NAME MATCHES "ftn.*")
-            execute_process(
-                COMMAND             FoBiS.py build -mode static-intel
-                WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
-            )
+            if(CMAKE_Fortran_COMPILER_ID MATCHES "^Intel")
+                execute_process(
+                    COMMAND             FoBiS.py build -mode static-intel
+                    WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
+                )
+            elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+                execute_process(
+                    COMMAND             FoBiS.py build -mode static-gnu
+                    WORKING_DIRECTORY   ${PROJECT_SOURCE_DIR}/${GIT_SUBMODULES_DIRECTORY}/${GIT_SUBMODULE}
+                )
+            endif()
         endif()
     endif()
 endforeach(${GIT_SUBMODULE})
