@@ -51,10 +51,6 @@ Requirments
 
          export MT_STREAM=$HOME/local/mt_stream_f90-1.11
 
-      .. note::
-
-       On Cori@NERSC, please set ``MT_STREAM_KNL`` or ``MT_STREAM_HSW``, depending on whether KNL nodes (``USE_AVX512`` is used during compiling ``stochastic-parker``) or Haswell nodes are used.
-
 Download
 --------
 
