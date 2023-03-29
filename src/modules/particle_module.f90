@@ -399,13 +399,13 @@ module particle_module
     !<  xpos, ypos, zpos: particle position
     !<  nptl_current: current number of particles
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  dt: the time interval
     !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
     subroutine inject_one_particle(xpos, ypos, zpos, nptl_current, dist_flag, &
             ct_mhd, dt, power_index)
-        use mhd_config_module, only: mhd_config
+        use mhd_config_module, only: tstamps_mhd
         use random_number_generator, only: unif_01, two_normals
         implicit none
         real(dp), intent(in) :: xpos, ypos, zpos, dt, power_index
@@ -431,7 +431,7 @@ module particle_module
             endif
         endif
         ptls(nptl_current)%weight = 1.0
-        ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
+        ptls(nptl_current)%t = tstamps_mhd(ct_mhd)
         ptls(nptl_current)%dt = dt
         ptls(nptl_current)%split_times = 0
         ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
@@ -446,7 +446,7 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  part_box: box to inject particles
     !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
@@ -514,12 +514,12 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  power_index: power-law index if dist_flag==2
     !---------------------------------------------------------------------------
     subroutine inject_particles_at_shock(nptl, dt, dist_flag, ct_mhd, power_index)
         use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config
+        use mhd_config_module, only: mhd_config, tstamps_mhd
         use mhd_data_parallel, only: interp_shock_location
         use random_number_generator, only: unif_01, two_normals
         implicit none
@@ -577,7 +577,7 @@ module particle_module
                 endif
             endif
             ptls(nptl_current)%weight = 1.0
-            ptls(nptl_current)%t = ct_mhd * mhd_config%dt_out
+            ptls(nptl_current)%t = tstamps_mhd(ct_mhd)
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
@@ -733,7 +733,7 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  inject_same_nptl: whether to inject the same of particles every step
     !<  jz_min: the minimum jz
     !<  ncells_large_jz_norm ! Normalization for the number of cells with large jz
@@ -855,7 +855,7 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  inject_same_nptl: whether to inject the same of particles every step
     !<  db2_min: the minimum db2
     !<  ncells_large_db2_norm ! Normalization for the number of cells with large db2
@@ -970,7 +970,7 @@ module particle_module
     !<  nptl: number of particles to be injected
     !<  dt: the time interval
     !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
-    !<  ct_mhd: MHD simulation time frame
+    !<  ct_mhd: MHD simulation time frame, starting from 1
     !<  inject_same_nptl: whether to inject the same of particles every step
     !<  divv_min: the minimum divv
     !<  ncells_large_divv_norm ! Normalization for the number of cells with large divv
@@ -1101,12 +1101,13 @@ module particle_module
     !< Particle mover in one cycle
     !< Args:
     !<  t0: the starting time
+    !<  dtf: the time interval of the MHD fields
     !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
     !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
     !<  num_fine_steps: number of fine time steps
     !---------------------------------------------------------------------------
-    subroutine particle_mover_one_cycle(t0, track_particle_flag, nptl_selected, &
+    subroutine particle_mover_one_cycle(t0, dtf, track_particle_flag, nptl_selected, &
             nsteps_interval, num_fine_steps)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -1114,10 +1115,10 @@ module particle_module
             interp_correlation_length
         use acc_region_surface, only: interp_acc_surface
         implicit none
-        real(dp), intent(in) :: t0
+        real(dp), intent(in) :: t0, dtf
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: num_fine_steps
-        real(dp) :: dtf, dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
         real(dp) :: xmin1, xmax1, ymin1, ymax1, zmin1, zmax1
         real(dp) :: deltax, deltay, deltaz, deltap
         real(dp) :: dt_target, dt_fine
@@ -1134,7 +1135,6 @@ module particle_module
         !dir$ attributes align:32 :: db2
         !dir$ attributes align:32 :: lc
 
-        dtf = mhd_config%dt_out
         dt_fine = dtf / num_fine_steps
         dxm = mhd_config%dx
         dym = mhd_config%dy
@@ -1338,7 +1338,7 @@ module particle_module
                 endif
 
                 if (ptl%count_flag == COUNT_FLAG_INBOX) then
-                    call energization_dist(ptl, t0)
+                    call energization_dist(ptl, t0, dtf)
                 endif
                 dt_target = dt_target + dt_fine
             enddo ! Fine time step loop
@@ -1353,24 +1353,26 @@ module particle_module
     !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
     !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
-    !<  mhd_tframe: MHD time frame
+    !<  mhd_tframe: MHD time frame, starting from 1
     !<  num_fine_steps: number of fine time steps
     !---------------------------------------------------------------------------
     subroutine particle_mover(track_particle_flag, nptl_selected, &
             nsteps_interval, mhd_tframe, num_fine_steps)
         use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config
+        use mhd_config_module, only: mhd_config, tstamps_mhd
         implicit none
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
-        real(dp) :: t0, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: t0, dtf, xmin, xmax, ymin, ymax, zmin, zmax
         type(particle_type) :: ptl
         all_particles_in_box = .false.
         nptl_old = 0
 
-        t0 = mhd_config%dt_out * mhd_tframe
+        t0 = tstamps_mhd(mhd_tframe)
+        dtf = tstamps_mhd(mhd_tframe+1) - t0
+        call set_dt_min_max(dtf)
 
         ncycle = 0
         local_flag = 0
@@ -1381,7 +1383,7 @@ module particle_module
             nsenders = 0
             nrecvers = 0
             if (nptl_old < nptl_current) then
-                call particle_mover_one_cycle(t0, track_particle_flag, &
+                call particle_mover_one_cycle(t0, dtf, track_particle_flag, &
                     nptl_selected, nsteps_interval, num_fine_steps)
             endif
             call remove_particles
@@ -1891,7 +1893,7 @@ module particle_module
         use read_config, only: get_variable
         use simulation_setup_module, only: fconfig
         use simulation_setup_module, only: mpi_sizex, mpi_sizey
-        use mhd_config_module, only: mhd_config
+        use mhd_config_module, only: mhd_config, dt_mhd_max
         implicit none
         character(*), intent(in) :: conf_file
         logical :: condx, condy, condz
@@ -1914,12 +1916,8 @@ module particle_module
             mag_dependency = int(temp)
             kpara0 = get_variable(fh, 'kpara0', '=')
             kret = get_variable(fh, 'kret', '=')
-            dt_min = get_variable(fh, 'dt_min', '=')
             dt_min_rel = get_variable(fh, 'dt_min_rel', '=')
             dt_max_rel = get_variable(fh, 'dt_max_rel', '=')
-
-            dt_min = max(dt_min, dt_min_rel * mhd_config%dt_out)
-            dt_max = dt_max_rel * mhd_config%dt_out
 
             temp = get_variable(fh, 'nreduce', '=')
             nreduce = int(temp)
@@ -1958,8 +1956,8 @@ module particle_module
             endif
             write(*, "(A,E13.6E2)") " kpara0 = ", kpara0
             write(*, "(A,E13.6E2)") " kperp / kpara = ", kret
-            write(*, "(A,E13.6E2)") " Minimum time step = ", dt_min
-            write(*, "(A,E13.6E2)") " maximum time step = ", dt_max
+            write(*, "(A,E13.6E2)") " Minimum relative time step = ", dt_min_rel
+            write(*, "(A,E13.6E2)") " Maximum relative time step = ", dt_max_rel
             write(*, "(A,I0,A,I0,A,I0)") " Dimensions of spatial distributions = ", &
                 nx, " ", ny, " ", nz
             write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
@@ -1985,14 +1983,17 @@ module particle_module
         call MPI_BCAST(b0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kpara0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(kret, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(dt_min, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(dt_max, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(dt_min_rel, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(dt_max_rel, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nreduce, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(nz, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(acc_region_flag, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        ! These might change if MHD time interval is varying
+        call set_dt_min_max(dt_mhd_max)
 
         if (acc_region_flag == 1) then
             call MPI_BCAST(acc_region, 6, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
@@ -3519,14 +3520,15 @@ module particle_module
     !< Args:
     !<  ptl: particle structure
     !<  t0: initial time of current time interval
+    !<  dtf: the time interval of the MHD fields
     !---------------------------------------------------------------------------
-    subroutine energization_dist(ptl, t0)
+    subroutine energization_dist(ptl, t0, dtf)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config
         use mhd_data_parallel, only: interp_fields
         implicit none
         type(particle_type), intent(in) :: ptl
-        real(dp), intent(in) :: t0
+        real(dp), intent(in) :: t0, dtf
         real(dp) :: weight, px, py, pz, rt
         real(dp) :: dvx_dx, dvy_dy, dvz_dz
         integer, dimension(3) :: pos
@@ -3544,7 +3546,7 @@ module particle_module
             else
                 call get_interp_paramters(px, py, pz, pos, weights)
             endif
-            rt = (ptl%t - t0) / mhd_config%dt_out
+            rt = (ptl%t - t0) / dtf
             call interp_fields(pos, weights, rt, fields)
             dvx_dx = fields(nfields+1)
             dvy_dy = fields(nfields+5)
@@ -4130,4 +4132,15 @@ module particle_module
         endif
     end subroutine dump_escaped_particles
 
+    !---------------------------------------------------------------------------
+    !< set minimum and maximum particle step
+    !< Args:
+    !<  dtf: time interval of the MHD fields
+    !---------------------------------------------------------------------------
+    subroutine set_dt_min_max(dtf)
+        implicit none
+        real(dp), intent(in) :: dtf
+        dt_min = dt_min_rel * dtf
+        dt_max = dt_max_rel * dtf
+    end subroutine set_dt_min_max
 end module particle_module

@@ -10,6 +10,8 @@ module mhd_config_module
     public broadcast_mhd_config, save_mhd_config, load_mhd_config, &
            set_mhd_config, echo_mhd_config, set_mhd_grid_type
     public uniform_grid_flag, spherical_coord_flag
+    public tstamps_mhd, init_tstamps_mhd, free_tstamps_mhd, load_tstamps_mhd, &
+        calc_tstamps_mhd, dt_mhd_max
 
     type mhd_configuration
         real(dp) :: dx = 1.0_dp, dy = 1.0_dp, dz = 1.0_dp
@@ -27,6 +29,9 @@ module mhd_config_module
     type(mhd_configuration) :: mhd_config
     logical :: uniform_grid_flag     ! whether the grid is uniform
     logical :: spherical_coord_flag  ! whether the grid is in spherical coordinates
+
+    real(dp) :: dt_mhd_max  !< Maximum MHD fields interval
+    real(dp), allocatable, dimension(:) :: tstamps_mhd ! Time stamps for MHD fields
 
     contains
 
@@ -148,11 +153,11 @@ module mhd_config_module
         implicit none
         integer :: mhd_config_type, oldtypes(0:1), blockcounts(0:1)
         integer :: offsets(0:1), extent
-        ! Setup description of the 8 MPI_DOUBLE fields.
+        ! Setup description of the MPI_DOUBLE fields.
         offsets(0) = 0
         oldtypes(0) = MPI_DOUBLE_PRECISION
         blockcounts(0) = 13
-        ! Setup description of the 7 MPI_INTEGER fields.
+        ! Setup description of the MPI_INTEGER fields.
         call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
         offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER
@@ -177,4 +182,79 @@ module mhd_config_module
         if (uniform_grid == 1) uniform_grid_flag = .true.
         if (spherical_coord == 1) spherical_coord_flag = .true.
     end subroutine set_mhd_grid_type
+
+    !---------------------------------------------------------------------------
+    !< Initialize the time stamps of MHD fields
+    !< Args:
+    !<  t_start: starting time frame
+    !<  t_end: ending time frame
+    !---------------------------------------------------------------------------
+    subroutine init_tstamps_mhd(t_start, t_end)
+        implicit none
+        integer, intent(in) :: t_start, t_end
+        allocate(tstamps_mhd(t_end-t_start+1))
+    end subroutine init_tstamps_mhd
+
+    !---------------------------------------------------------------------------
+    !< Free the time stamps of MHD fields
+    !---------------------------------------------------------------------------
+    subroutine free_tstamps_mhd
+        implicit none
+        deallocate(tstamps_mhd)
+    end subroutine free_tstamps_mhd
+
+    !---------------------------------------------------------------------------
+    !< Load the time stamps of MHD fields
+    !< The default filename for the time stamps is "time_stamps.dat"
+    !< The first two data points are the starting and ending frame of the MHD
+    !< simulation output.
+    !< Args:
+    !<  t_start: starting time frame for the current simulation
+    !<  dir_mhd_data: directory for the MHD data
+    !---------------------------------------------------------------------------
+    subroutine load_tstamps_mhd(t_start, dir_mhd_data)
+        use mpi_module
+        implicit none
+        integer, intent(in) :: t_start
+        character(*), intent(in) :: dir_mhd_data
+        character(256) :: filename
+        integer :: fh, pos, ts_mhd, i
+        real(dp) :: dt_mhd
+        if (mpi_rank == master) then
+            filename = trim(dir_mhd_data)//"time_stamps.dat"
+            fh = 25
+            open(unit=fh, file=filename, access='stream', status='unknown', &
+                 form='unformatted', action='read')
+            pos = 1
+            read(fh, pos=pos) ts_mhd
+            pos = pos + (t_start - ts_mhd + 2) * 8
+            read(fh, pos=pos) tstamps_mhd
+            close(fh)
+        endif
+        call MPI_BCAST(tstamps_mhd, size(tstamps_mhd), &
+            MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        dt_mhd_max = 0.0_dp
+        do i = 2, size(tstamps_mhd)
+            dt_mhd = tstamps_mhd(i) - tstamps_mhd(i-1)
+            if (dt_mhd > dt_mhd_max) then
+                dt_mhd_max = dt_mhd
+            endif
+        enddo
+    end subroutine load_tstamps_mhd
+
+    !---------------------------------------------------------------------------
+    !< Calculate the time stamps of MHD fields when the time interval is uniform
+    !< Args:
+    !<  t_start: starting time frame for the current simulation
+    !<  t_end: ending time frame for the current simulation
+    !---------------------------------------------------------------------------
+    subroutine calc_tstamps_mhd(t_start, t_end)
+        implicit none
+        integer, intent(in) :: t_start, t_end
+        integer :: i
+        do i = t_start, t_end
+            tstamps_mhd(i-t_start+1) = i * mhd_config%dt_out
+        enddo
+        dt_mhd_max = mhd_config%dt_out
+    end subroutine calc_tstamps_mhd
 end module mhd_config_module
