@@ -410,14 +410,19 @@ module particle_module
         implicit none
         real(dp), intent(in) :: xpos, ypos, zpos, dt, power_index
         integer, intent(in) :: nptl_current, dist_flag, ct_mhd
-        real(dp) :: rands(2)
-        real(dp) :: r01, norm
+        real(dp) :: r01, norm, fxp, ptmp, ftest
         ptls(nptl_current)%x = xpos
         ptls(nptl_current)%y = ypos
         ptls(nptl_current)%z = zpos
         if (dist_flag == 0) then
-            rands = two_normals(0)
-            ptls(nptl_current)%p = abs(rands(1)) * p0
+            ftest = 1.0
+            fxp = 0.5
+            do while (ftest > fxp)
+                ptmp = (unif_01(0) * (pmax - pmin) + pmin) / p0  ! Need to normalized
+                fxp = ptmp**2 * exp(-0.5*ptmp**2)
+                ftest = unif_01(0) * 0.75  ! The maximum value is about 0.736
+            enddo
+            ptls(nptl_current)%p = ptmp * p0
         else if (dist_flag == 1) then
             ptls(nptl_current)%p = p0
         else if (dist_flag == 2) then
@@ -525,11 +530,10 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl, dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index
-        integer :: i, iy, iz, imod2
+        integer :: i, iy, iz
         real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
         real(dp) :: ry, rz, dpy, dpz, shock_xpos
-        real(dp), dimension(2) :: rands
-        real(dp) :: r01, norm
+        real(dp) :: r01, norm, fxp, ptmp, ftest
         integer, dimension(2) :: pos
         real(dp), dimension(4) :: weights
 
@@ -561,9 +565,14 @@ module particle_module
             shock_xpos = interp_shock_location(pos, weights, 0.0d0) + 2  ! Two ghost cells
             ptls(nptl_current)%x = shock_xpos * (xmax - xmin) / fconfig%nxg
             if (dist_flag == 0) then
-                imod2 = mod(i, 2)
-                if (imod2 == 1) rands = two_normals(0)
-                ptls(nptl_current)%p = abs(rands(imod2+1)) * p0
+                ftest = 1.0
+                fxp = 0.5
+                do while (ftest > fxp)
+                    ptmp = (unif_01(0) * (pmax - pmin) + pmin) / p0  ! Need to normalized
+                    fxp = ptmp**2 * exp(-0.5*ptmp**2)
+                    ftest = unif_01(0) * 0.75  ! The maximum value is about 0.736 
+                enddo
+                ptls(nptl_current)%p = ptmp * p0
             else if (dist_flag == 1) then
                 ptls(nptl_current)%p = p0
             else if (dist_flag == 2) then
