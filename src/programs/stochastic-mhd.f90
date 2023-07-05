@@ -239,7 +239,7 @@ program stochastic
 
     finish = MPI_Wtime()
     if (mpi_rank == master) then
-        print '("Time = ",f9.4," seconds.")',finish-start
+        print '("Time = ",f14.7," seconds.")',finish-start
     endif
 
     call delete_prng
@@ -429,7 +429,7 @@ program stochastic
                 write(*, "(A)") " Finishing moving particles "
             endif
             if (split_flag == 1) then
-                call split_particle(split_ratio)
+                call split_particle(split_ratio, dist_flag)
             endif
             if (.not. track_particles) then
                 call quick_check(tf, .false., diagnostics_directory)
