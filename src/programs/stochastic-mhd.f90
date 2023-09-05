@@ -59,6 +59,7 @@ program stochastic
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
     real(dp) :: power_index ! Power-law spectrum index for initial distribution
     real(dp) :: split_ratio ! Momentum increase ratio for particle splitting
+    real(dp) :: pmin_split  ! The minimum momentum (in terms in p0) to start splitting
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
     integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
@@ -429,7 +430,7 @@ program stochastic
                 write(*, "(A)") " Finishing moving particles "
             endif
             if (split_flag == 1) then
-                call split_particle(split_ratio, dist_flag)
+                call split_particle(split_ratio, pmin_split)
             endif
             if (.not. track_particles) then
                 call quick_check(tf, .false., diagnostics_directory)
@@ -489,27 +490,30 @@ program stochastic
                         '-nm nptl_max -np nptl '//&
                         '-ti time_interp_flag -dt dt -ts t_start -te t_end '//&
                         '-st single_time_frame -df dist_flag -pi power_index '//&
-                        '-sf split_flag -sr split_ratio -tf track_particle_flag '//&
+                        '-sf split_flag -sr split_ratio -ps pmin_split '//&
+                        '-tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_large_jz '//&
                         '-sn inject_same_nptl -ip inject_part_box -jz jz_min '//&
                         '-nn ncells_large_jz_norm -ib inject_large_db2 '//&
-                        '-db2 db2_min --nb ncells_large_db2_norm '//&
+                        '-db2 db2_min -nb ncells_large_db2_norm '//&
                         '-iv inject_large_divv -dv divv_min '//&
                         '--nv ncells_large_divv_norm '//&
                         '-xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
-                        '-cf conf_file -nf num_fine_steps -dw dpp_wave '//&
-                        '-ds dpp_shear -t0 tau0_scattering '//&
-                        '-db deltab_flag -co correlation_flag '//&
+                        '-cf conf_file -nf num_fine_steps '//&
+                        '-ld local_dist -dw dpp_wave '//&
+                        '-ds dpp_shear -ws weak_scattering -t0 tau0_scattering '//&
+                        '-db deltab_flag -co correlation_flag -nd ndim_field '//&
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
                         '-sc spherical_coord -ug uniform_grid '//&
                         '-cd check_drift_2d -pd particle_data_dump '//&
                         '-i3 include_3rd_dim -as acc_by_surface '//&
                         '-s2e surface2_existed -ii is_intersection '//&
                         '-sf1 surface_filename1 -sn1 surface_norm1 '//&
-                        '-sf2 surface_filename2 -sn2 surface_norm2'])
+                        '-sf2 surface_filename2 -sn2 surface_norm2 '//&
+                        '-vdt varying_dt_mhd'])
         call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
             help='Size of the a MPI sub-communicator', required=.false., &
             act='store', def='1', error=error)
@@ -563,8 +567,12 @@ program stochastic
             act='store', def='1', error=error)
         if (error/=0) stop
         call cli%add(switch='--split_ratio', switch_ab='-sr', &
-            help='momentum increase ratio for particle splitting', &
+            help='(> 1.0) momentum increase ratio for particle splitting', &
             required=.false., act='store', def='2.72', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--pmin_split', switch_ab='-ps', &
+            help='(> 1.0) the minimum momentum (in terms in p0) to start splitting particles', &
+            required=.false., act='store', def='2.0', error=error)
         if (error/=0) stop
         call cli%add(switch='--track_particle_flag', switch_ab='-tf', &
             help='Flag to track some particles', required=.false., &
@@ -790,6 +798,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-sr', val=split_ratio, error=error)
         if (error/=0) stop
+        call cli%get(switch='-ps', val=pmin_split, error=error)
+        if (error/=0) stop
         call cli%get(switch='-tf', val=track_particle_flag, error=error)
         if (error/=0) stop
         call cli%get(switch='-ns', val=nptl_selected, error=error)
@@ -923,6 +933,9 @@ program stochastic
                 print '(A)', 'Particles will be splitted when reaching certain energies'
                 print '(A,E14.7)', ' Momentum increase ratio for particle splitting: ', &
                     split_ratio
+                print '(A,E14.7)', &
+                    ' The minimum momentum (in terms in p0) to start splitting particles: ', &
+                    pmin_split
             endif
             if (track_particle_flag == 1) then
                 print '(A)', 'The program will tracking high-energy particles'

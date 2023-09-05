@@ -3320,26 +3320,20 @@ module particle_module
     !< When a particle get to a certain energy, split it to two particles
     !< to increase statistics at high energy
     !< Args:
-    !<  split_ratio: momentum increase ratio for particle splitting
-    !<  init_dist_flag: initial particle distribution (0 for Maxwellian. 1 for
-    !<                  delta function. 2 for power-law)
+    !<  split_ratio (> 1.0): momentum increase ratio for particle splitting
+    !<  pmin_split (> 1.0): the minimum momentum (in terms in p0) to start
+    !<                      splitting particles
     !---------------------------------------------------------------------------
-    subroutine split_particle(split_ratio, init_dist_flag)
+    subroutine split_particle(split_ratio, pmin_split)
         implicit none
-        real(dp), intent(in) :: split_ratio
-        integer, intent(in) :: init_dist_flag
+        real(dp), intent(in) :: split_ratio, pmin_split
         integer :: i, nptl
         real(dp) :: p_threshold
         type(particle_type) :: ptl, ptl_new
         nptl = nptl_current
         do i = 1, nptl
             ptl = ptls(i)
-            if (init_dist_flag == 0) then
-                ! Maxwellian distribution
-                p_threshold = (1 + split_ratio**ptl%split_times)*p0*3
-            else
-                p_threshold = (1 + split_ratio**ptl%split_times)*p0
-            endif
+            p_threshold = pmin_split * p0 * split_ratio**ptl%split_times
             if (ptl%p > p_threshold .and. ptl%p <= pmax) then
                 nptl_current = nptl_current + 1
                 if (nptl_current > nptl_max) then
