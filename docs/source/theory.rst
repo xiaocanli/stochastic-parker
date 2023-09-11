@@ -712,9 +712,9 @@ In spherical coordinates, the drift velocity
      & (\nabla B)_r=\frac{\partial B}{\partial r};\quad
      (\nabla B)_\theta=\frac{1}{r}\frac{\partial B}{\partial\theta};\quad
      (\nabla B)_\phi=\frac{1}{r\sin\theta}\frac{\partial B}{\partial\phi} \\
-     & (\nabla B\times\vect{B})_r = (\nabla B)_\theta B_\phi - (\nabla B)_\phi B_\theta \\
-     & (\nabla B\times\vect{B})_\theta = (\nabla B)_\phi B_r - (\nabla B)_r B_\phi \\
-     & (\nabla B\times\vect{B})_\phi = (\nabla B)_r B_\theta - (\nabla B)_\theta B_r
+     & (\nabla B\times\boldsymbol{B})_r = (\nabla B)_\theta B_\phi - (\nabla B)_\phi B_\theta \\
+     & (\nabla B\times\boldsymbol{B})_\theta = (\nabla B)_\phi B_r - (\nabla B)_r B_\phi \\
+     & (\nabla B\times\boldsymbol{B})_\phi = (\nabla B)_r B_\theta - (\nabla B)_\theta B_r
    \end{aligned}
 
 The spatial diffusion coefficient is in the same form.
