@@ -2232,11 +2232,11 @@ module particle_module
                 gbt = db_dy * ir
                 gbp = db_dz * ir * istheta
                 vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
-                             (gbt*bz - gbp*by*istheta)*2.0*ir*ib3)
+                             (gbt*bz - gbp*by)*2.0*ib3)
                 vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
-                             (gbp*bx*istheta*ir - gbr*bz)*2.0*ib3)
+                             (gbp*bx - gbr*bz)*2.0*ib3)
                 vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
-                             (gbr*by - gbt*bx*ir)*2.0*ib3)
+                             (gbr*by - gbt*bx)*2.0*ib3)
             else
                 vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
                 vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
@@ -2873,11 +2873,11 @@ module particle_module
             gbt = db_dy * ir
             gbp = db_dz * ir * istheta
             vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
-                         (gbt*bz - gbp*by*istheta)*2.0*ir*ib3)
+                         (gbt*bz - gbp*by)*2.0*ib3)
             vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
-                         (gbp*bx*istheta*ir - gbr*bz)*2.0*ib3)
+                         (gbp*bx - gbr*bz)*2.0*ib3)
             vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
-                         (gbr*by - gbt*bx*ir)*2.0*ib3)
+                         (gbr*by - gbt*bx)*2.0*ib3)
         else
             vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
             vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
@@ -3129,11 +3129,11 @@ module particle_module
             gbt = db_dy * ir
             gbp = db_dz * ir * istheta
             vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
-                         (gbt*bz - gbp*by*istheta)*2.0*ir*ib3)
+                         (gbt*bz - gbp*by)*2.0*ib3)
             vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
-                         (gbp*bx*istheta*ir - gbr*bz)*2.0*ib3)
+                         (gbp*bx - gbr*bz)*2.0*ib3)
             vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
-                         (gbr*by - gbt*bx*ir)*2.0*ib3)
+                         (gbr*by - gbt*bx)*2.0*ib3)
         else
             vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
             vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
