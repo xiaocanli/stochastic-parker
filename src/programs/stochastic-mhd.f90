@@ -11,21 +11,25 @@ program stochastic
         free_tstamps_mhd, load_tstamps_mhd, calc_tstamps_mhd
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
-        particle_mover, split_particle, &
-        init_particle_distributions, free_particle_distributions, &
-        distributions_diagnostics, quick_check, set_particle_datatype_mpi, &
+        particle_mover, split_particle, set_particle_datatype_mpi, &
         free_particle_datatype_mpi, select_particles_tracking, &
         init_particle_tracking, free_particle_tracking, &
         init_tracked_particle_points, free_tracked_particle_points, &
         negative_particle_tags, save_tracked_particle_points, &
-        inject_particles_at_shock, set_mpi_io_data_sizes, &
-        init_local_particle_distributions, free_local_particle_distributions, &
-        inject_particles_at_large_jz, set_dpp_params, set_flags_params, &
-        set_drift_parameters, get_pmax_global, set_flag_check_drift_2d, &
-        dump_particles, init_escaped_particles, free_escaped_particles, &
-        reset_escaped_particles, dump_escaped_particles, &
+        inject_particles_at_shock, inject_particles_at_large_jz, &
+        set_dpp_params, set_flags_params, &
+        set_drift_parameters, set_flag_check_drift_2d, &
         record_tracked_particle_init, inject_particles_at_large_db2, &
         inject_particles_at_large_divv
+    use diagnostics, only: distributions_diagnostics, quick_check, &
+        init_particle_distributions, clean_particle_distributions, &
+        free_particle_distributions, set_mpi_io_data_sizes, &
+        init_local_particle_distributions, &
+        free_local_particle_distributions, &
+        get_pmax_global, dump_particles, &
+        init_escaped_particles, free_escaped_particles, &
+        reset_escaped_particles, dump_escaped_particles, &
+        read_diagnostics_params
     use random_number_generator, only: init_prng, delete_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, calc_fields_gradients, &
@@ -175,6 +179,7 @@ program stochastic
         endif
     endif
     call read_particle_params(conf_file)
+    call read_diagnostics_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
     call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim, &
         acc_by_surface)

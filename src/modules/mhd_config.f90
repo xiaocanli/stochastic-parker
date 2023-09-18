@@ -11,7 +11,7 @@ module mhd_config_module
            set_mhd_config, echo_mhd_config, set_mhd_grid_type
     public uniform_grid_flag, spherical_coord_flag
     public tstamps_mhd, init_tstamps_mhd, free_tstamps_mhd, load_tstamps_mhd, &
-        calc_tstamps_mhd, dt_mhd_max
+        calc_tstamps_mhd, dt_mhd_max, tstart_mhd, tend_mhd
 
     type mhd_configuration
         real(dp) :: dx = 1.0_dp, dy = 1.0_dp, dz = 1.0_dp
@@ -32,6 +32,8 @@ module mhd_config_module
 
     real(dp) :: dt_mhd_max  !< Maximum MHD fields interval
     real(dp), allocatable, dimension(:) :: tstamps_mhd ! Time stamps for MHD fields
+
+    integer :: tstart_mhd, tend_mhd
 
     contains
 
@@ -192,6 +194,8 @@ module mhd_config_module
     subroutine init_tstamps_mhd(t_start, t_end)
         implicit none
         integer, intent(in) :: t_start, t_end
+        tstart_mhd = t_start
+        tend_mhd = t_end
         allocate(tstamps_mhd(t_end-t_start+1))
     end subroutine init_tstamps_mhd
 

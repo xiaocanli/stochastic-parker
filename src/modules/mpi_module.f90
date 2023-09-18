@@ -4,8 +4,8 @@
 !< mpi_sub_comm is grouped into mpi_cross_comm.
 !*******************************************************************************
 module mpi_module
+    use mpi
     implicit none
-    include "mpif.h"
     integer :: mpi_rank, mpi_size, ierr
     integer :: mpi_sub_comm, mpi_cross_comm
     integer :: mpi_sub_rank, mpi_sub_size

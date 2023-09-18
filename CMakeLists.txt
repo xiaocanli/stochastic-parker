@@ -35,11 +35,12 @@ get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} NAME)
 
 if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
   set (CMAKE_Fortran_FLAGS_RELEASE "-O3 -g -march=native -fimplicit-none \
-    -Wline-truncation -fwhole-file -std=gnu -fall-intrinsics -fPIC -cpp")
+    -Wline-truncation -fwhole-file -std=gnu -fall-intrinsics -fPIC -cpp \
+    -fallow-argument-mismatch")
   set (CMAKE_Fortran_FLAGS_DEBUG   "-O0 -g -fimplicit-none -Wall \
     -Wline-truncation -Wcharacter-truncation -Wsurprising -Waliasing \
     -Wunused-parameter -fwhole-file -fcheck=all -std=gnu -pedantic \
-    -fbacktrace -fPIC -cpp")
+    -fbacktrace -fPIC -cpp -fallow-argument-mismatch")
 elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
   set (CMAKE_Fortran_FLAGS_RELEASE "-xHost -O3 -g -no-prec-div -fPIC \
     -cpp -qopt-report=5 -qopt-report-phase=vec")
@@ -100,19 +101,6 @@ link_directories(${FLAP_DIR}/static)
 
 # use mt_stream to generate random numbers
 include_directories($ENV{MT_STREAM})
-# if (Fortran_COMPILER_NAME MATCHES "gfortran.*")
-#     include_directories($ENV{MT_STREAM_GCC})
-# elseif (Fortran_COMPILER_NAME MATCHES "ifort.*")
-#     include_directories($ENV{MT_STREAM})
-# elseif (Fortran_COMPILER_NAME MATCHES "ftn*")
-#     if(USE_AVX512)
-#         include_directories($ENV{MT_STREAM_KNL})
-#     else ()
-#         include_directories($ENV{MT_STREAM_HSW})
-#     endif(USE_AVX512)
-# else ()
-#     message( FATAL_ERROR "Only GNU and Intel are supported, CMake will exit." )
-# endif ()
 
 # Make sure that the default is a RELEASE
 if (NOT CMAKE_BUILD_TYPE)
