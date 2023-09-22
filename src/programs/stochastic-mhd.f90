@@ -17,7 +17,7 @@ program stochastic
         init_tracked_particle_points, free_tracked_particle_points, &
         negative_particle_tags, save_tracked_particle_points, &
         inject_particles_at_shock, inject_particles_at_large_jz, &
-        set_dpp_params, set_flags_params, &
+        set_dpp_params, set_duu_params, set_flags_params, &
         set_drift_parameters, set_flag_check_drift_2d, &
         record_tracked_particle_init, inject_particles_at_large_db2, &
         inject_particles_at_large_divv
@@ -64,6 +64,8 @@ program stochastic
     real(dp) :: power_index ! Power-law spectrum index for initial distribution
     real(dp) :: split_ratio ! Momentum increase ratio for particle splitting
     real(dp) :: pmin_split  ! The minimum momentum (in terms in p0) to start splitting
+    real(dp) :: particle_v0 ! Initial particle velocity in the normalized velocity
+    real(dp) :: duu0        ! Pitch-angle diffusion for particles with a momentum of p0
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
     integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
@@ -99,6 +101,7 @@ program stochastic
     logical :: surface2_existed   ! Whether surface 2 is existed
     logical :: is_intersection    ! Intersection or Union of the two surfaces
     logical :: varying_dt_mhd     ! Whether the time interval for MHD fields is varying
+    logical :: focused_transport  ! Whether to the Focused Transport equation
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -181,15 +184,12 @@ program stochastic
     call read_particle_params(conf_file)
     call read_diagnostics_params(conf_file)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
+    call set_duu_params(duu0) ! duu0 is not used when solving Parker's transport
     call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim, &
         acc_by_surface)
-    if (ndim_field == 3) then
-        call set_drift_parameters(drift_param1, drift_param2, charge)
-    else if (ndim_field == 2 .and. check_drift_2d == 1) then
-        call set_drift_parameters(drift_param1, drift_param2, charge)
+    call set_drift_parameters(drift_param1, drift_param2, charge)
+    if (ndim_field == 2 .and. check_drift_2d == 1) then
         call set_flag_check_drift_2d(check_drift_2d)
-    else if (ndim_field == 2 .and. include_3rd_dim == 1) then
-        call set_drift_parameters(drift_param1, drift_param2, charge)
     endif
 
     call init_particles(nptl_max)
@@ -389,24 +389,25 @@ program stochastic
             ! Inject particles at the starting point of the this time interval
             if (inject_at_shock == 1) then
                 call locate_shock_xpos
-                call inject_particles_at_shock(nptl, dt, dist_flag, tf-t_start, power_index)
+                call inject_particles_at_shock(nptl, dt, dist_flag, &
+                    particle_v0, tf-t_start, power_index)
             else
                 if (tf == t_start+1 .or. inject_new_ptl == 1) then
                     if (inject_large_jz == 1) then
-                        call inject_particles_at_large_jz(nptl, dt, dist_flag, tf-t_start, &
-                            inject_same_nptl, jz_min, ncells_large_jz_norm, part_box, &
-                            power_index)
+                        call inject_particles_at_large_jz(nptl, dt, dist_flag, &
+                            particle_v0, tf-t_start, inject_same_nptl, jz_min, &
+                            ncells_large_jz_norm, part_box, power_index)
                     else if (inject_large_db2 == 1) then
-                        call inject_particles_at_large_db2(nptl, dt, dist_flag, tf-t_start, &
-                            inject_same_nptl, db2_min, ncells_large_db2_norm, part_box, &
-                            power_index)
+                        call inject_particles_at_large_db2(nptl, dt, dist_flag, &
+                            particle_v0, tf-t_start, inject_same_nptl, db2_min, &
+                            ncells_large_db2_norm, part_box, power_index)
                     else if (inject_large_divv == 1) then
-                        call inject_particles_at_large_divv(nptl, dt, dist_flag, tf-t_start, &
-                            inject_same_nptl, divv_min, ncells_large_divv_norm, part_box, &
-                            power_index)
+                        call inject_particles_at_large_divv(nptl, dt, dist_flag, &
+                            particle_v0, tf-t_start, inject_same_nptl, divv_min, &
+                            ncells_large_divv_norm, part_box, power_index)
                     else
                         call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
-                            tf-t_start, part_box, power_index)
+                            particle_v0, tf-t_start, part_box, power_index)
                     endif
                 endif
             endif
@@ -426,9 +427,11 @@ program stochastic
             if (track_particles) then
                 call negative_particle_tags(nptl_selected)
                 call record_tracked_particle_init(nptl_selected)
-                call particle_mover(1, nptl_selected, nsteps_interval, tf-t_start, 1)
+                call particle_mover(focused_transport, 1, nptl_selected, &
+                    nsteps_interval, tf-t_start, 1)
             else
-                call particle_mover(0, nptl_selected, nsteps_interval, tf-t_start, num_fine_steps)
+                call particle_mover(focused_transport, 0, nptl_selected, &
+                    nsteps_interval, tf-t_start, num_fine_steps)
             endif
 
             if (mpi_rank == master) then
@@ -490,7 +493,9 @@ program stochastic
             help        = 'Usage: ', &
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
-            examples = ['stochastic-mhd.exec -sm size_mpi_sub '//&
+            examples = ['stochastic-mhd.exec '// &
+                        '-ft focused_transport -pv particle_v0 '//&
+                        '-sm size_mpi_sub '//&
                         '-dm dir_mhd_data -mc mhd_config_filename '//&
                         '-nm nptl_max -np nptl '//&
                         '-ti time_interp_flag -dt dt -ts t_start -te t_end '//&
@@ -518,7 +523,15 @@ program stochastic
                         '-s2e surface2_existed -ii is_intersection '//&
                         '-sf1 surface_filename1 -sn1 surface_norm1 '//&
                         '-sf2 surface_filename2 -sn2 surface_norm2 '//&
-                        '-vdt varying_dt_mhd'])
+                        '-vdt varying_dt_mhd -du duu0'])
+        call cli%add(switch='--focused_transport', switch_ab='-ft', &
+            help='whether to solve the Focused Transport Equation', required=.false., &
+            act='store', def='.false.', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--particle_v0', switch_ab='-pv', &
+            help='Initial particle velocity in the normalized velocity', &
+            required=.false., act='store', def='5.00', error=error)
+        if (error/=0) stop
         call cli%add(switch='--size_mpi_sub', switch_ab='-sm', &
             help='Size of the a MPI sub-communicator', required=.false., &
             act='store', def='1', error=error)
@@ -775,6 +788,14 @@ program stochastic
             help='whether the time interval for MHD fields is varying', &
             required=.false., act='store', def='.false.', error=error)
         if (error/=0) stop
+        call cli%add(switch='--duu_init', switch_ab='-du', &
+            help='pitch-angle diffusion for particles with p0', &
+            required=.false., def='1E1', act='store', error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ft', val=focused_transport, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-pv', val=particle_v0, error=error)
+        if (error/=0) stop
         call cli%get(switch='-sm', val=size_mpi_sub, error=error)
         if (error/=0) stop
         call cli%get(switch='-dm', val=dir_mhd_data, error=error)
@@ -903,9 +924,20 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-vdt', val=varying_dt_mhd, error=error)
         if (error/=0) stop
+        call cli%get(switch='-du', val=duu0, error=error)
+        if (error/=0) stop
 
         if (mpi_rank == master) then
             print '(A)', '---------------Commandline Arguments:---------------'
+            if (focused_transport) then
+                print '(A)', 'Solving the Focused Transport Equation'
+                print '(A,E14.7)', ' Initial particle velocity in the normalized velocity: ', &
+                    particle_v0
+                print '(A,E14.7)', ' Pitch-angle diffusion for particles with a momentum of p0: ', &
+                    duu0
+            else
+                print '(A)', "Solving Parker's Transport Equation"
+            endif
             print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,A)', 'MHD configuration filename: ', trim(mhd_config_filename)

@@ -9,7 +9,7 @@ module diagnostics
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
         spherical_coord_flag, leak, leak_negp, nptl_split, &
         get_interp_paramters, get_interp_paramters_spherical, &
-        COUNT_FLAG_INBOX, COUNT_FLAG_OTHERS
+        pmin, pmax, COUNT_FLAG_INBOX, COUNT_FLAG_OTHERS
     use mpi_module
     use hdf5
     implicit none
@@ -39,9 +39,6 @@ module diagnostics
     real(dp), allocatable, dimension(:) :: parray, parray_bands
     ! Particle distribution in each cell
     real(dp), allocatable, dimension(:, :, :, :) :: fp_local, fp_local_sum
-
-    real(dp) :: pmin  !< Minimum particle momentum
-    real(dp) :: pmax  !< Maximum particle momentum
 
     !< MPI/IO data sizes
     integer, dimension(4) :: sizes_fxy, subsizes_fxy, starts_fxy
