@@ -1365,15 +1365,18 @@ module particle_module
     !<  nsteps_interval: save particle points every nsteps_interval
     !<  mhd_tframe: MHD time frame, starting from 1
     !<  num_fine_steps: number of fine time steps
+    !<  dump_escaped: whether to dump escaped particles
     !---------------------------------------------------------------------------
     subroutine particle_mover(focused_transport, track_particle_flag, &
-            nptl_selected, nsteps_interval, mhd_tframe, num_fine_steps)
+            nptl_selected, nsteps_interval, mhd_tframe, num_fine_steps, &
+            dump_escaped)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config, tstamps_mhd
         implicit none
         logical, intent(in) :: focused_transport
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
+        logical, intent(in) :: dump_escaped
         integer :: i, local_flag, global_flag, ncycle
         logical :: all_particles_in_box
         real(dp) :: t0, dtf, xmin, xmax, ymin, ymax, zmin, zmax
@@ -1398,7 +1401,7 @@ module particle_module
                     nptl_selected, nsteps_interval, num_fine_steps, &
                     focused_transport)
             endif
-            call remove_particles
+            call remove_particles(dump_escaped)
             call send_recv_particles
             call add_neighbor_particles  ! Also update nptl_old, nptl_current
             if (sum(nrecvers) > 0) then
@@ -1441,7 +1444,7 @@ module particle_module
             endif
             ptls(i) = ptl
         enddo
-        call remove_particles
+        call remove_particles(dump_escaped)
         call send_recv_particles
         call add_neighbor_particles
     end subroutine particle_mover
@@ -4545,15 +4548,20 @@ module particle_module
 
     !---------------------------------------------------------------------------
     !< Remove particles from simulation if their count_flags are 0.
+    !< Args:
+    !<  dump_escaped: whether to dump escaped particles
     !---------------------------------------------------------------------------
-    subroutine remove_particles
+    subroutine remove_particles(dump_escaped)
         implicit none
+        logical, intent(in) :: dump_escaped
         integer :: i, nremoved
         type(particle_type) :: ptl1
 
         ! Resize the escaped particle data array if necessary
-        if ((nptl_escaped + nptl_current) > nptl_escaped_max) then
-            call resize_escaped_particles
+        if (dump_escaped) then
+            if ((nptl_escaped + nptl_current) > nptl_escaped_max) then
+                call resize_escaped_particles
+            endif
         endif
 
         if (nptl_current > 0) then
@@ -4569,7 +4577,9 @@ module particle_module
                     if (ptls(i)%count_flag == COUNT_FLAG_ESCAPE) then
                         ! Copy escaped particles
                         nptl_escaped = nptl_escaped + 1
-                        escaped_ptls(nptl_escaped) = ptls(i)
+                        if (dump_escaped) then
+                            escaped_ptls(nptl_escaped) = ptls(i)
+                        endif
                     endif
                     ptl1 = ptls(nptl_current-nremoved)
                     ptls(nptl_current-nremoved) = ptls(i)
