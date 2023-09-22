@@ -36,7 +36,7 @@ module diagnostics
     real(dp), allocatable, dimension(:, :, :, :) :: fbands, fbands_sum
     real(dp), allocatable, dimension(:, :) :: fdpdt, fdpdt_sum
     real(dp), allocatable, dimension(:) :: fp_global, fp_global_sum
-    real(dp), allocatable, dimension(:) :: parray, parray_bands
+    real(dp), allocatable, dimension(:) :: pbins, pband_edges
     ! Particle distribution in each cell
     real(dp), allocatable, dimension(:, :, :, :) :: fp_local, fp_local_sum
 
@@ -143,18 +143,18 @@ module diagnostics
         dp_log = (pmax_log - pmin_log) / (npp - 1)
 
         !< Momentum bins for 1D distributions
-        allocate(parray(npp))
-        parray = 0.0_dp
+        allocate(pbins(npp))
+        pbins = 0.0_dp
         do i = 1, npp
-            parray(i) = 10**(pmin_log + (i-1) * dp_log)
+            pbins(i) = 10**(pmin_log + (i-1) * dp_log)
         enddo
 
         !< Momentum band edges for distributions in different energy band
-        allocate(parray_bands(nbands+1))
-        parray_bands = 0.0_dp
+        allocate(pband_edges(nbands+1))
+        pband_edges = 0.0_dp
         dp_bands_log = (pmax_log - pmin_log) / nbands
         do i = 1, nbands+1
-            parray_bands(i) = 10**(pmin_log + (i-1) * dp_bands_log)
+            pband_edges(i) = 10**(pmin_log + (i-1) * dp_bands_log)
         enddo
 
         if (mpi_rank == master) then
@@ -205,8 +205,8 @@ module diagnostics
     !---------------------------------------------------------------------------
     subroutine free_particle_distributions
         implicit none
-        deallocate(fbands, parray_bands)
-        deallocate(fp_global, parray)
+        deallocate(fbands, pband_edges)
+        deallocate(fp_global, pbins)
         deallocate(fdpdt)
         if (mpi_cross_rank == master) then
             deallocate(fbands_sum)
@@ -358,50 +358,25 @@ module diagnostics
     end subroutine calc_particle_distributions
 
     !---------------------------------------------------------------------------
-    !< Diagnostics of the particle distributions
+    !< Dump particle distributions using binary format
     !< Args:
     !<  iframe: time frame index
     !<  file_path: save data files to this path
     !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe, file_path, local_dist)
+    subroutine dump_dist_binary(iframe, file_path, local_dist)
         use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, fileinfo, &
             open_data_mpi_io, write_data_mpi_io
-        use mhd_config_module, only: mhd_config
-        use constants, only: fp, dp
         implicit none
         integer, intent(in) :: iframe, local_dist
         character(*), intent(in) :: file_path
-        integer :: fh, pos1
         character(len=4) :: ctime
         character(len=128) :: fname
         integer(kind=MPI_OFFSET_KIND) :: disp, offset
+        integer :: fh, pos1
         integer :: mpi_datatype
-        logical :: dir_e
-
-        call calc_particle_distributions(local_dist)
-        call energization_dist(iframe)
 
         write (ctime,'(i4.4)') iframe
-        if (mpi_rank .eq. master) then
-            fh = 15
-            fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
-            open(fh, file=trim(fname), access='stream', status='unknown', &
-                 form='unformatted', action='write')
-            write(fh, pos=1) parray
-            pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fp_global_sum
-            close(fh)
-
-            fname = trim(file_path)//'fdpdt-'//ctime//'_sum.dat'
-            open(fh, file=trim(fname), access='stream', status='unknown', &
-                 form='unformatted', action='write')
-            write(fh, pos=1) parray
-            pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fdpdt_sum
-            close(fh)
-        endif
-
         if (mpi_cross_rank == master) then
             call set_mpi_info
             ! fxy for different energy band
@@ -413,7 +388,7 @@ module diagnostics
                      form='unformatted', action='write')
                 write(fh, pos=1) (nbands + 0.0_dp)
                 pos1 = sizeof(1.0_dp) + 1
-                write(fh, pos=pos1) parray_bands
+                write(fh, pos=pos1) pband_edges
                 close(fh)
             endif
             disp = (nbands + 2) * sizeof(1.0_dp)
@@ -429,12 +404,146 @@ module diagnostics
                 fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
                 disp = 0
                 offset = 0
-                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, subsizes_fp_local, starts_fp_local)
+                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, &
+                    subsizes_fp_local, starts_fp_local)
                 call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, &
                     fileinfo, mpi_sub_comm, fh)
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, offset, fp_local_sum)
+                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, &
+                    offset, fp_local_sum)
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
+        endif
+    end subroutine dump_dist_binary
+
+    !---------------------------------------------------------------------------
+    !< Dump particle distributions using HDF5 format
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !<  local_dist: whether to accumulate local particle distribution
+    !---------------------------------------------------------------------------
+    subroutine dump_dist_hdf5(iframe, file_path, local_dist)
+        use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, &
+            fileinfo, open_data_mpi_io, write_data_mpi_io
+        use hdf5_io, only: create_file_h5, close_file_h5, write_data_h5
+        implicit none
+        integer, intent(in) :: iframe, local_dist
+        character(*), intent(in) :: file_path
+        character(len=4) :: ctime
+        character(len=128) :: fname
+        integer(hid_t) :: file_id, dset_id, filespace
+        integer(hsize_t), dimension(1) :: dcount_1d, doffset_1d, dset_dims_1d
+        integer(hsize_t), dimension(4) :: dcount_4d, doffset_4d, dset_dims_4d
+        integer :: error
+
+        call h5open_f(error)
+
+        write (ctime,'(i4.4)') iframe
+        if (mpi_cross_rank == master) then
+            ! Particle fluxes in different energy bands
+            fname = trim(file_path)//'fbands_'//ctime//'.h5'
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
+            if (mpi_sub_rank == master) then
+                dcount_1d(1) = nbands + 1
+                doffset_1d(1) = 0
+                dset_dims_1d(1) = nbands + 1
+                call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                call h5dcreate_f(file_id, "pband_edges", H5T_NATIVE_DOUBLE, &
+                    filespace, dset_id, error)
+                call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, pband_edges)
+                call h5dclose_f(dset_id, error)
+                call h5sclose_f(filespace, error)
+            endif
+            dcount_4d = subsizes_fxy
+            doffset_4d = starts_fxy
+            dset_dims_4d = sizes_fxy
+            call h5screate_simple_f(4, dset_dims_4d, filespace, error)
+            call h5dcreate_f(file_id, "fbands", H5T_NATIVE_DOUBLE, &
+                filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount_4d, doffset_4d, dset_dims_4d, &
+                fbands_sum, .true., .true.)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            call close_file_h5(file_id)
+
+            ! Local particle fluxes in more energy bins
+            if (local_dist == 1) then
+                fname = trim(file_path)//'fp_local_'//ctime//'.h5'
+                call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
+                if (mpi_sub_rank == master) then
+                    dcount_1d(1) = npp
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = npp
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "pbins", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, pbins)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+                endif
+                dcount_4d = subsizes_fp_local
+                doffset_4d = starts_fp_local
+                dset_dims_4d = sizes_fp_local
+                call h5screate_simple_f(4, dset_dims_4d, filespace, error)
+                call h5dcreate_f(file_id, "fp_local", H5T_NATIVE_DOUBLE, &
+                    filespace, dset_id, error)
+                call write_data_h5(dset_id, dcount_4d, doffset_4d, dset_dims_4d, &
+                    fp_local_sum, .true., .true.)
+                call h5dclose_f(dset_id, error)
+                call h5sclose_f(filespace, error)
+                call close_file_h5(file_id)
+            endif
+        endif
+        call h5close_f(error)
+    end subroutine dump_dist_hdf5
+
+    !---------------------------------------------------------------------------
+    !< Diagnostics of the particle distributions
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !<  local_dist: whether to accumulate local particle distribution
+    !<  hdf5_dump: whether to use HDF5 to dump particle distributions
+    !---------------------------------------------------------------------------
+    subroutine distributions_diagnostics(iframe, file_path, local_dist, hdf5_dump)
+        use constants, only: fp, dp
+        implicit none
+        integer, intent(in) :: iframe, local_dist
+        logical, intent(in) :: hdf5_dump
+        character(*), intent(in) :: file_path
+        integer :: fh, pos1
+        character(len=4) :: ctime
+        character(len=128) :: fname
+        logical :: dir_e
+
+        call calc_particle_distributions(local_dist)
+        call energization_dist(iframe)
+
+        write (ctime,'(i4.4)') iframe
+        ! Since these 1D distributions are small, binary is fine!
+        if (mpi_rank .eq. master) then
+            fh = 15
+            fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
+            open(fh, file=trim(fname), access='stream', status='unknown', &
+                 form='unformatted', action='write')
+            write(fh, pos=1) pbins
+            pos1 = npp * sizeof(1.0_dp) + 1
+            write(fh, pos=pos1) fp_global_sum
+            close(fh)
+
+            fname = trim(file_path)//'fdpdt-'//ctime//'_sum.dat'
+            open(fh, file=trim(fname), access='stream', status='unknown', &
+                 form='unformatted', action='write')
+            write(fh, pos=1) pbins
+            pos1 = npp * sizeof(1.0_dp) + 1
+            write(fh, pos=pos1) fdpdt_sum
+            close(fh)
+        endif
+
+        if (hdf5_dump) then
+            call dump_dist_hdf5(iframe, file_path, local_dist)
+        else
+            call dump_dist_binary(iframe, file_path, local_dist)
         endif
 
         call clean_particle_distributions
@@ -442,7 +551,6 @@ module diagnostics
             call clean_local_particle_distribution
         endif
     end subroutine distributions_diagnostics
-
 
     !---------------------------------------------------------------------------
     !< Get maximum particle momentum and write to file
@@ -578,6 +686,8 @@ module diagnostics
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", ptls%y)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", ptls%z)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", ptls%p)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", ptls%v)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", ptls%mu)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", ptls%weight)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", ptls%t)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", ptls%dt)
@@ -635,6 +745,8 @@ module diagnostics
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", escaped_ptls%y)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", escaped_ptls%z)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", escaped_ptls%p)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", escaped_ptls%v)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", escaped_ptls%mu)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", escaped_ptls%weight)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", escaped_ptls%t)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", escaped_ptls%dt)
@@ -673,8 +785,6 @@ module diagnostics
         if (mpi_rank == master) then
             fh = 10
             open(unit=fh, file='config/'//trim(conf_file), status='old')
-            pmin = get_variable(fh, 'pmin', '=')
-            pmax = get_variable(fh, 'pmax', '=')
             temp = get_variable(fh, 'nreduce', '=')
             nreduce = int(temp)
             nx = (fconfig%nx + nreduce - 1) / nreduce
