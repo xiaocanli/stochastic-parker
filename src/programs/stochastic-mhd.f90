@@ -22,10 +22,7 @@ program stochastic
         record_tracked_particle_init, inject_particles_at_large_db2, &
         inject_particles_at_large_divv
     use diagnostics, only: distributions_diagnostics, quick_check, &
-        init_particle_distributions, clean_particle_distributions, &
-        free_particle_distributions, set_mpi_io_data_sizes, &
-        init_local_particle_distributions, &
-        free_local_particle_distributions, &
+        init_particle_distributions, free_particle_distributions, &
         get_pmax_global, dump_particles, &
         init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
@@ -72,7 +69,7 @@ program stochastic
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
-    integer :: time_interp_flag, local_dist
+    integer :: time_interp_flag
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
     integer :: inject_at_shock    ! Inject particles at shock location
@@ -98,11 +95,11 @@ program stochastic
     integer :: single_time_frame  ! Whether to use a single time frame of fields
     integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
     integer :: acc_by_surface     ! Whether the acceleration region is separated by surfaces
+    logical :: local_dist         ! Whether to dump local particle distributions
     logical :: surface2_existed   ! Whether surface 2 is existed
     logical :: is_intersection    ! Intersection or Union of the two surfaces
     logical :: varying_dt_mhd     ! Whether the time interval for MHD fields is varying
     logical :: focused_transport  ! Whether to the Focused Transport equation
-    logical :: hdf5_dump          ! Whether to use HDF5 to dump particle distributions
     logical :: dump_escaped       ! Whether to dump escaped particles
 
     call MPI_INIT(ierr)
@@ -184,7 +181,7 @@ program stochastic
         endif
     endif
     call read_particle_params(conf_file)
-    call read_diagnostics_params(conf_file)
+    call read_diagnostics_params(conf_file, focused_transport, t_end-t_start)
     call set_dpp_params(dpp_wave, dpp_shear, weak_scattering, tau0_scattering)
     call set_duu_params(duu0) ! duu0 is not used when solving Parker's transport
     call set_flags_params(deltab_flag, correlation_flag, include_3rd_dim, &
@@ -198,10 +195,7 @@ program stochastic
     if (dump_escaped) then
         call init_escaped_particles
     endif
-    call init_particle_distributions
-    if (local_dist == 1) then
-        call init_local_particle_distributions
-    endif
+    call init_particle_distributions(local_dist)
     call set_particle_datatype_mpi
 
     call solve_transport_equation(.false.)
@@ -227,10 +221,7 @@ program stochastic
     endif
 
     call free_particle_datatype_mpi
-    call free_particle_distributions
-    if (local_dist == 1) then
-        call free_local_particle_distributions
-    endif
+    call free_particle_distributions(local_dist)
     call free_particles
     if (dump_escaped) then
         call free_escaped_particles
@@ -420,9 +411,7 @@ program stochastic
 
             ! Initial diagnostics if we are not tracking particles
             if (tf == t_start + 1 .and. (.not. track_particles)) then
-                call set_mpi_io_data_sizes
-                call distributions_diagnostics(t_start, diagnostics_directory, &
-                    local_dist, hdf5_dump)
+                call distributions_diagnostics(t_start, diagnostics_directory, local_dist)
                 if (particle_data_dump == 1) then
                     call dump_particles(t_start, diagnostics_directory)
                 endif
@@ -450,8 +439,7 @@ program stochastic
             if (.not. track_particles) then
                 call quick_check(tf, .false., diagnostics_directory)
                 call get_pmax_global(tf, .false., diagnostics_directory)
-                call distributions_diagnostics(tf, diagnostics_directory, &
-                    local_dist, hdf5_dump)
+                call distributions_diagnostics(tf, diagnostics_directory, local_dist)
                 if (mpi_rank == master) then
                     write(*, "(A)") " Finishing distribution diagnostics "
                 endif
@@ -496,7 +484,6 @@ program stochastic
         implicit none
         type(command_line_interface) :: cli     !< Command Line Interface (CLI).
         integer(I4P)                 :: error   !< Error trapping flag.
-        integer :: tstart
         call cli%init(&
             progname = 'stochastic-mhd', &
             authors     = 'Xiaocan Li', &
@@ -523,7 +510,7 @@ program stochastic
                         '-xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps '//&
-                        '-h5 hdf5_dump -ld local_dist -dw dpp_wave '//&
+                        '-ld local_dist -dw dpp_wave '//&
                         '-ds dpp_shear -ws weak_scattering -t0 tau0_scattering '//&
                         '-db deltab_flag -co correlation_flag -nd ndim_field '//&
                         '-dp1 drift_param1 -dp2 drift_param2 -ch charge '//&
@@ -702,13 +689,9 @@ program stochastic
             help='number of fine steps', required=.false., &
             act='store', def='1', error=error)
         if (error/=0) stop
-        call cli%add(switch='--hdf5_dump', switch_ab='-h5', &
-            help='whether to use HDF5 to dump distributions', &
-            required=.false., act='store', def='.false.', error=error)
-        if (error/=0) stop
         call cli%add(switch='--local_dist', switch_ab='-ld', &
             help='whether to diagnose local distribution', &
-            required=.false., act='store', def='0', error=error)
+            required=.false., act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--dpp_wave', switch_ab='-dw', &
             help='whether to include momentum diffusion due to waves', &
@@ -894,8 +877,6 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-nf', val=num_fine_steps, error=error)
         if (error/=0) stop
-        call cli%get(switch='-h5', val=hdf5_dump, error=error)
-        if (error/=0) stop
         call cli%get(switch='-ld', val=local_dist, error=error)
         if (error/=0) stop
         call cli%get(switch='-dw', val=dpp_wave, error=error)
@@ -1065,12 +1046,7 @@ program stochastic
                 print '(A)', 'Particle transport is in the strong-scattering regime (tau\Omega << 1)'
             endif
             print '(A,A)', 'Configuration file name: ', trim(conf_file)
-            if (hdf5_dump) then
-                print '(A)', 'Using HDF5 to dump particle distributions'
-            else
-                print '(A)', 'Using Binary format to dump particle distributions'
-            endif
-            if (local_dist == 1) then
+            if (local_dist) then
                 print '(A)', 'Simulation will diagnose local particle distribution'
             endif
             if (dump_escaped) then

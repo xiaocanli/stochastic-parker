@@ -11,17 +11,21 @@ module hdf5_io
     interface read_data_h5
         module procedure &
             read_integer_h5_1d, read_integer_h5_2d, read_integer_h5_3d, &
-            read_integer_h5_4d, read_real_h5_1d, read_real_h5_2d, &
-            read_real_h5_3d, read_real_h5_4d, read_double_h5_1d, &
-            read_double_h5_2d, read_double_h5_3d, read_double_h5_4d
+            read_integer_h5_4d, read_integer_h5_5d, &
+            read_real_h5_1d, read_real_h5_2d, read_real_h5_3d, &
+            read_real_h5_4d, read_real_h5_5d, &
+            read_double_h5_1d, read_double_h5_2d, read_double_h5_3d, &
+            read_double_h5_4d, read_double_h5_5d
     end interface read_data_h5
 
     interface write_data_h5
         module procedure &
             write_integer_h5_1d, write_integer_h5_2d, write_integer_h5_3d, &
-            write_integer_h5_4d, write_real_h5_1d, write_real_h5_2d, &
-            write_real_h5_3d, write_real_h5_4d, write_double_h5_1d, &
-            write_double_h5_2d, write_double_h5_3d, write_double_h5_4d
+            write_integer_h5_4d, write_integer_h5_5d, &
+            write_real_h5_1d, write_real_h5_2d, write_real_h5_3d, &
+            write_real_h5_4d, write_real_h5_5d, &
+            write_double_h5_1d, write_double_h5_2d, write_double_h5_3d, &
+            write_double_h5_4d, write_double_h5_5d
     end interface write_data_h5
 
     contains
@@ -421,6 +425,44 @@ module hdf5_io
     end subroutine read_integer_h5_4d
 
     !<--------------------------------------------------------------------------
+    !< Read HDF5 dataset for 5D integer data
+    !<--------------------------------------------------------------------------
+    subroutine read_integer_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        integer, dimension(:, :, :, :, :), intent(out) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_read_parallel_h5(dset_id, dcount, doffset, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dread_f(dset_id, H5T_NATIVE_INTEGER, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_read_serial_h5(dset_id, dcount, doffset, filespace, memspace)
+            call h5dread_f(dset_id, H5T_NATIVE_INTEGER, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine read_integer_h5_5d
+
+    !<--------------------------------------------------------------------------
     !< Read HDF5 dataset for 1D real data
     !<--------------------------------------------------------------------------
     subroutine read_real_h5_1d(dset_id, dcount, doffset, dset_dims, fdata, &
@@ -571,6 +613,44 @@ module hdf5_io
             call final_rw_h5(filespace, memspace)
         endif
     end subroutine read_real_h5_4d
+
+    !<--------------------------------------------------------------------------
+    !< Read HDF5 dataset for 5D real data
+    !<--------------------------------------------------------------------------
+    subroutine read_real_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        real(fp), dimension(:, :, :, :, :), intent(out) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_read_parallel_h5(dset_id, dcount, doffset, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dread_f(dset_id, H5T_NATIVE_REAL, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_read_serial_h5(dset_id, dcount, doffset, filespace, memspace)
+            call h5dread_f(dset_id, H5T_NATIVE_REAL, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine read_real_h5_5d
 
     !<--------------------------------------------------------------------------
     !< Read HDF5 dataset for 1D double data
@@ -725,6 +805,44 @@ module hdf5_io
     end subroutine read_double_h5_4d
 
     !<--------------------------------------------------------------------------
+    !< Read HDF5 dataset for 5D double data
+    !<--------------------------------------------------------------------------
+    subroutine read_double_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        real(dp), dimension(:, :, :, :, :), intent(out) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_read_parallel_h5(dset_id, dcount, doffset, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_read_serial_h5(dset_id, dcount, doffset, filespace, memspace)
+            call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine read_double_h5_5d
+
+    !<--------------------------------------------------------------------------
     !< Write HDF5 dataset for 1D integer data
     !<--------------------------------------------------------------------------
     subroutine write_integer_h5_1d(dset_id, dcount, doffset, dset_dims, fdata, &
@@ -875,6 +993,44 @@ module hdf5_io
             call final_rw_h5(filespace, memspace)
         endif
     end subroutine write_integer_h5_4d
+
+    !<--------------------------------------------------------------------------
+    !< Write HDF5 dataset for 5D integer data
+    !<--------------------------------------------------------------------------
+    subroutine write_integer_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        integer, dimension(:, :, :, :, :), intent(in) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_write_parallel_h5(dset_id, dcount, doffset, dset_dims, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_write_serial_h5(dset_id, dcount, doffset, dset_dims, filespace, memspace)
+            call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine write_integer_h5_5d
 
     !<--------------------------------------------------------------------------
     !< Write HDF5 dataset for 1D real data
@@ -1029,6 +1185,44 @@ module hdf5_io
     end subroutine write_real_h5_4d
 
     !<--------------------------------------------------------------------------
+    !< Write HDF5 dataset for 5D real data
+    !<--------------------------------------------------------------------------
+    subroutine write_real_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        real(fp), dimension(:, :, :, :, :), intent(in) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_write_parallel_h5(dset_id, dcount, doffset, dset_dims, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dwrite_f(dset_id, H5T_NATIVE_REAL, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_write_serial_h5(dset_id, dcount, doffset, dset_dims, filespace, memspace)
+            call h5dwrite_f(dset_id, H5T_NATIVE_REAL, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine write_real_h5_5d
+
+    !<--------------------------------------------------------------------------
     !< Write HDF5 dataset for 1D double data
     !<--------------------------------------------------------------------------
     subroutine write_double_h5_1d(dset_id, dcount, doffset, dset_dims, fdata, &
@@ -1179,4 +1373,42 @@ module hdf5_io
             call final_rw_h5(filespace, memspace)
         endif
     end subroutine write_double_h5_4d
+
+    !<--------------------------------------------------------------------------
+    !< Write HDF5 dataset for 5D double data
+    !<--------------------------------------------------------------------------
+    subroutine write_double_h5_5d(dset_id, dcount, doffset, dset_dims, fdata, &
+            parallel_hdf5, collective_io)
+        implicit none
+        integer(hid_t), intent(in) :: dset_id
+        integer(hsize_t), dimension(5), intent(in) :: dcount, doffset, dset_dims
+        real(dp), dimension(:, :, :, :, :), intent(in) :: fdata
+        logical, intent(in), optional :: parallel_hdf5, collective_io
+        integer(hid_t) :: filespace, memspace, plist_id
+        logical :: use_parallel_hdf5, use_collective_io
+        integer :: error
+        if (.not. present(parallel_hdf5)) then
+            use_parallel_hdf5 = .false.
+        else
+            use_parallel_hdf5 = parallel_hdf5
+        endif
+        if (.not. present(collective_io)) then
+            use_collective_io = .false.
+        else
+            use_collective_io = collective_io
+        endif
+
+        if (use_parallel_hdf5) then
+            call init_write_parallel_h5(dset_id, dcount, doffset, dset_dims, &
+                filespace, memspace, plist_id, use_collective_io)
+            call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace, xfer_prp=plist_id)
+            call final_rw_h5(filespace, memspace, plist_id)
+        else
+            call init_write_serial_h5(dset_id, dcount, doffset, dset_dims, filespace, memspace)
+            call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, fdata, dset_dims, error, &
+                file_space_id=filespace, mem_space_id=memspace)
+            call final_rw_h5(filespace, memspace)
+        endif
+    end subroutine write_double_h5_5d
 end module hdf5_io

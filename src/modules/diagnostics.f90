@@ -3,6 +3,7 @@
 !*******************************************************************************
 module diagnostics
     use constants, only: fp, dp
+    use mhd_config_module, only: mhd_config
     use simulation_setup_module, only: ndim_field
     use mhd_data_parallel, only: nfields, ngrads
     use particle_module, only: particle_type, ptls, escaped_ptls, &
@@ -16,33 +17,60 @@ module diagnostics
     private
     save
     public distributions_diagnostics, quick_check, &
-        init_particle_distributions, clean_particle_distributions, &
-        set_mpi_io_data_sizes, init_local_particle_distributions, &
-        free_particle_distributions, free_local_particle_distributions, &
+        init_particle_distributions, free_particle_distributions, &
         get_pmax_global, dump_particles, &
         init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
         read_diagnostics_params
 
     !< Parameters for particle distributions
-    real(dp) :: dx_diag, dy_diag, dz_diag
-    real(dp) :: pmin_log, pmax_log, dp_log, dp_bands_log
-    real(dp) :: pmax_local, pmax_global
-    integer :: nx, ny, nz, npp, nreduce
-    integer :: nx_mhd_reduced, ny_mhd_reduced, nz_mhd_reduced
+    real(dp) :: pmin_log, pmax_log, dp_log, dmu
+    real(dp) :: pmin1, pmax1
+    real(dp) :: pmin2, pmax2
+    real(dp) :: pmin3, pmax3
+    real(dp) :: pmin4, pmax4
+    real(dp) :: dx_diag1, dy_diag1, dz_diag1
+    real(dp) :: dx_diag2, dy_diag2, dz_diag2
+    real(dp) :: dx_diag3, dy_diag3, dz_diag3
+    real(dp) :: dx_diag4, dy_diag4, dz_diag4
+    real(dp) :: pmin1_log, pmax1_log, dp1_log
+    real(dp) :: pmin2_log, pmax2_log, dp2_log
+    real(dp) :: pmin3_log, pmax3_log, dp3_log
+    real(dp) :: pmin4_log, pmax4_log, dp4_log
+    real(dp) :: dmu1, dmu2, dmu3, dmu4
+    integer :: npp_global, nmu_global
+    !< Only dump local distributions every few MHD output intervals
+    !< When dump_interval is > # of MHD outputs, it will not dump the distribution
+    !< Each local distribution can have different number of npbins and nmu
+    !< Each local distribution can control their reduce factor through rx, ry, rz
+    logical :: dump_local_dist1, dump_local_dist2, dump_local_dist3, dump_local_dist4
+    integer :: dump_interval1, npbins1, nmu1, rx1, ry1, rz1
+    integer :: dump_interval2, npbins2, nmu2, rx2, ry2, rz2
+    integer :: dump_interval3, npbins3, nmu3, rx3, ry3, rz3
+    integer :: dump_interval4, npbins4, nmu4, rx4, ry4, rz4
+    integer :: nrx1_mhd, nry1_mhd, nrz1_mhd
+    integer :: nrx2_mhd, nry2_mhd, nrz2_mhd
+    integer :: nrx3_mhd, nry3_mhd, nrz3_mhd
+    integer :: nrx4_mhd, nry4_mhd, nrz4_mhd
+    integer :: nrx1, nry1, nrz1
+    integer :: nrx2, nry2, nrz2
+    integer :: nrx3, nry3, nrz3
+    integer :: nrx4, nry4, nrz4
 
-    ! Particle distributions
-    integer, parameter :: nbands = 12  ! Divide pmin to pmax by nbands
-    real(dp), allocatable, dimension(:, :, :, :) :: fbands, fbands_sum
-    real(dp), allocatable, dimension(:, :) :: fdpdt, fdpdt_sum
-    real(dp), allocatable, dimension(:) :: fp_global, fp_global_sum
-    real(dp), allocatable, dimension(:) :: pbins, pband_edges
-    ! Particle distribution in each cell
-    real(dp), allocatable, dimension(:, :, :, :) :: fp_local, fp_local_sum
+    !< 2D (1D for Parker transport) distributions of p and mu
+    real(dp), allocatable, dimension(:, :) :: fglobal, fglobal_sum
+    real(dp), allocatable, dimension(:) :: pbins_edges_global
+    real(dp), allocatable, dimension(:) :: mubins_edges_global
 
-    !< MPI/IO data sizes
-    integer, dimension(4) :: sizes_fxy, subsizes_fxy, starts_fxy
-    integer, dimension(4) :: sizes_fp_local, subsizes_fp_local, starts_fp_local
+    !< Local distributions (mu, p, x, y, z)
+    real(dp), allocatable, dimension(:) :: pbins1_edges, mubins1_edges
+    real(dp), allocatable, dimension(:) :: pbins2_edges, mubins2_edges
+    real(dp), allocatable, dimension(:) :: pbins3_edges, mubins3_edges
+    real(dp), allocatable, dimension(:) :: pbins4_edges, mubins4_edges
+    real(dp), allocatable, dimension(:, :, :, :, :) :: flocal1, flocal1_sum
+    real(dp), allocatable, dimension(:, :, :, :, :) :: flocal2, flocal2_sum
+    real(dp), allocatable, dimension(:, :, :, :, :) :: flocal3, flocal3_sum
+    real(dp), allocatable, dimension(:, :, :, :, :) :: flocal4, flocal4_sum
 
     interface write_ptl_element
         module procedure &
@@ -116,46 +144,39 @@ module diagnostics
 
     !---------------------------------------------------------------------------
     !< Initialize the particle distributions
+    !< Args:
+    !<  local_dist: whether to dump local particle distributions
     !---------------------------------------------------------------------------
-    subroutine init_particle_distributions
-        use mhd_config_module, only: mhd_config
+    subroutine init_particle_distributions(local_dist)
         implicit none
+        logical, intent(in) :: local_dist
         integer :: i
-        allocate(fbands(nx, ny, nz, nbands))
-        allocate(fp_global(npp))
-        allocate(fdpdt(npp, 2))
+        allocate(fglobal(nmu_global, npp_global))
         if (mpi_cross_rank == master) then
-            allocate(fbands_sum(nx, ny, nz, nbands))
-            allocate(fp_global_sum(npp))
-            allocate(fdpdt_sum(npp, 2))
+            allocate(fglobal_sum(nmu_global, npp_global))
         endif
-        call clean_particle_distributions
 
-        !< Intervals for distributions
-        nx_mhd_reduced = (mhd_config%nx + nreduce - 1) / nreduce
-        ny_mhd_reduced = (mhd_config%ny + nreduce - 1) / nreduce
-        nz_mhd_reduced = (mhd_config%nz + nreduce - 1) / nreduce
-        dx_diag = mhd_config%lx / nx_mhd_reduced
-        dy_diag = mhd_config%ly / ny_mhd_reduced
-        dz_diag = mhd_config%lz / nz_mhd_reduced
+        !< Momentum bins and mu bins. These are the edges of the bins.
+        allocate(pbins_edges_global(npp_global+1))
+        allocate(mubins_edges_global(nmu_global+1))
+        pbins_edges_global = 0.0_dp
         pmin_log = log10(pmin)
         pmax_log = log10(pmax)
-        dp_log = (pmax_log - pmin_log) / (npp - 1)
-
-        !< Momentum bins for 1D distributions
-        allocate(pbins(npp))
-        pbins = 0.0_dp
-        do i = 1, npp
-            pbins(i) = 10**(pmin_log + (i-1) * dp_log)
+        dp_log = (pmax_log - pmin_log) / npp_global
+        do i = 1, npp_global+1
+            pbins_edges_global(i) = 10**(pmin_log + (i-1) * dp_log)
+        enddo
+        mubins_edges_global = 0.0_dp
+        dmu = 2.0 / nmu_global
+        do i = 1, nmu_global+1
+            mubins_edges_global(i) = -1.0 + (i - 1) + dmu
         enddo
 
-        !< Momentum band edges for distributions in different energy band
-        allocate(pband_edges(nbands+1))
-        pband_edges = 0.0_dp
-        dp_bands_log = (pmax_log - pmin_log) / nbands
-        do i = 1, nbands+1
-            pband_edges(i) = 10**(pmin_log + (i-1) * dp_bands_log)
-        enddo
+        if (local_dist) then
+            call init_local_particle_distributions
+        endif
+
+        call clean_particle_distributions(local_dist)
 
         if (mpi_rank == master) then
             write(*, "(A)") "Finished Initializing particle distributions."
@@ -167,25 +188,143 @@ module diagnostics
     !---------------------------------------------------------------------------
     subroutine init_local_particle_distributions
         implicit none
-        allocate(fp_local(npp, nx, ny, nz))
-        if (mpi_cross_rank == master) then
-            allocate(fp_local_sum(npp, nx, ny, nz))
+        integer :: i
+        if (dump_local_dist1) then
+            allocate(flocal1(nmu1, npbins1, nrx1, nry1, nrz1))
         endif
-        call clean_local_particle_distribution
+        if (dump_local_dist2) then
+            allocate(flocal2(nmu2, npbins2, nrx2, nry2, nrz2))
+        endif
+        if (dump_local_dist3) then
+            allocate(flocal3(nmu3, npbins3, nrx3, nry3, nrz3))
+        endif
+        if (dump_local_dist4) then
+            allocate(flocal4(nmu4, npbins4, nrx4, nry4, nrz4))
+        endif
+
+        if (mpi_cross_rank == master) then
+            if (dump_local_dist1) then
+                allocate(flocal1_sum(nmu1, npbins1, nrx1, nry1, nrz1))
+            endif
+            if (dump_local_dist2) then
+                allocate(flocal2_sum(nmu2, npbins2, nrx2, nry2, nrz2))
+            endif
+            if (dump_local_dist3) then
+                allocate(flocal3_sum(nmu3, npbins3, nrx3, nry3, nrz3))
+            endif
+            if (dump_local_dist4) then
+                allocate(flocal4_sum(nmu4, npbins4, nrx4, nry4, nrz4))
+            endif
+        endif
+
+        !< Parameters for local distributions
+        if (dump_local_dist1) then
+            nrx1_mhd = (mhd_config%nx + rx1 - 1) / rx1
+            nry1_mhd = (mhd_config%ny + ry1 - 1) / ry1
+            nrz1_mhd = (mhd_config%nz + rz1 - 1) / rz1
+            dx_diag1 = mhd_config%lx / nrx1_mhd
+            dy_diag1 = mhd_config%ly / nry1_mhd
+            dz_diag1 = mhd_config%lz / nrz1_mhd
+            pmin1_log = log10(pmin1)
+            pmax1_log = log10(pmax1)
+            dp1_log = (pmax1_log - pmin1_log) / npbins1
+            dmu1 = 2.0 / nmu1
+            allocate(pbins1_edges(npbins1+1))
+            allocate(mubins1_edges(nmu1+1))
+            pbins1_edges = 0.0_dp
+            do i = 1, npbins1+1
+                pbins1_edges(i) = 10**(pmin1_log + (i-1) * dp1_log)
+            enddo
+            mubins1_edges = 0.0_dp
+            do i = 1, nmu1+1
+                mubins1_edges(i) = -1.0 + (i - 1) + dmu1
+            enddo
+        endif
+
+        if (dump_local_dist2) then
+            nrx2_mhd = (mhd_config%nx + rx2 - 1) / rx2
+            nry2_mhd = (mhd_config%ny + ry2 - 1) / ry2
+            nrz2_mhd = (mhd_config%nz + rz2 - 1) / rz2
+            dx_diag2 = mhd_config%lx / nrx2_mhd
+            dy_diag2 = mhd_config%ly / nry2_mhd
+            dz_diag2 = mhd_config%lz / nrz2_mhd
+            pmin2_log = log10(pmin2)
+            pmax2_log = log10(pmax2)
+            dp2_log = (pmax2_log - pmin2_log) / npbins2
+            dmu2 = 2.0 / nmu2
+            allocate(pbins2_edges(npbins2+1))
+            allocate(mubins2_edges(nmu2+1))
+            pbins2_edges = 0.0_dp
+            do i = 1, npbins2+1
+                pbins2_edges(i) = 10**(pmin2_log + (i-1) * dp2_log)
+            enddo
+            mubins2_edges = 0.0_dp
+            do i = 1, nmu2+1
+                mubins2_edges(i) = -1.0 + (i - 1) + dmu2
+            enddo
+        endif
+
+        if (dump_local_dist3) then
+            nrx3_mhd = (mhd_config%nx + rx3 - 1) / rx3
+            nry3_mhd = (mhd_config%ny + ry3 - 1) / ry3
+            nrz3_mhd = (mhd_config%nz + rz3 - 1) / rz3
+            dx_diag3 = mhd_config%lx / nrx3_mhd
+            dy_diag3 = mhd_config%ly / nry3_mhd
+            dz_diag3 = mhd_config%lz / nrz3_mhd
+            pmin3_log = log10(pmin3)
+            pmax3_log = log10(pmax3)
+            dp3_log = (pmax3_log - pmin3_log) / npbins3
+            dmu3 = 2.0 / nmu3
+            allocate(pbins3_edges(npbins3+1))
+            allocate(mubins3_edges(nmu3+1))
+            pbins3_edges = 0.0_dp
+            do i = 1, npbins3+1
+                pbins3_edges(i) = 10**(pmin3_log + (i-1) * dp3_log)
+            enddo
+            mubins3_edges = 0.0_dp
+            do i = 1, nmu3+1
+                mubins3_edges(i) = -1.0 + (i - 1) + dmu3
+            enddo
+        endif
+
+        if (dump_local_dist4) then
+            nrx4_mhd = (mhd_config%nx + rx4 - 1) / rx4
+            nry4_mhd = (mhd_config%ny + ry4 - 1) / ry4
+            nrz4_mhd = (mhd_config%nz + rz4 - 1) / rz4
+            dx_diag4 = mhd_config%lx / nrx4_mhd
+            dy_diag4 = mhd_config%ly / nry4_mhd
+            dz_diag4 = mhd_config%lz / nrz4_mhd
+            pmin4_log = log10(pmin4)
+            pmax4_log = log10(pmax4)
+            dp4_log = (pmax4_log - pmin4_log) / npbins4
+            dmu4 = 2.0 / nmu4
+            allocate(pbins4_edges(npbins4+1))
+            allocate(mubins4_edges(nmu4+1))
+            pbins4_edges = 0.0_dp
+            do i = 1, npbins4+1
+                pbins4_edges(i) = 10**(pmin4_log + (i-1) * dp4_log)
+            enddo
+            mubins4_edges = 0.0_dp
+            do i = 1, nmu4+1
+                mubins4_edges(i) = -1.0 + (i - 1) + dmu4
+            enddo
+        endif
     end subroutine init_local_particle_distributions
 
     !---------------------------------------------------------------------------
     !< Set particle distributions to be zero
+    !< Args:
+    !<  local_dist: whether to dump local particle distributions
     !---------------------------------------------------------------------------
-    subroutine clean_particle_distributions
+    subroutine clean_particle_distributions(local_dist)
         implicit none
-        fbands = 0.0_dp
-        fp_global = 0.0_dp
-        fdpdt = 0.0_dp
+        logical, intent(in) :: local_dist
+        fglobal = 0.0_dp
         if (mpi_cross_rank == master) then
-            fbands_sum = 0.0_dp
-            fp_global_sum = 0.0_dp
-            fdpdt_sum = 0.0_dp
+            fglobal_sum = 0.0_dp
+        endif
+        if (local_dist) then
+            call clean_local_particle_distribution
         endif
     end subroutine clean_particle_distributions
 
@@ -194,24 +333,49 @@ module diagnostics
     !---------------------------------------------------------------------------
     subroutine clean_local_particle_distribution
         implicit none
-        fp_local = 0.0_dp
-        if (mpi_cross_rank == master) then
-            fp_local_sum = 0.0_dp
+        if (dump_local_dist1) then
+            flocal1 = 0.0_dp
+            if (mpi_cross_rank == master) then
+                flocal1_sum = 0.0_dp
+            endif
+        endif
+        if (dump_local_dist2) then
+            flocal2 = 0.0_dp
+            if (mpi_cross_rank == master) then
+                flocal2_sum = 0.0_dp
+            endif
+        endif
+        if (dump_local_dist3) then
+            flocal3 = 0.0_dp
+            if (mpi_cross_rank == master) then
+                flocal3_sum = 0.0_dp
+            endif
+        endif
+        if (dump_local_dist4) then
+            flocal4 = 0.0_dp
+            if (mpi_cross_rank == master) then
+                flocal4_sum = 0.0_dp
+            endif
         endif
     end subroutine clean_local_particle_distribution
 
     !---------------------------------------------------------------------------
     !< Free particle distributions
+    !< Args:
+    !<  local_dist: whether to dump local particle distributions
     !---------------------------------------------------------------------------
-    subroutine free_particle_distributions
+    subroutine free_particle_distributions(local_dist)
         implicit none
-        deallocate(fbands, pband_edges)
-        deallocate(fp_global, pbins)
-        deallocate(fdpdt)
+        logical, intent(in) :: local_dist
+        deallocate(fglobal)
+        deallocate(pbins_edges_global)
+        deallocate(mubins_edges_global)
         if (mpi_cross_rank == master) then
-            deallocate(fbands_sum)
-            deallocate(fp_global_sum)
-            deallocate(fdpdt_sum)
+            deallocate(fglobal_sum)
+        endif
+
+        if (local_dist) then
+            call free_local_particle_distributions
         endif
     end subroutine free_particle_distributions
 
@@ -220,61 +384,34 @@ module diagnostics
     !---------------------------------------------------------------------------
     subroutine free_local_particle_distributions
         implicit none
-        deallocate(fp_local)
-        if (mpi_cross_rank == master) then
-            deallocate(fp_local_sum)
+        if (dump_local_dist1) then
+            deallocate(flocal1, pbins1_edges, mubins1_edges)
+            if (mpi_cross_rank == master) then
+                deallocate(flocal1_sum)
+            endif
+        endif
+
+        if (dump_local_dist2) then
+            deallocate(flocal2, pbins2_edges, mubins2_edges)
+            if (mpi_cross_rank == master) then
+                deallocate(flocal2_sum)
+            endif
+        endif
+
+        if (dump_local_dist3) then
+            deallocate(flocal3, pbins3_edges, mubins3_edges)
+            if (mpi_cross_rank == master) then
+                deallocate(flocal3_sum)
+            endif
+        endif
+
+        if (dump_local_dist4) then
+            deallocate(flocal4, pbins4_edges, mubins4_edges)
+            if (mpi_cross_rank == master) then
+                deallocate(flocal4_sum)
+            endif
         endif
     end subroutine free_local_particle_distributions
-
-    !---------------------------------------------------------------------------
-    !< Accumulate particle energization distributions
-    !< Args:
-    !<  iframe: time frame index (can be larger 1)
-    !---------------------------------------------------------------------------
-    subroutine energization_dist(iframe)
-        use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config, tstamps_mhd, tstart_mhd
-        use mhd_data_parallel, only: interp_fields
-        implicit none
-        integer, intent(in) :: iframe
-        real(dp) :: weight, px, py, pz, rt
-        real(dp) :: dvx_dx, dvy_dy, dvz_dz
-        real(dp) :: t0, dtf
-        type(particle_type) :: ptl
-        integer, dimension(3) :: pos
-        real(dp), dimension(8) :: weights
-        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
-        integer :: i, ip, mhd_tframe
-
-        mhd_tframe = iframe - tstart_mhd
-        t0 = tstamps_mhd(mhd_tframe)
-        dtf = tstamps_mhd(mhd_tframe+1) - t0
-
-        do i = 1, nptl_current
-            ptl = ptls(i)
-            if (ptl%count_flag == COUNT_FLAG_INBOX .and. &
-                ptl%p > pmin .and. ptl%p <= pmax) then
-                ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
-                px = (ptl%x-fconfig%xmin) / mhd_config%dx
-                py = (ptl%y-fconfig%ymin) / mhd_config%dy
-                pz = (ptl%z-fconfig%zmin) / mhd_config%dz
-                if (spherical_coord_flag) then
-                    call get_interp_paramters_spherical(ptl%x, ptl%y, ptl%z, pos, weights)
-                else
-                    call get_interp_paramters(px, py, pz, pos, weights)
-                endif
-                rt = (ptl%t - t0) / dtf
-                call interp_fields(pos, weights, rt, fields)
-                dvx_dx = fields(nfields+1)
-                dvy_dy = fields(nfields+5)
-                dvz_dz = fields(nfields+9)
-
-                fdpdt(ip, 1) = fdpdt(ip, 1) + ptl%weight
-                fdpdt(ip, 2) = fdpdt(ip, 2) - &
-                    ptl%p * (dvx_dx + dvy_dy + dvz_dz) / 3.0d0 * ptl%weight
-            endif
-        enddo
-    end subroutine energization_dist
 
     !---------------------------------------------------------------------------
     !< Accumulate particle distributions
@@ -283,31 +420,29 @@ module diagnostics
     !---------------------------------------------------------------------------
     subroutine calc_particle_distributions(local_dist)
         use simulation_setup_module, only: fconfig
-        use mhd_config_module, only: mhd_config
         implicit none
-        integer, intent(in) :: local_dist
-        integer :: i, ix, iy, iz, ip
-        real(dp) :: weight, p, xmin, xmax, ymin, ymax, zmin, zmax
-        real(dp) :: px, py, pz, rx, ry, rz, rt
-        real(dp) :: dxm, dym, dzm
+        logical, intent(in) :: local_dist
+        integer :: iptl, ip, imu
+        integer :: ix1, iy1, iz1, ip1, imu1
+        integer :: ix2, iy2, iz2, ip2, imu2
+        integer :: ix3, iy3, iz3, ip3, imu3
+        integer :: ix4, iy4, iz4, ip4, imu4
+        real(dp) :: xmin, ymin, zmin
+        real(dp) :: x, y, z, p, mu, weight
+        logical :: condx, condy, condz, condp, condmu
         type(particle_type) :: ptl
 
         xmin = fconfig%xmin
-        xmax = fconfig%xmax
         ymin = fconfig%ymin
-        ymax = fconfig%ymax
         zmin = fconfig%zmin
-        zmax = fconfig%zmax
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
-        dzm = mhd_config%dz
 
-        do i = 1, nptl_current
-            ptl = ptls(i)
-            ix = floor((ptl%x - xmin)/dx_diag) + 1
-            iy = floor((ptl%y - ymin)/dy_diag) + 1
-            iz = floor((ptl%z - zmin)/dz_diag) + 1
+        do iptl = 1, nptl_current
+            ptl = ptls(iptl)
+            x = ptl%x
+            y = ptl%y
+            z = ptl%z
             p = ptl%p
+            mu = ptl%mu
             weight = ptl%weight
             if (spherical_coord_flag) then
                 ! For spherical coordinates, we solve for F=f*p^2*r^2 for 1D and
@@ -318,184 +453,370 @@ module diagnostics
                 endif
             endif
 
-            !< Different momentum band
-            if (ix >= 1 .and. ix <= nx .and. &
-                iy >= 1 .and. iy <= ny .and. &
-                iz >= 1 .and. iz <= nz) then
-                ip = floor((log10(ptl%p)-pmin_log) / dp_bands_log)
-                if (ip > 0 .and. ip < nbands) then
-                    fbands(ix, iy, iz, ip+1) = fbands(ix, iy, iz, ip+1) + weight
-                endif
+            ! Global distributions
+            if (p > pmin .and. p <= pmax .and. &
+                mu >= -1.0d0 .and. mu <= 1.0d0) then
+                ip = floor((log10(p)-pmin_log) / dp_log) + 1
+                imu = floor(mu + 1.0d0) / dmu + 1
+                fglobal(imu,ip) = fglobal(imu,ip) + weight
             endif
 
-            if (p > pmin .and. p <= pmax) then
-                ip = ceiling((log10(ptl%p)-pmin_log) / dp_log)
-                fp_global(ip) = fp_global(ip) + weight
-                if (local_dist == 1) then
-                    if (ix >= 1 .and. ix <= nx .and. &
-                        iy >= 1 .and. iy <= ny .and. &
-                        iz >= 1 .and. iz <= nz) then
-                        fp_local(ip, ix, iy, iz) = fp_local(ip, ix, iy, iz) + weight
+            if (local_dist) then
+                if (dump_local_dist1) then
+                    ! Local distributions 1
+                    ix1 = floor((x - xmin)/dx_diag1) + 1
+                    iy1 = floor((y - ymin)/dy_diag1) + 1
+                    iz1 = floor((z - zmin)/dz_diag1) + 1
+                    ip1 = floor((log10(p)-pmin1_log) / dp1_log)
+                    imu1 = floor(mu + 1.0d0) / dmu1 + 1
+                    condx = ix1 >= 1 .and. ix1 <= nrx1
+                    condy = iy1 >= 1 .and. iy1 <= nry1
+                    condz = iz1 >= 1 .and. iz1 <= nrz1
+                    condp = ip1 > 0 .and. ip1 < npbins1
+                    condmu = imu1 >=1 .and. imu1 <= nmu1
+                    if (condx .and. condy .and. condz .and. condp .and. condmu) then
+                        flocal1(imu1, ip1, ix1, iy1, iz1) = &
+                            flocal1(imu1, ip1, ix1, iy1, iz1) + weight
+                    endif
+                endif
+
+                if (dump_local_dist2) then
+                    ! Local distributions 2
+                    ix2 = floor((x - xmin)/dx_diag2) + 1
+                    iy2 = floor((y - ymin)/dy_diag2) + 1
+                    iz2 = floor((z - zmin)/dz_diag2) + 1
+                    ip2 = floor((log10(p)-pmin2_log) / dp2_log)
+                    imu2 = floor(mu + 1.0d0) / dmu2 + 1
+                    condx = ix2 >= 1 .and. ix2 <= nrx2
+                    condy = iy2 >= 1 .and. iy2 <= nry2
+                    condz = iz2 >= 1 .and. iz2 <= nrz2
+                    condp = ip2 > 0 .and. ip2 < npbins2
+                    condmu = imu2 >=1 .and. imu2 <= nmu2
+                    if (condx .and. condy .and. condz .and. condp .and. condmu) then
+                        flocal2(imu2, ip2, ix2, iy2, iz2) = &
+                            flocal2(imu2, ip2, ix2, iy2, iz2) + weight
+                    endif
+                endif
+
+                if (dump_local_dist3) then
+                    ! Local distributions 3
+                    ix3 = floor((x - xmin)/dx_diag3) + 1
+                    iy3 = floor((y - ymin)/dy_diag3) + 1
+                    iz3 = floor((z - zmin)/dz_diag3) + 1
+                    ip3 = floor((log10(p)-pmin3_log) / dp3_log)
+                    imu3 = floor(mu + 1.0d0) / dmu3 + 1
+                    condx = ix3 >= 1 .and. ix3 <= nrx3
+                    condy = iy3 >= 1 .and. iy3 <= nry3
+                    condz = iz3 >= 1 .and. iz3 <= nrz3
+                    condp = ip3 > 0 .and. ip3 < npbins3
+                    condmu = imu3 >=1 .and. imu3 <= nmu3
+                    if (condx .and. condy .and. condz .and. condp .and. condmu) then
+                        flocal3(imu3, ip3, ix3, iy3, iz3) = &
+                            flocal3(imu3, ip3, ix3, iy3, iz3) + weight
+                    endif
+                endif
+
+                if (dump_local_dist4) then
+                    ! Local distributions 4
+                    ix4 = floor((x - xmin)/dx_diag4) + 1
+                    iy4 = floor((y - ymin)/dy_diag4) + 1
+                    iz4 = floor((z - zmin)/dz_diag4) + 1
+                    ip4 = floor((log10(p)-pmin4_log) / dp4_log)
+                    imu4 = floor(mu + 1.0d0) / dmu4 + 1
+                    condx = ix4 >= 1 .and. ix4 <= nrx4
+                    condy = iy4 >= 1 .and. iy4 <= nry4
+                    condz = iz4 >= 1 .and. iz4 <= nrz4
+                    condp = ip4 > 0 .and. ip4 < npbins4
+                    condmu = imu4 >=1 .and. imu4 <= nmu4
+                    if (condx .and. condy .and. condz .and. condp .and. condmu) then
+                        flocal4(imu4, ip4, ix4, iy4, iz4) = &
+                            flocal4(imu4, ip4, ix4, iy4, iz4) + weight
                     endif
                 endif
             endif
-        enddo
+        enddo ! Loop over particles
 
         call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fp_global, fp_global_sum, npp, MPI_DOUBLE_PRECISION, &
-            MPI_SUM, master, MPI_COMM_WORLD, ierr)
-        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fdpdt, fdpdt_sum, npp*2, MPI_DOUBLE_PRECISION, &
-            MPI_SUM, master, MPI_COMM_WORLD, ierr)
-        call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-        call MPI_REDUCE(fbands, fbands_sum, nx*ny*nz*nbands, MPI_DOUBLE_PRECISION, &
-            MPI_SUM, master, mpi_cross_comm, ierr)
-        if (local_dist == 1) then
-            call MPI_BARRIER(MPI_COMM_WORLD, ierr)
-            call MPI_REDUCE(fp_local, fp_local_sum, npp*nx*ny*nz, &
-                MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
+        call MPI_REDUCE(fglobal, fglobal_sum, nmu_global*npp_global, &
+            MPI_DOUBLE_PRECISION, MPI_SUM, master, MPI_COMM_WORLD, ierr)
+        if (local_dist) then
+            if (dump_local_dist1) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(flocal1, flocal1_sum, nmu1*npbins1*nrx1*nry1*nrz1, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
+            endif
+            if (dump_local_dist2) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(flocal2, flocal2_sum, nmu2*npbins2*nrx2*nry2*nrz2, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
+            endif
+            if (dump_local_dist3) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(flocal3, flocal3_sum, nmu3*npbins3*nrx3*nry3*nrz3, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
+            endif
+            if (dump_local_dist4) then
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_REDUCE(flocal4, flocal4_sum, nmu4*npbins4*nrx4*nry4*nrz4, &
+                    MPI_DOUBLE_PRECISION, MPI_SUM, master, mpi_cross_comm, ierr)
+            endif
         endif
     end subroutine calc_particle_distributions
 
     !---------------------------------------------------------------------------
-    !< Dump particle distributions using binary format
+    !< Save global particle distributions using HDF5 format
     !< Args:
     !<  iframe: time frame index
     !<  file_path: save data files to this path
-    !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
-    subroutine dump_dist_binary(iframe, file_path, local_dist)
-        use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, fileinfo, &
-            open_data_mpi_io, write_data_mpi_io
-        implicit none
-        integer, intent(in) :: iframe, local_dist
-        character(*), intent(in) :: file_path
-        character(len=4) :: ctime
-        character(len=128) :: fname
-        integer(kind=MPI_OFFSET_KIND) :: disp, offset
-        integer :: fh, pos1
-        integer :: mpi_datatype
-
-        write (ctime,'(i4.4)') iframe
-        if (mpi_cross_rank == master) then
-            call set_mpi_info
-            ! fxy for different energy band
-            fh = 18
-            fname = trim(file_path)//'fxy-'//ctime//'_sum.dat'
-            if (mpi_sub_rank == master) then
-                fh = 18
-                open(fh, file=trim(fname), access='stream', status='unknown', &
-                     form='unformatted', action='write')
-                write(fh, pos=1) (nbands + 0.0_dp)
-                pos1 = sizeof(1.0_dp) + 1
-                write(fh, pos=pos1) pband_edges
-                close(fh)
-            endif
-            disp = (nbands + 2) * sizeof(1.0_dp)
-            offset = 0
-            mpi_datatype = set_mpi_datatype_double(sizes_fxy, subsizes_fxy, starts_fxy)
-            call open_data_mpi_io(trim(fname), MPI_MODE_APPEND+MPI_MODE_WRONLY, &
-                fileinfo, mpi_sub_comm, fh)
-            call write_data_mpi_io(fh, mpi_datatype, subsizes_fxy, disp, offset, fbands_sum)
-            call MPI_FILE_CLOSE(fh, ierror)
-
-            if (local_dist == 1) then
-                fh = 19
-                fname = trim(file_path)//'fp_local_'//ctime//'_sum.dat'
-                disp = 0
-                offset = 0
-                mpi_datatype = set_mpi_datatype_double(sizes_fp_local, &
-                    subsizes_fp_local, starts_fp_local)
-                call open_data_mpi_io(trim(fname), MPI_MODE_CREATE+MPI_MODE_WRONLY, &
-                    fileinfo, mpi_sub_comm, fh)
-                call write_data_mpi_io(fh, mpi_datatype, subsizes_fp_local, disp, &
-                    offset, fp_local_sum)
-                call MPI_FILE_CLOSE(fh, ierror)
-            endif
-        endif
-    end subroutine dump_dist_binary
-
-    !---------------------------------------------------------------------------
-    !< Dump particle distributions using HDF5 format
-    !< Args:
-    !<  iframe: time frame index
-    !<  file_path: save data files to this path
-    !<  local_dist: whether to accumulate local particle distribution
-    !---------------------------------------------------------------------------
-    subroutine dump_dist_hdf5(iframe, file_path, local_dist)
+    subroutine save_global_distributions(iframe, file_path)
         use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, &
             fileinfo, open_data_mpi_io, write_data_mpi_io
         use hdf5_io, only: create_file_h5, close_file_h5, write_data_h5
         implicit none
-        integer, intent(in) :: iframe, local_dist
+        integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
         character(len=4) :: ctime
         character(len=128) :: fname
         integer(hid_t) :: file_id, dset_id, filespace
         integer(hsize_t), dimension(1) :: dcount_1d, doffset_1d, dset_dims_1d
-        integer(hsize_t), dimension(4) :: dcount_4d, doffset_4d, dset_dims_4d
+        integer(hsize_t), dimension(2) :: dcount_2d, doffset_2d, dset_dims_2d
+        integer :: error
+
+        call h5open_f(error)
+
+        write (ctime,'(i4.4)') iframe
+        if (mpi_rank == master) then
+            fname = trim(file_path)//'fdists_'//ctime//'.h5'
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
+            ! Mu bins edges
+            dcount_1d(1) = nmu_global + 1
+            doffset_1d(1) = 0
+            dset_dims_1d(1) = nmu_global + 1
+            call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+            call h5dcreate_f(file_id, "mubins_edges_global", H5T_NATIVE_DOUBLE, &
+                filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, mubins_edges_global)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            ! Momentum bins edges
+            dcount_1d(1) = npp_global + 1
+            doffset_1d(1) = 0
+            dset_dims_1d(1) = npp_global + 1
+            call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+            call h5dcreate_f(file_id, "pbins_edges_global", H5T_NATIVE_DOUBLE, &
+                filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, pbins_edges_global)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            ! Distribution data
+            dcount_2d(1) = nmu_global + 1
+            dcount_2d(2) = npp_global + 1
+            doffset_2d(1) = 0
+            doffset_2d(2) = 0
+            dset_dims_2d(1) = nmu_global + 1
+            dset_dims_2d(2) = npp_global + 1
+            call h5screate_simple_f(2, dset_dims_2d, filespace, error)
+            call h5dcreate_f(file_id, "fglobal", H5T_NATIVE_DOUBLE, &
+                filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount_2d, doffset_2d, dset_dims_2d, fglobal)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            call close_file_h5(file_id)
+        endif
+        call h5close_f(error)
+    end subroutine save_global_distributions
+
+    !---------------------------------------------------------------------------
+    !< Save local particle distributions using HDF5 format
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine save_local_distributions(iframe, file_path)
+        use mpi_io_module, only: set_mpi_datatype_double, set_mpi_info, &
+            fileinfo, open_data_mpi_io, write_data_mpi_io
+        use hdf5_io, only: open_file_h5, close_file_h5, write_data_h5
+        use simulation_setup_module, only: mpi_ix, mpi_iy, mpi_iz
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        character(len=4) :: ctime
+        character(len=128) :: fname
+        integer(hid_t) :: file_id, dset_id, filespace
+        integer(hsize_t), dimension(1) :: dcount_1d, doffset_1d, dset_dims_1d
+        integer(hsize_t), dimension(5) :: dcount_5d, doffset_5d, dset_dims_5d
         integer :: error
 
         call h5open_f(error)
 
         write (ctime,'(i4.4)') iframe
         if (mpi_cross_rank == master) then
-            ! Particle fluxes in different energy bands
-            fname = trim(file_path)//'fbands_'//ctime//'.h5'
-            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
-            if (mpi_sub_rank == master) then
-                dcount_1d(1) = nbands + 1
-                doffset_1d(1) = 0
-                dset_dims_1d(1) = nbands + 1
-                call h5screate_simple_f(1, dset_dims_1d, filespace, error)
-                call h5dcreate_f(file_id, "pband_edges", H5T_NATIVE_DOUBLE, &
-                    filespace, dset_id, error)
-                call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, pband_edges)
-                call h5dclose_f(dset_id, error)
-                call h5sclose_f(filespace, error)
-            endif
-            dcount_4d = subsizes_fxy
-            doffset_4d = starts_fxy
-            dset_dims_4d = sizes_fxy
-            call h5screate_simple_f(4, dset_dims_4d, filespace, error)
-            call h5dcreate_f(file_id, "fbands", H5T_NATIVE_DOUBLE, &
-                filespace, dset_id, error)
-            call write_data_h5(dset_id, dcount_4d, doffset_4d, dset_dims_4d, &
-                fbands_sum, .true., .true.)
-            call h5dclose_f(dset_id, error)
-            call h5sclose_f(filespace, error)
-            call close_file_h5(file_id)
-
-            ! Local particle fluxes in more energy bins
-            if (local_dist == 1) then
-                fname = trim(file_path)//'fp_local_'//ctime//'.h5'
-                call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
+            fname = trim(file_path)//'fdists_'//ctime//'.h5'
+            call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
+            ! Local distributions 1
+            if (dump_local_dist1) then
                 if (mpi_sub_rank == master) then
-                    dcount_1d(1) = npp
+                    ! mu bins edges
+                    dcount_1d(1) = nmu1 + 1
                     doffset_1d(1) = 0
-                    dset_dims_1d(1) = npp
+                    dset_dims_1d(1) = nmu1 + 1
                     call h5screate_simple_f(1, dset_dims_1d, filespace, error)
-                    call h5dcreate_f(file_id, "pbins", H5T_NATIVE_DOUBLE, &
+                    call h5dcreate_f(file_id, "mubins1_edges", H5T_NATIVE_DOUBLE, &
                         filespace, dset_id, error)
-                    call write_data_h5(dset_id, dcount_1d, doffset_1d, dset_dims_1d, pbins)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, mubins1_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+
+                    ! p bins edges
+                    dcount_1d(1) = npbins1 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = npbins1 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "pbins1_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, pbins1_edges)
                     call h5dclose_f(dset_id, error)
                     call h5sclose_f(filespace, error)
                 endif
-                dcount_4d = subsizes_fp_local
-                doffset_4d = starts_fp_local
-                dset_dims_4d = sizes_fp_local
-                call h5screate_simple_f(4, dset_dims_4d, filespace, error)
-                call h5dcreate_f(file_id, "fp_local", H5T_NATIVE_DOUBLE, &
+
+                dcount_5d = (/ nmu1, npbins1, nrx1, nry1, nrz1 /)
+                doffset_5d = (/ 0, 0, nrx1 * mpi_ix, nry1 * mpi_iy, nrz1 * mpi_iz /)
+                dset_dims_5d = (/ nmu1, npbins1, nrx1_mhd, nry1_mhd, nrz1_mhd /)
+                call h5screate_simple_f(5, dset_dims_5d, filespace, error)
+                call h5dcreate_f(file_id, "flocal1", H5T_NATIVE_DOUBLE, &
                     filespace, dset_id, error)
-                call write_data_h5(dset_id, dcount_4d, doffset_4d, dset_dims_4d, &
-                    fp_local_sum, .true., .true.)
+                call write_data_h5(dset_id, dcount_5d, doffset_5d, dset_dims_5d, &
+                    flocal1_sum, .true., .true.)
                 call h5dclose_f(dset_id, error)
                 call h5sclose_f(filespace, error)
-                call close_file_h5(file_id)
             endif
+
+            ! Local distributions 2
+            if (dump_local_dist2) then
+                if (mpi_sub_rank == master) then
+                    ! mu bins edges
+                    dcount_1d(1) = nmu2 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = nmu2 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "mubins2_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, mubins2_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+
+                    ! p bins edges
+                    dcount_1d(1) = npbins2 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = npbins2 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "pbins2_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, pbins2_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+                endif
+
+                dcount_5d = (/ nmu2, npbins2, nrx2, nry2, nrz2 /)
+                doffset_5d = (/ 0, 0, nrx2 * mpi_ix, nry2 * mpi_iy, nrz2 * mpi_iz /)
+                dset_dims_5d = (/ nmu2, npbins2, nrx2_mhd, nry2_mhd, nrz2_mhd /)
+                call h5screate_simple_f(5, dset_dims_5d, filespace, error)
+                call h5dcreate_f(file_id, "flocal2", H5T_NATIVE_DOUBLE, &
+                    filespace, dset_id, error)
+                call write_data_h5(dset_id, dcount_5d, doffset_5d, dset_dims_5d, &
+                    flocal2_sum, .true., .true.)
+                call h5dclose_f(dset_id, error)
+                call h5sclose_f(filespace, error)
+            endif
+
+            ! Local distributions 3
+            if (dump_local_dist3) then
+                if (mpi_sub_rank == master) then
+                    ! mu bins edges
+                    dcount_1d(1) = nmu3 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = nmu3 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "mubins3_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, mubins3_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+
+                    ! p bins edges
+                    dcount_1d(1) = npbins3 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = npbins3 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "pbins3_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, pbins3_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+                endif
+
+                dcount_5d = (/ nmu3, npbins3, nrx3, nry3, nrz3 /)
+                doffset_5d = (/ 0, 0, nrx3 * mpi_ix, nry3 * mpi_iy, nrz3 * mpi_iz /)
+                dset_dims_5d = (/ nmu3, npbins3, nrx3_mhd, nry3_mhd, nrz3_mhd /)
+                call h5screate_simple_f(5, dset_dims_5d, filespace, error)
+                call h5dcreate_f(file_id, "flocal3", H5T_NATIVE_DOUBLE, &
+                    filespace, dset_id, error)
+                call write_data_h5(dset_id, dcount_5d, doffset_5d, dset_dims_5d, &
+                    flocal3_sum, .true., .true.)
+                call h5dclose_f(dset_id, error)
+                call h5sclose_f(filespace, error)
+            endif
+
+            ! Local distributions 4
+            if (dump_local_dist4) then
+                if (mpi_sub_rank == master) then
+                    ! mu bins edges
+                    dcount_1d(1) = nmu4 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = nmu4 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "mubins4_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, mubins4_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+
+                    ! p bins edges
+                    dcount_1d(1) = npbins4 + 1
+                    doffset_1d(1) = 0
+                    dset_dims_1d(1) = npbins4 + 1
+                    call h5screate_simple_f(1, dset_dims_1d, filespace, error)
+                    call h5dcreate_f(file_id, "pbins4_edges", H5T_NATIVE_DOUBLE, &
+                        filespace, dset_id, error)
+                    call write_data_h5(dset_id, dcount_1d, doffset_1d, &
+                        dset_dims_1d, pbins4_edges)
+                    call h5dclose_f(dset_id, error)
+                    call h5sclose_f(filespace, error)
+                endif
+
+                dcount_5d = (/ nmu4, npbins4, nrx4, nry4, nrz4 /)
+                doffset_5d = (/ 0, 0, nrx4 * mpi_ix, nry4 * mpi_iy, nrz4 * mpi_iz /)
+                dset_dims_5d = (/ nmu4, npbins4, nrx4_mhd, nry4_mhd, nrz4_mhd /)
+                call h5screate_simple_f(5, dset_dims_5d, filespace, error)
+                call h5dcreate_f(file_id, "flocal4", H5T_NATIVE_DOUBLE, &
+                    filespace, dset_id, error)
+                call write_data_h5(dset_id, dcount_5d, doffset_5d, dset_dims_5d, &
+                    flocal4_sum, .true., .true.)
+                call h5dclose_f(dset_id, error)
+                call h5sclose_f(filespace, error)
+            endif
+            call close_file_h5(file_id)
         endif
         call h5close_f(error)
-    end subroutine dump_dist_hdf5
+    end subroutine save_local_distributions
 
     !---------------------------------------------------------------------------
     !< Diagnostics of the particle distributions
@@ -503,13 +824,12 @@ module diagnostics
     !<  iframe: time frame index
     !<  file_path: save data files to this path
     !<  local_dist: whether to accumulate local particle distribution
-    !<  hdf5_dump: whether to use HDF5 to dump particle distributions
     !---------------------------------------------------------------------------
-    subroutine distributions_diagnostics(iframe, file_path, local_dist, hdf5_dump)
+    subroutine distributions_diagnostics(iframe, file_path, local_dist)
         use constants, only: fp, dp
         implicit none
-        integer, intent(in) :: iframe, local_dist
-        logical, intent(in) :: hdf5_dump
+        integer, intent(in) :: iframe
+        logical, intent(in) :: local_dist
         character(*), intent(in) :: file_path
         integer :: fh, pos1
         character(len=4) :: ctime
@@ -517,37 +837,14 @@ module diagnostics
         logical :: dir_e
 
         call calc_particle_distributions(local_dist)
-        call energization_dist(iframe)
+        call save_global_distributions(iframe, file_path)
 
-        write (ctime,'(i4.4)') iframe
-        ! Since these 1D distributions are small, binary is fine!
-        if (mpi_rank .eq. master) then
-            fh = 15
-            fname = trim(file_path)//'fp-'//ctime//'_sum.dat'
-            open(fh, file=trim(fname), access='stream', status='unknown', &
-                 form='unformatted', action='write')
-            write(fh, pos=1) pbins
-            pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fp_global_sum
-            close(fh)
-
-            fname = trim(file_path)//'fdpdt-'//ctime//'_sum.dat'
-            open(fh, file=trim(fname), access='stream', status='unknown', &
-                 form='unformatted', action='write')
-            write(fh, pos=1) pbins
-            pos1 = npp * sizeof(1.0_dp) + 1
-            write(fh, pos=pos1) fdpdt_sum
-            close(fh)
+        if (local_dist) then
+            call save_local_distributions(iframe, file_path)
         endif
 
-        if (hdf5_dump) then
-            call dump_dist_hdf5(iframe, file_path, local_dist)
-        else
-            call dump_dist_binary(iframe, file_path, local_dist)
-        endif
-
-        call clean_particle_distributions
-        if (local_dist == 1) then
+        call clean_particle_distributions(local_dist)
+        if (local_dist) then
             call clean_local_particle_distribution
         endif
     end subroutine distributions_diagnostics
@@ -564,6 +861,7 @@ module diagnostics
         integer, intent(in) :: iframe
         logical, intent(in) :: if_create_file
         character(*), intent(in) :: file_path
+        real(dp) :: pmax_local, pmax_global
         integer :: i
         logical :: dir_e
 
@@ -587,22 +885,6 @@ module diagnostics
             close(17)
         endif
     end subroutine get_pmax_global
-
-    !---------------------------------------------------------------------------
-    !< Set MPI/IO data sizes for distribution diagnostics
-    !---------------------------------------------------------------------------
-    subroutine set_mpi_io_data_sizes
-        use mhd_config_module, only: mhd_config
-        use simulation_setup_module, only: mpi_ix, mpi_iy, mpi_iz
-        implicit none
-        sizes_fxy = (/ nx_mhd_reduced, ny_mhd_reduced, nz_mhd_reduced, nbands /)
-        subsizes_fxy = (/ nx, ny, nz, nbands /)
-        starts_fxy = (/ nx * mpi_ix, ny * mpi_iy, nz * mpi_iz, 0 /)
-
-        sizes_fp_local = (/ npp, nx_mhd_reduced, ny_mhd_reduced, nz_mhd_reduced /)
-        subsizes_fp_local = (/ npp, nx, ny, nz /)
-        starts_fp_local = (/ 0, nx * mpi_ix, ny * mpi_iy, nz * mpi_iz /)
-    end subroutine set_mpi_io_data_sizes
 
     !---------------------------------------------------------------------------
     !< Write one double element of the particle data
@@ -769,70 +1051,246 @@ module diagnostics
     end subroutine dump_escaped_particles
 
     !---------------------------------------------------------------------------
-    !< Read parameters for diagnostics
+    !< Check the configuration for the local spatial diagnostics
     !< Args:
-    !<  conf_file: configuration file name
     !---------------------------------------------------------------------------
-    subroutine read_diagnostics_params(conf_file)
-        use read_config, only: get_variable
+    subroutine check_local_dist_configuration(nx, ny, nz, rx, ry, rz)
         use simulation_setup_module, only: fconfig
         implicit none
-        character(*), intent(in) :: conf_file
-        logical :: condx, condy, condz
-        real(fp) :: temp
-        integer :: fh
-
-        if (mpi_rank == master) then
-            fh = 10
-            open(unit=fh, file='config/'//trim(conf_file), status='old')
-            temp = get_variable(fh, 'nreduce', '=')
-            nreduce = int(temp)
-            nx = (fconfig%nx + nreduce - 1) / nreduce
-            ny = (fconfig%ny + nreduce - 1) / nreduce
-            nz = (fconfig%nz + nreduce - 1) / nreduce
-            temp = get_variable(fh, 'npp', '=')
-            npp = int(temp)
-            close(fh)
-            !< echo the information
-            print *, "---------------------------------------------------"
-            write(*, "(A,I0,A,I0,A,I0)") " Dimensions of spatial distributions = ", &
-                nx, " ", ny, " ", nz
-            write(*, "(A,I0)") " Dimensions of momentum distributions = ", npp
-            print *, "---------------------------------------------------"
-        endif
-        call MPI_BCAST(nreduce, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(nx, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(ny, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(nz, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
-        call MPI_BCAST(npp, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
-
+        integer, intent(in) :: nx, ny, nz, rx, ry, rz
         if (ndim_field == 1) then
-            if (nx * nreduce /= fconfig%nx) then
+            if (nx * rx /= fconfig%nx) then
                 if (mpi_rank == master) then
-                    write(*, "(A)") "Wrong factor 'nreduce' for particle distribution"
+                    write(*, "(A)") "Wrong factor 'rx' for particle distribution"
                 endif
                 call MPI_FINALIZE(ierr)
                 stop
             endif
         else if (ndim_field == 2) then
-            if (nx * nreduce /= fconfig%nx .or. &
-                ny * nreduce /= fconfig%ny) then
+            if (nx * rx /= fconfig%nx .or. &
+                ny * ry /= fconfig%ny) then
                 if (mpi_rank == master) then
-                    write(*, "(A)") "Wrong factor 'nreduce' for particle distribution"
+                    write(*, "(A)") "Wrong factor 'ry' for particle distribution"
                 endif
                 call MPI_FINALIZE(ierr)
                 stop
             endif
         else
-            if (nx * nreduce /= fconfig%nx .or. &
-                ny * nreduce /= fconfig%ny .or. &
-                nz * nreduce /= fconfig%nz) then
+            if (nx * rx /= fconfig%nx .or. &
+                ny * ry /= fconfig%ny .or. &
+                nz * rz /= fconfig%nz) then
                 if (mpi_rank == master) then
-                    write(*, "(A)") "Wrong factor 'nreduce' for particle distribution"
+                    write(*, "(A)") "Wrong factor 'rz' for particle distribution"
                 endif
                 call MPI_FINALIZE(ierr)
                 stop
             endif
+        endif
+    end subroutine check_local_dist_configuration
+
+    !---------------------------------------------------------------------------
+    !< Read parameters for diagnostics
+    !---------------------------------------------------------------------------
+    subroutine echo_diagnostics_params(dump_interval, pmin, pmax, nx, ny, nz, &
+            npbins, nmu, rx, ry, rz)
+        implicit none
+        real(dp), intent(in) :: pmin, pmax
+        integer, intent(in) :: dump_interval, nx, ny, nz, npbins, nmu, rx, ry, rz
+        if (mpi_rank == master) then
+            write(*, "(A)") ""
+            write(*, "(A)") " Parameters for the local distribution diagnostics "
+            write(*, "(A,I0,A)") "  Dump distributions every ", &
+                dump_interval, " MHD frames"
+            write(*, "(A, E13.6E2, E13.6E2)") "  Min and Max particle momentum: ", &
+                pmin, pmax
+            write(*, "(A,I0,A,I0,A,I0)") "  Dimensions: ", nx, " ", ny, " ", nz
+            write(*, "(A,I0)") "  Number of momentum bins: ", npbins
+            write(*, "(A,I0)") "  Number of mu bins: ", nmu
+            write(*, "(A,I0)") "  Reduce factor along x: ", rx
+            write(*, "(A,I0)") "  Reduce factor along y: ", ry
+            write(*, "(A,I0)") "  Reduce factor along z: ", rz
+        endif
+    end subroutine echo_diagnostics_params
+
+    !---------------------------------------------------------------------------
+    !< Read parameters for diagnostics
+    !< Args:
+    !<  conf_file: configuration file name
+    !<  focused_transport: whether to the Focused Transport equation
+    !<  nframes: number of MHD frames
+    !---------------------------------------------------------------------------
+    subroutine read_diagnostics_params(conf_file, focused_transport, nframes)
+        use read_config, only: get_variable
+        use simulation_setup_module, only: fconfig
+        implicit none
+        character(*), intent(in) :: conf_file
+        logical, intent(in) :: focused_transport
+        integer, intent(in) :: nframes
+        integer, parameter :: ndiag_params = 34
+        real(dp), dimension(ndiag_params) :: diag_params
+        integer :: fh
+
+        if (mpi_rank == master) then
+            fh = 10
+            open(unit=fh, file='config/'//trim(conf_file), status='old')
+            diag_params(1) = get_variable(fh, 'npp_global', '=')
+            diag_params(2) = get_variable(fh, 'nmu_global', '=')
+
+            diag_params(3) = get_variable(fh, 'dump_interval1', '=')
+            diag_params(4) = get_variable(fh, 'pmin1', '=')
+            diag_params(5) = get_variable(fh, 'pmax1', '=')
+            diag_params(6) = get_variable(fh, 'npbins1', '=')
+            diag_params(7) = get_variable(fh, 'nmu1', '=')
+            diag_params(8) = get_variable(fh, 'rx1', '=')
+            diag_params(9) = get_variable(fh, 'ry1', '=')
+            diag_params(10) = get_variable(fh, 'rz1', '=')
+
+            diag_params(11) = get_variable(fh, 'dump_interval2', '=')
+            diag_params(12) = get_variable(fh, 'pmin2', '=')
+            diag_params(13) = get_variable(fh, 'pmax2', '=')
+            diag_params(14) = get_variable(fh, 'npbins2', '=')
+            diag_params(15) = get_variable(fh, 'nmu2', '=')
+            diag_params(16) = get_variable(fh, 'rx2', '=')
+            diag_params(17) = get_variable(fh, 'ry2', '=')
+            diag_params(18) = get_variable(fh, 'rz2', '=')
+
+            diag_params(19) = get_variable(fh, 'dump_interval3', '=')
+            diag_params(20) = get_variable(fh, 'pmin3', '=')
+            diag_params(21) = get_variable(fh, 'pmax3', '=')
+            diag_params(22) = get_variable(fh, 'npbins3', '=')
+            diag_params(23) = get_variable(fh, 'nmu3', '=')
+            diag_params(24) = get_variable(fh, 'rx3', '=')
+            diag_params(25) = get_variable(fh, 'ry3', '=')
+            diag_params(26) = get_variable(fh, 'rz3', '=')
+
+            diag_params(27) = get_variable(fh, 'dump_interval4', '=')
+            diag_params(28) = get_variable(fh, 'pmin4', '=')
+            diag_params(29) = get_variable(fh, 'pmax4', '=')
+            diag_params(30) = get_variable(fh, 'npbins4', '=')
+            diag_params(31) = get_variable(fh, 'nmu4', '=')
+            diag_params(32) = get_variable(fh, 'rx4', '=')
+            diag_params(33) = get_variable(fh, 'ry4', '=')
+            diag_params(34) = get_variable(fh, 'rz4', '=')
+            close(fh)
+        endif
+        call MPI_BCAST(diag_params, ndiag_params, MPI_DOUBLE_PRECISION, &
+            master, MPI_COMM_WORLD, ierr)
+        npp_global = int(diag_params(1))
+        nmu_global = int(diag_params(2))
+        if (focused_transport) then
+            nmu_global = int(diag_params(2))
+        else
+            nmu_global = 1 ! For Parker's transport
+        endif
+        if (mpi_rank == master) then
+            !< echo the information
+            print *, "---------------------------------------------------"
+            write(*, "(A,I0)") " # of momentum bins for global distribution: ", npp_global
+            write(*, "(A,I0)") " # of mu bins for global distribution: ", nmu_global
+        endif
+
+        ! 1st set of local distribution diagnostics parameters
+        dump_interval1 = int(diag_params(3))
+        pmin1 = diag_params(4)
+        pmax1 = diag_params(5)
+        npbins1 = int(diag_params(6))
+        if (focused_transport) then
+            nmu1 = int(diag_params(7))
+        else
+            nmu1 = 1 ! For Parker's transport
+        endif
+        rx1 = int(diag_params(8))
+        ry1 = int(diag_params(9))
+        rz1 = int(diag_params(10))
+        nrx1 = (fconfig%nx + rx1 - 1) / rx1
+        nry1 = (fconfig%ny + ry1 - 1) / ry1
+        nrz1 = (fconfig%nz + rz1 - 1) / rz1
+        call echo_diagnostics_params(dump_interval1, pmin1, pmax1, nrx1, nry1, nrz1, &
+                                     npbins1, nmu1, rx1, ry1, rz1)
+        if (dump_interval1 < nframes) then ! Otherwise, the set of parameters will be used
+            call check_local_dist_configuration(nrx1, nry1, nrz1, rx1, ry1, rz1)
+            dump_local_dist1 = .true.
+        else
+            dump_local_dist1 = .false.
+        endif
+
+        ! 2nd set of local distribution diagnostics parameters
+        dump_interval2 = int(diag_params(11))
+        pmin2 = diag_params(12)
+        pmax2 = diag_params(13)
+        npbins2 = int(diag_params(14))
+        if (focused_transport) then
+            nmu2 = int(diag_params(15))
+        else
+            nmu2 = 1 ! For Parker's transport
+        endif
+        rx2 = int(diag_params(16))
+        ry2 = int(diag_params(17))
+        rz2 = int(diag_params(18))
+        nrx2 = (fconfig%nx + rx2 - 1) / rx2
+        nry2 = (fconfig%ny + ry2 - 1) / ry2
+        nrz2 = (fconfig%nz + rz2 - 1) / rz2
+        call echo_diagnostics_params(dump_interval2, pmin2, pmax2, nrx2, nry2, nrz2, &
+                                     npbins2, nmu2, rx2, ry2, rz2)
+        if (dump_interval2 < nframes) then ! Otherwise, the set of parameters will be used
+            call check_local_dist_configuration(nrx2, nry2, nrz2, rx2, ry2, rz2)
+            dump_local_dist2 = .true.
+        else
+            dump_local_dist2 = .false.
+        endif
+
+        ! 3rd set of local distribution diagnostics parameters
+        dump_interval3 = int(diag_params(19))
+        pmin3 = diag_params(20)
+        pmax3 = diag_params(21)
+        npbins3 = int(diag_params(22))
+        if (focused_transport) then
+            nmu3 = int(diag_params(23))
+        else
+            nmu3 = 1 ! For Parker's transport
+        endif
+        rx3 = int(diag_params(24))
+        ry3 = int(diag_params(25))
+        rz3 = int(diag_params(26))
+        nrx3 = (fconfig%nx + rx3 - 1) / rx3
+        nry3 = (fconfig%ny + ry3 - 1) / ry3
+        nrz3 = (fconfig%nz + rz3 - 1) / rz3
+        call echo_diagnostics_params(dump_interval3, pmin3, pmax3, nrx3, nry3, nrz3, &
+                                     npbins3, nmu3, rx3, ry3, rz3)
+        if (dump_interval3 < nframes) then ! Otherwise, the set of parameters will be used
+            call check_local_dist_configuration(nrx3, nry3, nrz3, rx3, ry3, rz3)
+            dump_local_dist3 = .true.
+        else
+            dump_local_dist3 = .false.
+        endif
+
+        ! 4th set of local distribution diagnostics parameters
+        dump_interval4 = int(diag_params(27))
+        pmin4 = diag_params(28)
+        pmax4 = diag_params(29)
+        npbins4 = int(diag_params(30))
+        if (focused_transport) then
+            nmu4 = int(diag_params(31))
+        else
+            nmu4 = 1 ! For Parker's transport
+        endif
+        rx4 = int(diag_params(32))
+        ry4 = int(diag_params(33))
+        rz4 = int(diag_params(34))
+        nrx4 = (fconfig%nx + rx4 - 1) / rx4
+        nry4 = (fconfig%ny + ry4 - 1) / ry4
+        nrz4 = (fconfig%nz + rz4 - 1) / rz4
+        call echo_diagnostics_params(dump_interval4, pmin4, pmax4, nrx4, nry4, nrz4, &
+                                     npbins4, nmu4, rx4, ry4, rz4)
+        if (dump_interval4 < nframes) then ! Otherwise, the set of parameters will be used
+            call check_local_dist_configuration(nrx4, nry4, nrz4, rx4, ry4, rz4)
+            dump_local_dist4 = .true.
+        else
+            dump_local_dist4 = .false.
+        endif
+
+        if (mpi_rank == master) then
+            print *, "---------------------------------------------------"
         endif
     end subroutine read_diagnostics_params
 
@@ -845,6 +1303,8 @@ module diagnostics
         escaped_ptls%y = 0.0
         escaped_ptls%z = 0.0
         escaped_ptls%p = 0.0
+        escaped_ptls%v = 0.0
+        escaped_ptls%mu = 0.0
         escaped_ptls%weight = 0.0
         escaped_ptls%t = 0.0
         escaped_ptls%dt = 0.0
