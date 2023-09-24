@@ -98,7 +98,8 @@ module particle_module
     !< The scattering time for initial particles (kpara = v^2\tau/3)
     real(dp) :: tau0
 
-    !< Pitch-angle diffusion
+    !< Pitch-angle
+    real(dp), parameter :: mu_max=0.99  !< Avoiding parallel streaming
     real(dp) :: duu0
 
     !< Other flags and parameters
@@ -438,7 +439,7 @@ module particle_module
                         ytmp > ymin_box .and. ytmp < ymax_box .and. &
                         ztmp > zmin_box .and. ztmp < zmax_box
             enddo
-            mu_tmp = 2.0d0 * unif_01(0) - 1.0d0
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
@@ -523,7 +524,7 @@ module particle_module
                 endif
             endif
             ptls(nptl_current)%v = particle_v0 * ptls(nptl_current)%p / p0
-            ptls(nptl_current)%mu = 2.0d0 * unif_01(0) - 1.0d0
+            ptls(nptl_current)%mu = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
             ptls(nptl_current)%weight = 1.0d0
             ptls(nptl_current)%t = tstamps_mhd(ct_mhd)
             ptls(nptl_current)%dt = dt
@@ -788,7 +789,7 @@ module particle_module
                     jz = -3.0_dp
                 endif
             enddo
-            mu_tmp = 2.0d0 * unif_01(0) - 1.0d0
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
@@ -906,7 +907,7 @@ module particle_module
                     db2 = -3.0_dp
                 endif
             enddo
-            mu_tmp = 2.0d0 * unif_01(0) - 1.0d0
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
@@ -1045,7 +1046,7 @@ module particle_module
                     divv = 3.0_dp
                 endif
             enddo
-            mu_tmp = 2.0d0 * unif_01(0) - 1.0d0
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
@@ -1194,19 +1195,18 @@ module particle_module
                     endif
                     call calc_spatial_diffusion_coefficients(ptl, focused_transport, &
                         fields, db2, lc, kappa)
-                    call set_time_step(t0, dt_target, fields, kappa, ptl)
                     if (focused_transport) then
                         if (ndim_field == 1) then
                             call push_particle_1d_ft(thread_id, rt, ptl, fields, db2, &
-                                lc, kappa, deltax, deltap, deltav, deltamu)
+                                lc, kappa, .false., deltax, deltap, deltav, deltamu)
                         else if (ndim_field == 2) then
                             if (include_3rd_dim_in2d_flag) then
                                 call push_particle_2d_include_3rd_ft(thread_id, rt, ptl, &
-                                    fields, db2, lc, kappa, deltax, deltay, deltaz, &
+                                    fields, db2, lc, kappa, .false., deltax, deltay, deltaz, &
                                     deltap, deltav, deltamu)
                             else
                                 call push_particle_2d_ft(thread_id, rt, ptl, fields, db2, &
-                                    lc, kappa, deltax, deltay, deltap, deltav, deltamu)
+                                    lc, kappa, .false., deltax, deltay, deltap, deltav, deltamu)
                             endif
                         else
                             if (acc_by_surface_flag) then
@@ -1214,20 +1214,20 @@ module particle_module
                                     surface_height1, surface_height2)
                             endif
                             call push_particle_3d_ft(thread_id, rt, surface_height1, &
-                                surface_height2, ptl, fields, db2, lc, kappa, &
+                                surface_height2, ptl, fields, db2, lc, kappa, .false., &
                                 deltax, deltay, deltaz, deltap, deltav, deltamu)
                         endif
                     else
                         if (ndim_field == 1) then
                             call push_particle_1d(thread_id, rt, ptl, fields, db2, &
-                                lc, kappa, deltax, deltap)
+                                lc, kappa, .false., deltax, deltap)
                         else if (ndim_field == 2) then
                             if (include_3rd_dim_in2d_flag) then
                                 call push_particle_2d_include_3rd(thread_id, rt, ptl, &
-                                    fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
+                                    fields, db2, lc, kappa, .false., deltax, deltay, deltaz, deltap)
                             else
                                 call push_particle_2d(thread_id, rt, ptl, fields, db2, &
-                                    lc, kappa, deltax, deltay, deltap)
+                                    lc, kappa, .false., deltax, deltay, deltap)
                             endif
                         else
                             if (acc_by_surface_flag) then
@@ -1235,7 +1235,7 @@ module particle_module
                                     surface_height1, surface_height2)
                             endif
                             call push_particle_3d(thread_id, rt, surface_height1, &
-                                surface_height2, ptl, fields, db2, lc, kappa, &
+                                surface_height2, ptl, fields, db2, lc, kappa, .false., &
                                 deltax, deltay, deltaz, deltap)
                         endif
                     endif
@@ -1289,42 +1289,44 @@ module particle_module
                         if (focused_transport) then
                             if (ndim_field == 1) then
                                 call push_particle_1d_ft(thread_id, rt, ptl, fields, db2, &
-                                    lc, kappa, deltax, deltap, deltav, deltamu)
+                                    lc, kappa, .true., deltax, deltap, deltav, deltamu)
                             else if (ndim_field == 2) then
                                 if (include_3rd_dim_in2d_flag) then
                                     call push_particle_2d_include_3rd_ft(thread_id, rt, ptl, &
-                                        fields, db2, lc, kappa, deltax, deltay, deltaz, deltap, &
-                                        deltav, deltamu)
+                                        fields, db2, lc, kappa, .true., deltax, deltay, deltaz, &
+                                        deltap, deltav, deltamu)
                                 else
                                     call push_particle_2d_ft(thread_id, rt, ptl, fields, db2, &
-                                        lc, kappa, deltax, deltay, deltap, deltav, deltamu)
+                                        lc, kappa, .true., deltax, deltay, deltap, deltav, deltamu)
                                 endif
                             else
                                 if (acc_by_surface_flag) then
-                                    call interp_acc_surface(pos, weights, rt, surface_height1, surface_height2)
+                                    call interp_acc_surface(pos, weights, rt, &
+                                        surface_height1, surface_height2)
                                 endif
                                 call push_particle_3d_ft(thread_id, rt, surface_height1, surface_height2, &
-                                    ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap, &
+                                    ptl, fields, db2, lc, kappa, .true., deltax, deltay, deltaz, deltap, &
                                     deltav, deltamu)
                             endif
                         else
                             if (ndim_field == 1) then
                                 call push_particle_1d(thread_id, rt, ptl, fields, db2, &
-                                    lc, kappa, deltax, deltap)
+                                    lc, kappa, .true., deltax, deltap)
                             else if (ndim_field == 2) then
                                 if (include_3rd_dim_in2d_flag) then
                                     call push_particle_2d_include_3rd(thread_id, rt, ptl, &
-                                        fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
+                                        fields, db2, lc, kappa, .true., deltax, deltay, deltaz, deltap)
                                 else
                                     call push_particle_2d(thread_id, rt, ptl, fields, db2, &
-                                        lc, kappa, deltax, deltay, deltap)
+                                        lc, kappa, .true., deltax, deltay, deltap)
                                 endif
                             else
                                 if (acc_by_surface_flag) then
-                                    call interp_acc_surface(pos, weights, rt, surface_height1, surface_height2)
+                                    call interp_acc_surface(pos, weights, rt, &
+                                        surface_height1, surface_height2)
                                 endif
                                 call push_particle_3d(thread_id, rt, surface_height1, surface_height2, &
-                                    ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
+                                    ptl, fields, db2, lc, kappa, .true., deltax, deltay, deltaz, deltap)
                             endif
                         endif
                         ptl%nsteps_tracking = ptl%nsteps_tracking + 1
@@ -2030,287 +2032,6 @@ module particle_module
     end subroutine read_particle_params
 
     !---------------------------------------------------------------------------
-    !< Determine the time step. X, Y, Z are for r, theta, phi in
-    !< spherical coordinates
-    !< Args;
-    !<  t0: the initial time for current particle
-    !<  dtf: the time interval between fine diagnostics
-    !<  fields: fields and their gradients at particle position
-    !<  kappa: kappa and related variables
-    !<  ptl: particle structure
-    !---------------------------------------------------------------------------
-    subroutine set_time_step(t0, dtf, fields, kappa, ptl)
-        use constants, only: pi
-        use mhd_config_module, only: mhd_config
-        implicit none
-        real(dp), intent(in) :: t0, dtf
-        real(dp), dimension(*), intent(in) :: fields
-        type(kappa_type), intent(in) :: kappa
-        type(particle_type), intent(inout) :: ptl
-        real(dp) :: tmp30, tmp40, bx, by, bz, b, ib, ib2, ib3
-        real(dp) :: vx, vy, vz, dxm, dym, dzm, dt1, dt2, dt3
-        real(dp) :: vdx, vdy, vdz, vdp
-        real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
-        real(dp) :: db_dx, db_dy, db_dz, bxn, byn, bzn, bxyn, ibxyn
-        real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm, ctheta, istheta, ir, ir2
-        real(dp) :: qtmp1, qtmp2, atmp
-        real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
-
-        if (ndim_field == 1) then
-            vx = fields(1)
-            dxm = mhd_config%dx
-            tmp30 = kappa%skpara
-            if (spherical_coord_flag) then
-                tmp40 = abs(vx + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x)
-            else
-                tmp40 = abs(vx + kappa%dkxx_dx)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    ptl%dt = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                else
-                    ptl%dt = dxm/(10.0*tmp40)
-                endif
-            else
-                ptl%dt = dt_min
-            endif
-        else if (ndim_field == 2) then
-            vx = fields(1)
-            vy = fields(2)
-            bx = fields(5)
-            by = fields(6)
-            bz = fields(7)
-            b = dsqrt(bx**2 + by**2 + bz**2)
-            if (b == 0.0d0) then
-                ib = 0.0_dp
-            else
-                ib = 1.0_dp / b
-            endif
-            bxn = bx * ib
-            byn = by * ib
-            dxm = mhd_config%dx
-            dym = mhd_config%dy
-
-            if (spherical_coord_flag) then
-                ctheta = cos(ptl%y)
-                istheta = 1.0 / sin(ptl%y)
-                ir = 1.0 / ptl%x
-                ir2 = 1.0 / ptl%x**2
-                a1 = kappa%kxx
-                b1 = kappa%kxy * ir
-                c1 = kappa%kyy * ir2
-                atmp = dsqrt((a1-c1)**2 + 4*b1**2)
-                Qpp = atmp + (a1 + c1)
-                Qmp = atmp - (a1 + c1)
-                Qpm = atmp + (a1 - c1)
-                Qmm = atmp - (a1 - c1)
-                qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
-                qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
-            endif
-
-            ! X-direction
-            if (spherical_coord_flag) then
-                tmp30 = abs(-Qmm * qtmp1) + abs(Qpm * qtmp2)
-                tmp40 = abs(vx + kappa%dkxx_dx + &
-                    (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*ctheta*istheta)*ir)
-            else
-                tmp30 = kappa%skperp + kappa%skpara_perp * abs(bxn)
-                tmp40 = abs(vx + kappa%dkxx_dx + kappa%dkxy_dy)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    ! dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                    ! dt1 = min((tmp30/tmp40)**2, dxm**2/tmp30**2) * 0.3
-                    dt1 = min(2 * kappa%kxx/tmp40**2, 0.5 * dxm**2/kappa%kxx) * 0.3
-                    ! dt1 = min(dxm**2/kappa%kxx, dxm/tmp40) * 0.3
-                else
-                    dt1 = dxm/(10.0*tmp40)
-                endif
-            else
-                dt1 = dt_min
-            endif
-
-            ! Y-direction
-            if (spherical_coord_flag) then
-                tmp30 = abs(2*b1*qtmp1) + abs(2*b1*qtmp2)
-                tmp40 = abs((vy+kappa%dkxy_dx)*ir + &
-                    (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta)*ir2)
-            else
-                tmp30 = kappa%skperp + kappa%skpara_perp * abs(byn)
-                tmp40 = abs(vy + kappa%dkxy_dx + kappa%dkyy_dy)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    ! dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                    ! dt2 = min((tmp30/tmp40)**2, dym**2/tmp30**2) * 0.3
-                    dt2 = min(2 * kappa%kyy/tmp40**2, 0.5 * dym**2/kappa%kyy) * 0.3
-                    ! dt2 = min(dym**2/kappa%kyy, dym/tmp40) * 0.3
-                else
-                    dt2 = dym/(10.0*tmp40)
-                endif
-            else
-                dt2 = dt_min
-            endif
-            ptl%dt = min(dt1, dt2)
-        else
-            vx = fields(1)
-            vy = fields(2)
-            vz = fields(3)
-            bx = fields(5)
-            by = fields(6)
-            bz = fields(7)
-            b = dsqrt(bx**2 + by**2 + bz**2)
-            if (b == 0.0d0) then
-                ib = 0.0_dp
-            else
-                ib = 1.0_dp / b
-            endif
-            bxn = bx * ib
-            byn = by * ib
-            bzn = bz * ib
-            bxyn = dsqrt(bxn**2 + byn**2)
-            if (bxyn == 0.0d0) then
-                ibxyn = 0.0d0
-            else
-                ibxyn = 1.0_dp / bxyn
-            endif
-            dxm = mhd_config%dx
-            dym = mhd_config%dy
-            dzm = mhd_config%dz
-
-            if (spherical_coord_flag) then
-                ctheta = cos(ptl%y)
-                istheta = 1.0 / sin(ptl%y)
-                ir = 1.0 / ptl%x
-                ir2 = ir**2
-                p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                                 kappa%kyy*kappa%kxz**2 + &
-                                 kappa%kzz*kappa%kxy**2 - &
-                                 2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                                 kappa%kxx*kappa%kyy*kappa%kzz) / &
-                                 (kappa%kyz**2 - kappa%kyy*kappa%kzz))
-                p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                    dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                    (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-                p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-                p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-                p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-                p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
-            endif
-
-            ! Drift velocity
-            dbx_dy = fields(nfields+14)
-            dbx_dz = fields(nfields+15)
-            dby_dx = fields(nfields+16)
-            dby_dz = fields(nfields+18)
-            dbz_dx = fields(nfields+19)
-            dbz_dy = fields(nfields+20)
-            db_dx = fields(nfields+22)
-            db_dy = fields(nfields+23)
-            db_dz = fields(nfields+24)
-            ib2 = ib * ib
-            ib3 = ib * ib2
-            vdp = 1.0 / (3 * pcharge) / dsqrt((drift1*p0/ptl%p)**2 + (drift2*p0**2/ptl%p**2)**2)
-            if (spherical_coord_flag) then
-                gbr = db_dx
-                gbt = db_dy * ir
-                gbp = db_dz * ir * istheta
-                vdx = vdp * ((dbz_dy + bz*ctheta*istheta - dby_dz*istheta)*ir*ib2 - &
-                             (gbt*bz - gbp*by)*2.0*ib3)
-                vdy = vdp * ((dbx_dz*istheta*ir - dbz_dx - bz*ir)*ib2 - &
-                             (gbp*bx - gbr*bz)*2.0*ib3)
-                vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
-                             (gbr*by - gbt*bx)*2.0*ib3)
-            else
-                vdx = vdp * ((dbz_dy-dby_dz)*ib2 - 2*(bz*db_dy-by*db_dz)*ib3)
-                vdy = vdp * ((dbx_dz-dbz_dx)*ib2 - 2*(bx*db_dz-bz*db_dx)*ib3)
-                vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
-            endif
-
-            ! X-direction
-            if (spherical_coord_flag) then
-                tmp30 = abs(p11) + abs(p12) + abs(p13)
-                tmp40 = abs(vx + vdx + kappa%dkxx_dx + &
-                    (2.0*kappa%kxx + kappa%dkxy_dy + &
-                     kappa%kxy*ctheta*istheta + &
-                     kappa%dkxz_dz*istheta)*ir)
-            else
-                tmp30 = abs(bxn)*kappa%skpara + &
-                    abs(bxn*bzn)*kappa%skperp*ibxyn + abs(byn)*kappa%skperp*ibxyn
-                tmp40 = abs(vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    dt1 = min(dxm/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                else
-                    dt1 = dxm/(10.0*tmp40)
-                endif
-            else
-                dt1 = dt_min
-            endif
-
-            ! Y-direction
-            if (spherical_coord_flag) then
-                tmp30 = abs(p22) + abs(p33)
-                tmp40 = abs((vy + vdy + kappa%dkxy_dx)*ir + &
-                    (kappa%kxy + kappa%dkyy_dy + &
-                     kappa%kyy*ctheta*istheta + kappa%dkyz_dz*istheta)*ir2)
-            else
-                tmp30 = abs(byn)*kappa%skpara + &
-                    abs(byn*bzn)*kappa%skperp*ibxyn + abs(bxn)*kappa%skperp*ibxyn
-                tmp40 = abs(vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    dt2 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                else
-                    dt2 = dym/(10.0*tmp40)
-                endif
-            else
-                dt2 = dt_min
-            endif
-
-            ! Z-direction
-            if (spherical_coord_flag) then
-                tmp30 = abs(p33)
-                tmp40 = abs((vz + vdz + kappa%dkxz_dx)*istheta*ir + &
-                    (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2)
-            else
-                tmp30 = abs(bzn)*kappa%skpara + bxyn*kappa%skperp
-                tmp40 = abs(vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz)
-            endif
-            if (tmp40 .ne. 0.0d0) then
-                if (tmp30 > 0) then
-                    dt3 = min(dym/(10.0*tmp40), (tmp30/tmp40)**2) * 0.5d0
-                else
-                    dt3 = dym/(10.0*tmp40)
-                endif
-            else
-                dt3 = dt_min
-            endif
-
-            ptl%dt = min(dt1, dt2, dt3)
-        endif
-
-        !!< Make sure the time step is not too large. Adding dt_min to make
-        !!< sure to exit the while where this routine is called
-        !if ((ptl%t + ptl%dt - t0) > dtf) then
-        !    ! ptl%dt = t0 + dtf - ptl%t + dt_min
-        !    ptl%dt = t0 + dtf - ptl%t
-        !endif
-
-        !< Make sure the time step is not too small
-        if (ptl%dt .lt. dt_min) then
-            ptl%dt = dt_min
-        endif
-
-        !< Make sure the time step is not too large
-        if (ptl%dt .gt. dt_max) then
-            ptl%dt = dt_max
-        endif
-    end subroutine set_time_step
-
-    !---------------------------------------------------------------------------
     !< Check whether particle in the in the acceleration region (rectangular box)
     !< Args:
     !<  ptl: one particle
@@ -2339,6 +2060,79 @@ module particle_module
     end function particle_in_acceleration_region
 
     !---------------------------------------------------------------------------
+    !< Calculate momentum diffusion due to wave scattering
+    !< Args:
+    !<  rho: plasma density
+    !<  b: magnetic field strength
+    !<  kpara: parallel diffusion coefficient
+    !<  ptl: one particle
+    !<  dp_dt: 1st-order momentum change rate
+    !<  dpp: momentum diffusion
+    !---------------------------------------------------------------------------
+    subroutine calc_dpp_wave_scattering(rho, b, kpara, ptl, dp_dt, dpp)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        real(dp), intent(in) :: rho, b, kpara
+        type(particle_type), intent(in) :: ptl
+        real(dp), intent(inout) :: dp_dt, dpp
+        real(dp) :: va ! Alfven speed
+
+        va = b / dsqrt(rho)
+        if (momentum_dependency == 1) then
+            dp_dt = dp_dt + (8*ptl%p / (27*kpara)) * va**2
+        else
+            dp_dt = dp_dt + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
+        endif
+        dpp = dpp + (ptl%p * va)**2 / (9*kpara)
+    end subroutine calc_dpp_wave_scattering
+
+    !---------------------------------------------------------------------------
+    !< Calculate momentum diffusion due to flow shear
+    !< Args:
+    !<  b: magnetic field strength
+    !<  bx, by, bz: magnetic field components
+    !<  knorm0: normalization for diffusion coefficients
+    !<  sigmaxx, sigmayy, sigmazz: shear tensor diagonal components
+    !<  sigmaxy, sigmaxz, sigmayz: shear tensor other components
+    !<  ptl: one particle
+    !<  dp_dt: 1st-order momentum change rate
+    !<  dpp: momentum diffusion
+    !---------------------------------------------------------------------------
+    subroutine calc_dpp_flow_shear(b, bx, by, bz, knorm0, &
+            sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz, ptl, dp_dt, dpp)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        real(dp), intent(in) :: b, bx, by, bz
+        real(dp), intent(in) :: knorm0
+        real(dp), intent(in) :: sigmaxx, sigmayy, sigmazz
+        real(dp), intent(in) :: sigmaxy, sigmaxz, sigmayz
+        type(particle_type), intent(in) :: ptl
+        real(dp), intent(inout) :: dp_dt, dpp
+        real(dp) :: ib, bbsigma, gshear
+
+        if (weak_scattering) then
+            if (b == 0) then
+                ib = 0.0
+            else
+                ib = 1.0 / b
+            endif
+            bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
+                2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
+            bbsigma = bbsigma * ib * ib
+            gshear = bbsigma**2 / 5
+        else
+            gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
+                2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
+        endif
+        if (gshear > 0.0d0) then
+            dp_dt = dp_dt + (2 + pindex) * gshear * tau0 * knorm0 * &
+                ptl%p**(pindex-1) * p0**(2.0-pindex)
+            dpp = dpp + gshear * tau0 * knorm0 * &
+                ptl%p**pindex * p0**(2.0-pindex)
+        endif
+    end subroutine calc_dpp_flow_shear
+
+    !---------------------------------------------------------------------------
     !< Push particle for a single step for a 1D simulation
     !< Args:
     !<  thread_id: thread ID staring from 0
@@ -2349,10 +2143,11 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax, deltap: the change of x and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_1d(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltap)
+            lc, kappa, fixed_dt, deltax, deltap)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, &
@@ -2360,139 +2155,80 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
         real(dp), dimension(*), intent(inout) :: db2, lc
         type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltap
-        real(dp) :: xtmp
-        real(dp) :: sdt, dvx_dx, divv, gshear
+        real(dp) :: sdt, dvx_dx, divv
         real(dp) :: b, ib, bx, by, bz, vx, px, rt1
-        real(dp) :: xmin, xmax, dxm
-        reaL(dp) :: xmin1, xmax1, dxmh
-        real(dp) :: skpara, skpara1
-        real(dp) :: ran1, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: dxm, rho, ran1, sqrt3
         real(dp) :: rands(2)
         real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dp_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
         vx = fields(1)
-        b = fields(8)
+        bx = fields(5)
+        by = fields(6)
+        bz = fields(7)
+        b = dsqrt(bx**2 + by**2 + bz**2)
         dvx_dx = fields(nfields+1)
-        xmin = fconfig%xmin
-        xmax = fconfig%xmax
         dxm = mhd_config%dx
-        dxmh = 0.5 * dxm
 
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        xmax1 = xmax + dxmh
+        deltax = 0.0d0
+        deltap = 0.0d0
 
-        deltax = 0.0
-        deltap = 0.0
-
-        sdt = dsqrt(ptl%dt)
+        !< Calculate the 1st-order and 2nd-order rates
         if (spherical_coord_flag) then
-            deltax = (vx + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x) * ptl%dt
-        else
-            deltax = (vx + kappa%dkxx_dx)*ptl%dt
-        endif
-        xtmp = ptl%x + deltax + kappa%skpara*sdt
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-
-        !< We originally tried to decrease the time step when xtmp or ytmp are out-of-bound,
-        !< but decreasing the time step does not necessarily make the moving distance smaller.
-        !< Therefore, we switch between first-order and second-order method.
-        if (xtmp < xmin1 .or. xtmp > xmax1) then
-            !< First-order method
-            deltax = deltax + ran1*kappa%skpara*sdt
-        else
-            !< Second-order method. It requires xtmp and ytmp are in the local domain.
-            px = (xtmp - xmin) / dxm
-            if (spherical_coord_flag) then
-                call get_interp_paramters_spherical(ptl%x, 0.0_dp, 0.0_dp, pos, weights)
-            else
-                call get_interp_paramters(px, 0.0_dp, 0.0_dp, pos, weights)
-            endif
-            call interp_fields(pos, weights, rt, fields)
-            if (deltab_flag) then
-                call interp_magnetic_fluctuation(pos, weights, rt, db2)
-            endif
-            if (correlation_flag) then
-                call interp_correlation_length(pos, weights, rt, lc)
-            endif
-
-            skpara = kappa%skpara
-
-            call calc_spatial_diffusion_coefficients(ptl, .false., fields, &
-                db2, lc, kappa)
-
-            skpara1 = kappa%skpara ! Diffusion coefficient at predicted position
-
-            deltax = deltax + ran1*skpara*sdt + &
-                (skpara1-skpara)*(ran1*ran1-1.0)*sdt/2.0
-        endif
-
-        ptl%x = ptl%x + deltax
-        ptl%t = ptl%t + ptl%dt
-
-        ! Momentum
-        if (spherical_coord_flag) then
+            dx_dt = vx + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x
             divv = dvx_dx + 2.0*vx/ptl%x
         else
+            dx_dt = vx + kappa%dkxx_dx
             divv = dvx_dx
         endif
-        deltap = -ptl%p * divv * ptl%dt / 3.0d0
-        ! Momentum diffusion due to wave scattering
+
+        dp_dt = -ptl%p * divv / 3.0d0
+
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
         if (dpp_wave_flag) then
             rho = fields(4)
-            va = b / dsqrt(rho)
-            if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
         endif
 
-        ! Momentum diffusion due to flow shear
+        !< Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             sigmaxx = dvx_dx - divv / 3
             sigmayy = -divv / 3
             sigmazz = -divv / 3
-            if (weak_scattering) then
-                bx = fields(5)
-                by = fields(6)
-                bz = fields(7)
-                b = dsqrt(bx**2 + by**2 + bz**2)
-                if (b == 0) then
-                    ib = 0.0
-                else
-                    ib = 1.0 / b
-                endif
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, 0.0d0, 0.0d0, 0.0d0, ptl, dp_dt, dpp)
+        endif
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. (dp_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
+                             0.1*p0/abs(dp_dt))
             else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2) / 15
-            endif
-            if (gshear > 0) then
-                deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+                ptl%dt = dt_min
             endif
         endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltax = dx_dt * ptl%dt + ran1*kappa%skpara*sdt
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
+
+        ptl%x = ptl%x + deltax
+        ptl%t = ptl%t + ptl%dt
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -2503,171 +2239,26 @@ module particle_module
         else
             ptl%p = ptl%p + deltap
         endif
-        if (ptl%p < 0.5 * p0) then
+
+        !< Make sure the momentum is not too small,
+        !< so it might not deviate from the diffusion limit.
+        if (ptl%p < 0.25 * p0) then
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_1d
 
     !---------------------------------------------------------------------------
-    !< Push particle for a single step for a 1D simulation for focused transport
-    !< Args:
-    !<  thread_id: thread ID staring from 0
-    !<  rt: the offset to the earlier time point of the MHD data. It is
-    !<      normalized to the time interval of the MHD data output.
-    !<  ptl: particle structure
-    !<  fields: fields and their gradients at particle position
-    !<  db2: turbulence variance and its gradients at particle position
-    !<  lc: turbulence correlation length and its gradients at particle position
-    !<  kappa: kappa and related variables
-    !<  deltax: the change of x in this step
-    !<  deltap: the change of p in this step
-    !<  deltav: the change of v in this step
-    !<  deltamu: the change of mu in this step
+    !< Calculate pitch-angle diffusion coefficient
     !---------------------------------------------------------------------------
-    subroutine push_particle_1d_ft(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltap, deltav, deltamu)
-        use mhd_config_module, only: mhd_config
-        use simulation_setup_module, only: fconfig
-        use mhd_data_parallel, only: interp_fields, &
-            interp_magnetic_fluctuation, interp_correlation_length
-        use random_number_generator, only: unif_01, two_normals
+    subroutine calc_duu(ptl, div_bnorm, divv, bb_gradv, bv_gradv, mu2, &
+            dmu_dt, duu, duu_du)
         implicit none
-        integer, intent(in) :: thread_id
-        real(dp), intent(in) :: rt
-        type(particle_type), intent(inout) :: ptl
-        real(dp), dimension(*), intent(inout) :: fields
-        real(dp), dimension(*), intent(inout) :: db2, lc
-        type(kappa_type), intent(inout) :: kappa
-        real(dp), intent(out) :: deltax, deltap, deltav, deltamu
-        real(dp) :: xtmp
-        real(dp) :: sdt, dvx_dx, dvy_dx, dvz_dx
-        real(dp) :: divv, bb_gradv, bv_gradv, gshear
-        real(dp) :: b, ib, bx, by, bz, rt1
-        real(dp) :: vx, vy, vz, cot_theta, ir
-        real(dp) :: mu2, acc_rate, duu, dmu_dt, duu_du, dtmp
-        real(dp) :: dp_dpp, div_bnorm, db_dx, h0, turb_gamma
-        real(dp) :: xmin, xmax, dxm
-        reaL(dp) :: xmin1, xmax1, dxmh
-        real(dp) :: skpara, skpara1
-        real(dp) :: ran1, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
-        real(dp) :: rands(2)
-        real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
-        integer, dimension(3) :: pos
-        real(dp), dimension(8) :: weights
-
-        vx = fields(1)
-        vy = fields(2)
-        vz = fields(3)
-        bx = fields(5)
-        by = fields(6)
-        bz = fields(7)
-        b = dsqrt(bx**2 + by**2 + bz**2)
-        dvx_dx = fields(nfields+1)
-        dvy_dx = fields(nfields+4)
-        dvz_dx = fields(nfields+7)
-        xmin = fconfig%xmin
-        xmax = fconfig%xmax
-        dxm = mhd_config%dx
-        dxmh = 0.5 * dxm
-
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        xmax1 = xmax + dxmh
-
-        deltax = 0.0
-        deltap = 0.0
-
-        sdt = dsqrt(ptl%dt)
-        if (spherical_coord_flag) then
-            deltax = (vx + ptl%v * ptl%mu + kappa%dkxx_dx + 2.0*kappa%kxx/ptl%x) * ptl%dt
-        else
-            deltax = (vx + ptl%v * ptl%mu + kappa%dkxx_dx)*ptl%dt
-        endif
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        deltax = deltax + ran1*kappa%skperp*sdt
-
-        ptl%x = ptl%x + deltax
-        ptl%t = ptl%t + ptl%dt
-
-        ! Momentum and velocity
-        if (spherical_coord_flag) then
-            ir = 1.0d0 / ptl%x
-            cot_theta = 1.0d0 / tan(ptl%y)
-            divv = dvx_dx + 2.0 * vx * ir
-            bb_gradv = (bx*bx*dvx_dx - bx*(by*vy + bz*vz) * ir + &
-                        by*bx*dvy_dx + by*(by*vx - cot_theta*bz*vz) * ir + &
-                        bz*bx*dvz_dx + bz**2 * (vx + cot_theta*vy) * ir) / (b*b)
-            bv_gradv = (bx*vx*dvx_dx - bx*(vy*vy + vz*vz) * ir + &
-                        by*vx*dvy_dx + by*(vy*vx - cot_theta*vz*vz) * ir + &
-                        bz*vx*dvz_dx + bz*vz * (vx + cot_theta*vy) * ir) / (b*b)
-        else
-            divv = dvx_dx
-            bb_gradv = (bx*bx*dvx_dx + by*bx*dvy_dx + bz*bx*dvz_dx) / (b*b)
-            bv_gradv = (bx*vx*dvx_dx + by*vx*dvy_dx + bz*vx*dvz_dx) / b
-        endif
-        mu2 = ptl%mu * ptl%mu
-        acc_rate = -(0.5 *(1 - mu2) * divv + &
-                     0.5 *(3 * mu2 - 1) * bb_gradv + &
-                     ptl%mu * bv_gradv / ptl%v)
-        deltap = ptl%p * acc_rate * ptl%dt
-        deltav = ptl%v * acc_rate * ptl%dt
-
-        ! Momentum diffusion due to wave scattering
-        if (dpp_wave_flag) then
-            rho = fields(4)
-            va = b / dsqrt(rho)
-            dp_dpp = 0.0d0
-            if (momentum_dependency == 1) then
-                dp_dpp = (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                dp_dpp = (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            dp_dpp = dp_dpp + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
-        endif
-
-        ! Momentum diffusion due to flow shear
-        if (dpp_shear_flag) then
-            sigmaxx = dvx_dx - divv / 3
-            sigmayy = -divv / 3
-            sigmazz = -divv / 3
-            if (weak_scattering) then
-                if (b == 0) then
-                    ib = 0.0
-                else
-                    ib = 1.0 / b
-                endif
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2) / 15
-            endif
-            dp_dpp = 0.0d0
-            if (gshear > 0) then
-                dp_dpp = (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                dp_dpp = dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-            endif
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
-        endif
-
-        ! Pitch-angle evolution
-        db_dx = fields(nfields+22)
-        div_bnorm = -bx * db_dx / (b*b)
+        type(particle_type), intent(in) :: ptl
+        real(dp), intent(in) :: div_bnorm, divv, bb_gradv, bv_gradv, mu2
+        real(dp), intent(out) :: dmu_dt, duu, duu_du
+        real(dp) :: dtmp, h0, turb_gamma
         dmu_dt = ptl%v * div_bnorm + ptl%mu * divv - &
             3 * ptl%mu * bb_gradv - 2 * bv_gradv / ptl%v
         dmu_dt = dmu_dt * (1-mu2) * 0.5
@@ -2690,10 +2281,154 @@ module particle_module
             duu = duu * dtmp
             duu_du = duu_du * dtmp
         endif
-        deltamu = (dmu_dt + duu_du) * ptl%dt
+        dmu_dt = dmu_dt + duu_du
+    end subroutine calc_duu
+
+    !---------------------------------------------------------------------------
+    !< Push particle for a single step for a 1D simulation for focused transport
+    !< Args:
+    !<  thread_id: thread ID staring from 0
+    !<  rt: the offset to the earlier time point of the MHD data. It is
+    !<      normalized to the time interval of the MHD data output.
+    !<  ptl: particle structure
+    !<  fields: fields and their gradients at particle position
+    !<  db2: turbulence variance and its gradients at particle position
+    !<  lc: turbulence correlation length and its gradients at particle position
+    !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
+    !<  deltax: the change of x in this step
+    !<  deltap: the change of p in this step
+    !<  deltav: the change of v in this step
+    !<  deltamu: the change of mu in this step
+    !---------------------------------------------------------------------------
+    subroutine push_particle_1d_ft(thread_id, rt, ptl, fields, db2, &
+            lc, kappa, fixed_dt, deltax, deltap, deltav, deltamu)
+        use mhd_config_module, only: mhd_config
+        use simulation_setup_module, only: fconfig
+        use mhd_data_parallel, only: interp_fields, &
+            interp_magnetic_fluctuation, interp_correlation_length
+        use random_number_generator, only: unif_01, two_normals
+        implicit none
+        integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
+        real(dp), intent(in) :: rt
+        type(particle_type), intent(inout) :: ptl
+        real(dp), dimension(*), intent(inout) :: fields
+        real(dp), dimension(*), intent(inout) :: db2, lc
+        type(kappa_type), intent(inout) :: kappa
+        real(dp), intent(out) :: deltax, deltap, deltav, deltamu
+        real(dp) :: xtmp
+        real(dp) :: sdt, dvx_dx, dvy_dx, dvz_dx
+        real(dp) :: divv, bb_gradv, bv_gradv
+        real(dp) :: b, ib, bx, by, bz, rt1
+        real(dp) :: vx, vy, vz, cot_theta, ir
+        real(dp) :: mu2, acc_rate, duu, dmu_dt, duu_du, dtmp
+        real(dp) :: dp_dpp, div_bnorm, db_dx, h0, turb_gamma
+        real(dp) :: dxm, rho, ran1, sqrt3
+        real(dp) :: rands(2)
+        real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
+        real(dp) :: dx_dt, dp_dt, dv_dt, dpp
+        real(dp), dimension(8) :: weights
+        integer, dimension(3) :: pos
+
+        vx = fields(1)
+        vy = fields(2)
+        vz = fields(3)
+        bx = fields(5)
+        by = fields(6)
+        bz = fields(7)
+        b = dsqrt(bx**2 + by**2 + bz**2)
+        dvx_dx = fields(nfields+1)
+        dvy_dx = fields(nfields+4)
+        dvz_dx = fields(nfields+7)
+        dxm = mhd_config%dx
+
+        deltax = 0.0d0
+        deltap = 0.0d0
+        deltav = 0.0d0
+        deltamu = 0.0d0
+
+        !< Calculate the 1st-order and 2nd-order rates
+        if (spherical_coord_flag) then
+            ir = 1.0d0 / ptl%x
+            dv_dt = vx + ptl%v * ptl%mu + kappa%dkxx_dx + 2.0 * kappa%kxx * ir
+            cot_theta = 1.0d0 / tan(ptl%y)
+            divv = dvx_dx + 2.0 * vx * ir
+            bb_gradv = (bx*bx*dvx_dx - bx*(by*vy + bz*vz) * ir + &
+                        by*bx*dvy_dx + by*(by*vx - cot_theta*bz*vz) * ir + &
+                        bz*bx*dvz_dx + bz**2 * (vx + cot_theta*vy) * ir) / (b*b)
+            bv_gradv = (bx*vx*dvx_dx - bx*(vy*vy + vz*vz) * ir + &
+                        by*vx*dvy_dx + by*(vy*vx - cot_theta*vz*vz) * ir + &
+                        bz*vx*dvz_dx + bz*vz * (vx + cot_theta*vy) * ir) / (b*b)
+        else
+            dv_dt = vx + ptl%v * ptl%mu + kappa%dkxx_dx
+            divv = dvx_dx
+            bb_gradv = (bx*bx*dvx_dx + by*bx*dvy_dx + bz*bx*dvz_dx) / (b*b)
+            bv_gradv = (bx*vx*dvx_dx + by*vx*dvy_dx + bz*vx*dvz_dx) / b
+        endif
+        mu2 = ptl%mu * ptl%mu
+        acc_rate = -(0.5 *(1 - mu2) * divv + &
+                     0.5 *(3 * mu2 - 1) * bb_gradv + &
+                     ptl%mu * bv_gradv / ptl%v)
+        dp_dt = ptl%p * acc_rate
+
+        ! Momentum diffusion due to wave scattering
+        dpp = 0.0d0
+        if (dpp_wave_flag) then
+            rho = fields(4)
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
+        endif
+
+        ! Momentum diffusion due to flow shear
+        if (dpp_shear_flag) then
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = -divv / 3
+            sigmazz = -divv / 3
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, 0.0d0, 0.0d0, 0.0d0, ptl, dp_dt, dpp)
+        endif
+
+        ! Pitch-angle evolution
+        db_dx = fields(nfields+22)
+        div_bnorm = -bx * db_dx / (b*b)
+        call calc_duu(ptl, div_bnorm, divv, bb_gradv, bv_gradv, mu2, &
+            dmu_dt, duu, duu_du)
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0) .and. &
+                (dmu_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
+                             0.1*p0/abs(dp_dt), &
+                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+            else
+                ptl%dt = dt_min
+            endif
+        endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        deltamu = deltamu + ran1*dsqrt(2.0*duu)*sdt
+        deltax = dx_dt * ptl%dt + ran1*kappa%skpara*sdt
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
+        deltav = ptl%v * deltap / ptl%p
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltamu = dmu_dt * ptl%dt + ran1*dsqrt(2*duu)*sdt
+
+        ptl%x = ptl%x + deltax
         ptl%mu = ptl%mu + deltamu
+        ptl%t = ptl%t + ptl%dt
+
+        if (ptl%mu > mu_max) then
+            deltamu = mu_max - (ptl%mu - deltamu)
+            ptl%mu = mu_max
+        else if (ptl%mu < -mu_max) then
+            deltamu = -mu_max - (ptl%mu - deltamu)
+            ptl%mu = -mu_max
+        endif
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -2708,13 +2443,13 @@ module particle_module
             ptl%v = ptl%v + deltav
         endif
 
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%v = ptl%v - deltav
-            deltav = ptl%v * 0.5 * p0 / ptl%p - ptl%v
+            deltav = ptl%v * 0.25 * p0 / ptl%p - ptl%v
             ptl%v = ptl%v + deltav
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_1d_ft
 
@@ -2729,10 +2464,11 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax, deltay, deltap: the change of x, y and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_2d(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltay, deltap)
+            lc, kappa, fixed_dt, deltax, deltay, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2741,32 +2477,29 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
         real(dp), dimension(*), intent(inout) :: db2, lc
         type(kappa_type), intent(inout) :: kappa
         real(dp), intent(out) :: deltax, deltay, deltap
-        real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv, gshear
+        real(dp) :: sdt, dvx_dx, dvx_dy, dvy_dx, dvy_dy, divv
         real(dp) :: bx, by, bz, b, vx, vy, px, py, pz, rt1, ib
         real(dp) :: bx1, by1, btot1, ib1
         real(dp) :: dbx_dy, dby_dx, db_dx, db_dy, dbz_dx, dbz_dy
         real(dp) :: vdx, vdy, vdz, vdp, ib2, ib3, gbr, gbt
-        real(dp) :: xmin, ymin, xmax, ymax, dxm, dym
-        reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
+        real(dp) :: dxm, dym
         real(dp) :: skperp, skpara_perp, skperp1, skpara_perp1
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
-        real(dp) :: vflow ! Alfven speed + background flow
+        real(dp) :: rho ! Plasma density
         real(dp) :: rands(2)
         real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm
         real(dp) :: ctheta, istheta, cot_theta, ir, ir2
         real(dp) :: qtmp1, qtmp2, atmp
-        real(dp) :: a1_1, b1_1, c1_1, Qpp_1, Qpm_1, Qmp_1, Qmm_1
-        real(dp) :: qtmp1_1, qtmp2_1
         real(dp) :: deltaz
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -2778,49 +2511,26 @@ module particle_module
         b = dsqrt(bx**2 + by**2 + bz**2)
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
-        xmin = fconfig%xmin
-        ymin = fconfig%ymin
-        xmax = fconfig%xmax
-        ymax = fconfig%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
-        dxmh = 0.5 * dxm
-        dymh = 0.5 * dym
 
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        ymin1 = ymin - dymh
-        xmax1 = xmax + dxmh
-        ymax1 = ymax + dymh
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltap = 0.0d0
 
-        deltax = 0.0
-        deltay = 0.0
-        deltap = 0.0
-
-        sdt = dsqrt(ptl%dt)
         if (b == 0) then
             ib = 0.0
         else
             ib = 1.0 / b
         endif
 
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             cot_theta = ctheta * istheta
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            a1 = kappa%kxx
-            b1 = kappa%kxy * ir
-            c1 = kappa%kyy * ir2
-            atmp = dsqrt((a1-c1)**2 + 4*b1**2)
-            Qpp = atmp + (a1 + c1)
-            Qmp = atmp - (a1 + c1)
-            Qpm = atmp + (a1 - c1)
-            Qmm = atmp - (a1 - c1)
-            qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
-            qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
         endif
 
         !< When Bz is non-zero, there are in-plane drifts
@@ -2837,13 +2547,9 @@ module particle_module
             vdx = vdp * ((dbz_dy + cot_theta * bz) * ir * ib2 - &
                          gbt * bz * 2.0 * ib3)
             vdy = vdp * (-(dbz_dx + bz * ir) * ib2 + gbr * bz * 2.0 * ib3)
-            deltax = vdx * ptl%dt
-            deltay = vdy * ir * ptl%dt
         else
             vdx = vdp * (dbz_dy * ib2 - 2.0 * bz * db_dy * ib3)
             vdy = vdp * (-dbz_dx * ib2 + 2.0 * bz * db_dx * ib3)
-            deltax = vdx * ptl%dt
-            deltay = vdy * ptl%dt
         endif
 
         !< Check particle drift along the out-of-plane direction
@@ -2853,24 +2559,64 @@ module particle_module
             if (spherical_coord_flag) then
                 vdz = vdp * ((dby_dx + by*ir - dbx_dy*ir)*ib2 - &
                              (gbr*by - gbt*bx*ir)*2.0*ib3)
-                deltaz = vdz * istheta * ir * ptl%dt
             else
                 vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
-                deltaz = vdz * ptl%dt
             endif
         else
-            deltaz = 0.0
+            vdz = 0.0d0
         endif
 
+        !< Calculate the 1st-order and 2nd-order rates
         if (spherical_coord_flag) then
-            deltax = deltax + (vx + kappa%dkxx_dx + &
-                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir)*ptl%dt
-            deltay = deltay + ((vy + kappa%dkxy_dx)*ir + &
-                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2)*ptl%dt
+            dx_dt = vx + vdx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir
+            dy_dt = (vy + vdy + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2
+            dz_dt = vdz * istheta * ir
+            divv = dvx_dx + (2.0*vx + dvy_dy + vy*ctheta*istheta)*ir
         else
-            deltax = deltax + (vx + kappa%dkxx_dx + kappa%dkxy_dy)*ptl%dt
-            deltay = deltay + (vy + kappa%dkxy_dx + kappa%dkyy_dy)*ptl%dt
+            dx_dt = vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy
+            dy_dt = vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy
+            dz_dt = vdz
+            divv = dvx_dx + dvy_dy
         endif
+
+        dp_dt = -ptl%p * divv / 3.0d0
+
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
+        if (dpp_wave_flag) then
+            rho = fields(4)
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
+        endif
+
+        !< Momentum diffusion due to flow shear
+        if (dpp_shear_flag) then
+            dvx_dy = fields(nfields+2)
+            dvy_dx = fields(nfields+4)
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = dvy_dy - divv / 3
+            sigmazz = -divv / 3
+            sigmaxy = (dvx_dy + dvy_dx) / 2
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, 0.0d0, 0.0d0, ptl, dp_dt, dpp)
+        endif
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             0.1*p0/abs(dp_dt))
+            else
+                ptl%dt = dt_min
+            endif
+        endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
         ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
@@ -2884,69 +2630,30 @@ module particle_module
 
         !< First-order method
         if (spherical_coord_flag) then
-            deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
-            deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
+            a1 = kappa%kxx
+            b1 = kappa%kxy * ir
+            c1 = kappa%kyy * ir2
+            atmp = dsqrt((a1-c1)**2 + 4*b1**2)
+            Qpp = atmp + (a1 + c1)
+            Qmp = atmp - (a1 + c1)
+            Qpm = atmp + (a1 - c1)
+            Qmm = atmp - (a1 - c1)
+            qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
+            qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
+            deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
+            deltay = dy_dt * ptl%dt + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
         else
-            deltax = deltax + ran1*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*bx*ib
-            deltay = deltay + ran2*kappa%skperp*sdt + ran3*kappa%skpara_perp*sdt*by*ib
+            deltax = dx_dt * ptl%dt + ran1*kappa%skperp*sdt + &
+                ran3*kappa%skpara_perp*sdt*bx*ib
+            deltay = dy_dt * ptl%dt + ran2*kappa%skperp*sdt + &
+                ran3*kappa%skpara_perp*sdt*by*ib
         endif
+        deltaz = dz_dt * ptl%dt
 
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
         ptl%z = ptl%z + deltaz
         ptl%t = ptl%t + ptl%dt
-
-        ! Momentum
-        if (spherical_coord_flag) then
-            divv = dvx_dx + (2.0*vx + dvy_dy + vy*ctheta*istheta)*ir
-        else
-            divv = dvx_dx + dvy_dy
-        endif
-        deltap = -ptl%p * divv * ptl%dt / 3.0d0
-        ! Momentum diffusion due to wave scattering
-        if (dpp_wave_flag) then
-            rho = fields(4)
-            va = b / dsqrt(rho)
-            vx = vx + sign(va * bx * ib, vx)
-            vy = vy + sign(va * by * ib, vy)
-            vflow = dsqrt(vx**2 + vy**2)
-            if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            ! rands = two_normals(thread_id)
-            ! ran1 = rands(1)
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
-        endif
-
-        ! Momentum diffusion due to flow shear
-        if (dpp_shear_flag) then
-            dvx_dy = fields(nfields+2)
-            dvy_dx = fields(nfields+4)
-            sigmaxx = dvx_dx - divv / 3
-            sigmayy = dvy_dy - divv / 3
-            sigmazz = -divv / 3
-            sigmaxy = (dvx_dy + dvy_dx) / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + &
-                    sigmazz * bz**2 + 2.0 * sigmaxy * bx * by
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + 2 * sigmaxy**2) / 15
-            endif
-            if (gshear > 0) then
-                deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-            endif
-        endif
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -2957,10 +2664,10 @@ module particle_module
         else
             ptl%p = ptl%p + deltap
         endif
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_2d
 
@@ -2975,6 +2682,7 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax: the change of x in this step
     !<  deltay: the change of y in this step
     !<  deltap: the change of p in this step
@@ -2982,7 +2690,7 @@ module particle_module
     !<  deltamu: the change of mu in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_2d_ft(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltay, deltap, deltav, deltamu)
+            lc, kappa, fixed_dt, deltax, deltay, deltap, deltav, deltamu)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -2991,6 +2699,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -2999,31 +2708,25 @@ module particle_module
         real(dp), intent(out) :: deltax, deltay, deltap
         real(dp), intent(out) :: deltav, deltamu
         real(dp) :: xtmp, ytmp
-        real(dp) :: sdt, divv, bb_gradv, bv_gradv, gshear
+        real(dp) :: sdt, divv, bb_gradv, bv_gradv
         real(dp) :: dvx_dx, dvx_dy, dvy_dx, dvy_dy, dvz_dx, dvz_dy
         real(dp) :: bx, by, bz, b, ib, rt1, bxn, byn, bzn, ibxyn
         real(dp) :: vx, vy, vz, vbx, vby
-        real(dp) :: bx1, by1, btot1, ib1
         real(dp) :: dbx_dx, dbx_dy, dby_dx, dby_dy, dbz_dx, dbz_dy, db_dx, db_dy
         real(dp) :: vdx, vdy, vdz, vdp, ib2, ib3, gbr, gbt
-        real(dp) :: xmin, ymin, xmax, ymax, dxm, dym
-        reaL(dp) :: xmin1, ymin1, xmax1, ymax1, dxmh, dymh
-        real(dp) :: skperp, skpara_perp, skperp1, skpara_perp1
+        real(dp) :: dxm, dym
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
         real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
-        real(dp) :: vflow ! Alfven speed + background flow
+        real(dp) :: rho
         real(dp) :: rands(2)
         real(dp) :: a1, b1, c1, Qpp, Qpm, Qmp, Qmm
         real(dp) :: ctheta, istheta, cot_theta, ir, ir2
         real(dp) :: qtmp1, qtmp2, atmp
-        real(dp) :: a1_1, b1_1, c1_1, Qpp_1, Qpm_1, Qmp_1, Qmm_1
-        real(dp) :: qtmp1_1, qtmp2_1
         real(dp) :: deltaz
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3034,57 +2737,28 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        dvx_dx = fields(nfields+1)
-        dvx_dy = fields(nfields+2)
-        dvy_dx = fields(nfields+4)
-        dvy_dy = fields(nfields+5)
-        dvz_dx = fields(nfields+7)
-        dvz_dy = fields(nfields+8)
-        xmin = fconfig%xmin
-        ymin = fconfig%ymin
-        xmax = fconfig%xmax
-        ymax = fconfig%ymax
         dxm = mhd_config%dx
         dym = mhd_config%dy
-        dxmh = 0.5 * dxm
-        dymh = 0.5 * dym
 
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        ymin1 = ymin - dymh
-        xmax1 = xmax + dxmh
-        ymax1 = ymax + dymh
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltap = 0.0d0
+        deltav = 0.0d0
+        deltamu = 0.0d0
 
-        deltax = 0.0
-        deltay = 0.0
-        deltap = 0.0
-        deltav = 0.0
-        deltamu = 0.0
-
-        sdt = dsqrt(ptl%dt)
         if (b == 0) then
             ib = 0.0
         else
             ib = 1.0 / b
         endif
 
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             cot_theta = ctheta * istheta
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            a1 = kappa%kxx
-            b1 = kappa%kxy * ir
-            c1 = kappa%kyy * ir2
-            atmp = dsqrt((a1-c1)**2 + 4*b1**2)
-            Qpp = atmp + (a1 + c1)
-            Qmp = atmp - (a1 + c1)
-            Qpm = atmp + (a1 - c1)
-            Qmm = atmp - (a1 - c1)
-            qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
-            qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
         endif
 
         !< When Bz is non-zero, there are in-plane drifts
@@ -3117,8 +2791,6 @@ module particle_module
             vdy = vdp * (muf1 * (bz * gbr) * ib2 + &
                          mu2 * (bz * kx - bx * kz) * ib3 + &
                          muf1 * by * bdot_curvb * ib3)
-            deltax = vdx * ptl%dt
-            deltay = vdy * ir * ptl%dt
         else
             kx = bx * dbx_dx + by * dbx_dy
             ky = bx * dby_dx + by * dby_dy
@@ -3130,8 +2802,6 @@ module particle_module
             vdy = vdp * (muf1 * ( bz * db_dx) * ib2 + &
                          mu2 * (bz * kx - bx * kz) * ib3 + &
                          muf1 * by * bdot_curvb * ib3)
-            deltax = vdx * ptl%dt
-            deltay = vdy * ptl%dt
         endif
 
         !< Check particle drift along the out-of-plane direction
@@ -3140,29 +2810,98 @@ module particle_module
                 vdz = vdp * (muf1 * (bx * gbt - by * gbr) * ib2 + &
                              mu2 * (bx * ky - by * kx) * ib3 + &
                              muf1 * bz * bdot_curvb * ib3)
-                deltaz = vdz * istheta * ir * ptl%dt
             else
                 vdz = vdp * (muf1 * (bx * db_dy - by * db_dx) * ib2 + &
                              mu2 * (bx * ky - by * kx) * ib3 + &
                              muf1 * bz * bdot_curvb * ib3)
-                deltaz = vdz * ptl%dt
             endif
         else
-            deltaz = 0.0
+            vdz = 0.0d0
         endif
 
+        !< Calculate the 1st-order and 2nd-order rates
         vbx = ptl%v * ptl%mu * ib
         vby = vbx * by ! particle velocity along the magnetic field
         vbx = vbx * bx
+        dvx_dx = fields(nfields+1)
+        dvx_dy = fields(nfields+2)
+        dvy_dx = fields(nfields+4)
+        dvy_dy = fields(nfields+5)
+        dvz_dx = fields(nfields+7)
+        dvz_dy = fields(nfields+8)
         if (spherical_coord_flag) then
-            deltax = deltax + (vx + vbx + kappa%dkxx_dx + &
-                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir)*ptl%dt
-            deltay = deltay + ((vy + vby + kappa%dkxy_dx)*ir + &
-                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2)*ptl%dt
+            dx_dt = vx + vdx + vbx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir
+            dy_dt = (vy + vdy + vby + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2
+            dz_dt = vdz * istheta * ir
+            divv = dvx_dx + (2.0*vx + dvy_dy + vy*cot_theta)*ir
+            bb_gradv = (bx*bx*dvx_dx + bx*by*dvx_dy*ir - bx*(by*vy + bz*vz)*ir + &
+                        by*bx*dvy_dx + by*by*dvy_dy*ir + by*(by*vx - cot_theta*bz*vz)*ir + &
+                        bz*bx*dvz_dx + bz*by*dvz_dy*ir + bz**2*(vx + cot_theta*vy)*ir) * ib2
+            bv_gradv = (bx*vx*dvx_dx + bx*vy*dvx_dy*ir - bx*(vy*vy + vz*vz)*ir + &
+                        by*vx*dvy_dx + by*vy*dvy_dy*ir + by*(vy*vx - cot_theta*vz*vz)*ir + &
+                        bz*vx*dvz_dx + bz*vy*dvz_dy*ir + bz*vz*(vx + cot_theta*vy)*ir) * ib
         else
-            deltax = deltax + (vx + vbx + kappa%dkxx_dx + kappa%dkxy_dy)*ptl%dt
-            deltay = deltay + (vy + vby + kappa%dkxy_dx + kappa%dkyy_dy)*ptl%dt
+            dx_dt = vx + vdx + vbx + kappa%dkxx_dx + kappa%dkxy_dy
+            dy_dt = vy + vdy + vby + kappa%dkxy_dx + kappa%dkyy_dy
+            dz_dt = vdz
+            divv = dvx_dx + dvy_dy
+            bb_gradv = (bx * (bx * dvx_dx + by * dvx_dy) + &
+                        by * (bx * dvy_dx + by * dvy_dy) + &
+                        bz * (bx * dvz_dx + by * dvz_dy)) * ib2
+            bv_gradv = (bx * (vx * dvx_dx + vy * dvx_dy) + &
+                        by * (vx * dvy_dx + vy * dvy_dy) + &
+                        bz * (vx * dvz_dx + vy * dvz_dy)) * ib
         endif
+        acc_rate = -(muf1 * divv + muf2 * bb_gradv + ptl%mu * bv_gradv / ptl%v)
+        dp_dt = ptl%p * acc_rate
+
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
+        if (dpp_wave_flag) then
+            rho = fields(4)
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
+        endif
+
+        !< Momentum diffusion due to flow shear
+        if (dpp_shear_flag) then
+            dvx_dy = fields(nfields+2)
+            dvy_dx = fields(nfields+4)
+            sigmaxx = dvx_dx - divv / 3
+            sigmayy = dvy_dy - divv / 3
+            sigmazz = -divv / 3
+            sigmaxy = (dvx_dy + dvy_dx) / 2
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, 0.0d0, 0.0d0, ptl, dp_dt, dpp)
+        endif
+
+        !< Pitch-angle evolution
+        if (spherical_coord_flag) then
+            div_bnorm = -(bx * db_dx + by * db_dy * ir) * ib2
+        else
+            div_bnorm = -(bx * db_dx + by * db_dy) * ib2
+        endif
+        call calc_duu(ptl, div_bnorm, divv, bb_gradv, bv_gradv, mu2, &
+            dmu_dt, duu, duu_du)
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0) .and. &
+                (dmu_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             0.1*p0/abs(dp_dt), &
+                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+            else
+                ptl%dt = dt_min
+            endif
+        endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
         sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
         ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
@@ -3175,123 +2914,46 @@ module particle_module
 
         !< First-order method
         if (spherical_coord_flag) then
-            deltax = deltax + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
-            deltay = deltay + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
+            a1 = kappa%kxx
+            b1 = kappa%kxy * ir
+            c1 = kappa%kyy * ir2
+            atmp = dsqrt((a1-c1)**2 + 4*b1**2)
+            Qpp = atmp + (a1 + c1)
+            Qmp = atmp - (a1 + c1)
+            Qpm = atmp + (a1 - c1)
+            Qmm = atmp - (a1 - c1)
+            qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
+            qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
+            deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
+            deltay = dy_dt * ptl%dt + (2*b1*qtmp1*ran1 + 2*b1*qtmp2*ran2)*sdt
         else
             bxn = bx * ib
             byn = by * ib
             bzn = bz * ib
             ibxyn = 1.0d0 / dsqrt(bxn**2 + byn**2)
-            deltax = deltax + kappa%skperp * ibxyn * sdt * (-bxn*bzn*ran1 - by*ran2)
-            deltay = deltay + kappa%skperp * ibxyn * sdt * (-byn*bzn*ran1 + bx*ran2)
+            deltax = dx_dt * ptl%dt + kappa%skperp * ibxyn * sdt * (-bxn*bzn*ran1 - by*ran2)
+            deltay = dy_dt * ptl%dt + kappa%skperp * ibxyn * sdt * (-byn*bzn*ran1 + bx*ran2)
         endif
+        deltaz = dz_dt * ptl%dt
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
+        deltav = ptl%v * deltap / ptl%p
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltamu = dmu_dt * ptl%dt + ran1*dsqrt(2*duu)*sdt
 
         ptl%x = ptl%x + deltax
         ptl%y = ptl%y + deltay
         ptl%z = ptl%z + deltaz
+        ptl%mu = ptl%mu + deltamu
         ptl%t = ptl%t + ptl%dt
 
-        ! Momentum and velocity
-        if (spherical_coord_flag) then
-            divv = dvx_dx + (2.0*vx + dvy_dy + vy*cot_theta)*ir
-            bb_gradv = (bx*bx*dvx_dx + bx*by*dvx_dy*ir - bx*(by*vy + bz*vz)*ir + &
-                        by*bx*dvy_dx + by*by*dvy_dy*ir + by*(by*vx - cot_theta*bz*vz)*ir + &
-                        bz*bx*dvz_dx + bz*by*dvz_dy*ir + bz**2*(vx + cot_theta*vy)*ir) * ib2
-            bv_gradv = (bx*vx*dvx_dx + bx*vy*dvx_dy*ir - bx*(vy*vy + vz*vz)*ir + &
-                        by*vx*dvy_dx + by*vy*dvy_dy*ir + by*(vy*vx - cot_theta*vz*vz)*ir + &
-                        bz*vx*dvz_dx + bz*vy*dvz_dy*ir + bz*vz*(vx + cot_theta*vy)*ir) * ib
-        else
-            divv = dvx_dx + dvy_dy
-            bb_gradv = (bx * (bx * dvx_dx + by * dvx_dy) + &
-                        by * (bx * dvy_dx + by * dvy_dy) + &
-                        bz * (bx * dvz_dx + by * dvz_dy)) * ib2
-            bv_gradv = (bx * (vx * dvx_dx + vy * dvx_dy) + &
-                        by * (vx * dvy_dx + vy * dvy_dy) + &
-                        bz * (vx * dvz_dx + vy * dvz_dy)) * ib
+        if (ptl%mu > mu_max) then
+            deltamu = mu_max - (ptl%mu - deltamu)
+            ptl%mu = mu_max
+        else if (ptl%mu < -mu_max) then
+            deltamu = -mu_max - (ptl%mu - deltamu)
+            ptl%mu = -mu_max
         endif
-        acc_rate = -(muf1 * divv + muf2 * bb_gradv + ptl%mu * bv_gradv / ptl%v)
-        deltap = ptl%p * acc_rate * ptl%dt
-        deltav = ptl%v * acc_rate * ptl%dt
-
-        ! Momentum diffusion due to wave scattering
-        if (dpp_wave_flag) then
-            rho = fields(4)
-            va = b / dsqrt(rho)
-            vx = vx + sign(va * bx * ib, vx)
-            vy = vy + sign(va * by * ib, vy)
-            vflow = dsqrt(vx**2 + vy**2)
-            dp_dpp = 0.0d0
-            if (momentum_dependency == 1) then
-                dp_dpp = (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                dp_dpp = (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            ! rands = two_normals(thread_id)
-            ! ran1 = rands(1)
-            dp_dpp = dp_dpp + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
-        endif
-
-        ! Momentum diffusion due to flow shear
-        if (dpp_shear_flag) then
-            dvx_dy = fields(nfields+2)
-            dvy_dx = fields(nfields+4)
-            sigmaxx = dvx_dx - divv / 3
-            sigmayy = dvy_dy - divv / 3
-            sigmazz = -divv / 3
-            sigmaxy = (dvx_dy + dvy_dx) / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + &
-                    sigmazz * bz**2 + 2.0 * sigmaxy * bx * by
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + 2 * sigmaxy**2) / 15
-            endif
-            dp_dpp = 0.0d0
-            if (gshear > 0) then
-                dp_dpp = (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                dp_dpp = dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-            endif
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
-        endif
-
-        ! Pitch-angle evolution
-        div_bnorm = -(bx * db_dx + by * db_dy * ir) * ib2
-        dmu_dt = ptl%v * div_bnorm + ptl%mu * divv - &
-            3 * ptl%mu * bb_gradv - 2 * bv_gradv / ptl%v
-        dmu_dt = dmu_dt * muf1
-        h0 = 0.2  ! Enabling pitch-angle scattering around mu=0
-        turb_gamma = 3.0 - pindex  ! Turbulence spectral index
-        dtmp = abs(ptl%mu)**(turb_gamma-1) + h0
-        duu = duu0 * (1-mu2) * dtmp
-        if (ptl%mu .gt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp + &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
-        else if (ptl%mu .lt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp - &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
-        else
-            duu_du = 0.0d0
-        endif
-
-        if (momentum_dependency == 1) then
-            dtmp = (ptl%p / p0)**(turb_gamma-1)
-            duu = duu * dtmp
-            duu_du = duu_du * dtmp
-        endif
-        deltamu = (dmu_dt + duu_du) * ptl%dt
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        deltamu = deltamu + ran1*dsqrt(2.0*duu)*sdt
-        ptl%mu = ptl%mu + deltamu
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -3306,13 +2968,13 @@ module particle_module
             ptl%v = ptl%v + deltav
         endif
 
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%v = ptl%v - deltav
-            deltav = ptl%v * 0.5 * p0 / ptl%p - ptl%v
+            deltav = ptl%v * 0.25 * p0 / ptl%p - ptl%v
             ptl%v = ptl%v + deltav
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_2d_ft
 
@@ -3328,10 +2990,11 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_2d_include_3rd(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltay, deltaz, deltap)
+            lc, kappa, fixed_dt, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -3340,6 +3003,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -3350,7 +3014,7 @@ module particle_module
         real(dp) :: dvx_dx, dvx_dy, dvx_dz
         real(dp) :: dvy_dx, dvy_dy, dvy_dz
         real(dp) :: dvz_dx, dvz_dy, dvz_dz
-        real(dp) :: divv, gshear
+        real(dp) :: divv
         real(dp) :: vx, vy, vz
         real(dp) :: bx, by, bz, b, ib, ib2, ib3
         real(dp) :: bxn, byn, bzn, bxyn, ibxyn
@@ -3358,13 +3022,14 @@ module particle_module
         real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
         real(dp) :: db_dx, db_dy, db_dz
         real(dp) :: vdx, vdy, vdz, vdp
+        real(dp) :: dxm, dym
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: rho
         real(dp) :: rands(2)
         real(dp) :: ctheta, istheta, ir, ir2
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3392,25 +3057,20 @@ module particle_module
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
         dvz_dz = 0.0_dp
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
 
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltaz = 0.0d0
+        deltap = 0.0d0
+
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                             kappa%kyy*kappa%kxz**2 + &
-                             kappa%kzz*kappa%kxy**2 - &
-                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                             kappa%kxx*kappa%kyy*kappa%kzz) / &
-                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
-            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
         endif
 
         ! Drift velocity
@@ -3442,72 +3102,36 @@ module particle_module
             vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
         endif
 
+        !< Calculate the 1st-order and 2nd-order rates
         kappa%dkxz_dz = 0.0_dp
         kappa%dkyz_dz = 0.0_dp
         kappa%dkzz_dz = 0.0_dp
         if (spherical_coord_flag) then
-            deltax = (vx + vdx + kappa%dkxx_dx + &
+            dx_dt = vx + vdx + kappa%dkxx_dx + &
                 (2.0*kappa%kxx + kappa%dkxy_dy + &
-                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir) * ptl%dt
-            deltay = ((vy + vdy + kappa%dkxy_dx)*ir + &
+                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir
+            dy_dt = (vy + vdy + kappa%dkxy_dx)*ir + &
                 (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta + &
-                kappa%dkyz_dz*istheta)*ir2) * ptl%dt
-            deltaz = ((vz + vdz + kappa%dkxz_dx)*istheta*ir + &
-                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2) * ptl%dt
+                kappa%dkyz_dz*istheta)*ir2
+            dz_dt = (vz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2
+            divv = dvx_dx + (2.0*vx + dvy_dy + vy*ctheta*istheta + dvz_dz*istheta)*ir
         else
-            deltax = (vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz) * ptl%dt
-            deltay = (vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz) * ptl%dt
-            deltaz = (vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz) * ptl%dt
-        endif
-
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-
-        sdt = dsqrt(ptl%dt)
-
-        if (spherical_coord_flag) then
-            deltax = deltax + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
-            deltay = deltay + (p22*ran2 + p23*ran3)*sdt
-            deltaz = deltaz + p33*ran3*sdt
-        else
-            deltax = deltax + &
-                (bxn*kappa%skpara*ran1 - bxn*bzn*kappa%skperp*ibxyn*ran2 - &
-                 byn*kappa%skperp*ibxyn*ran3)*sdt
-            deltay = deltay + &
-                (byn*kappa%skpara*ran1 - byn*bzn*kappa%skperp*ibxyn*ran2 + &
-                 bxn*kappa%skperp*ibxyn*ran3)*sdt
-            deltaz = deltaz + (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
-        endif
-
-        ptl%x = ptl%x + deltax
-        ptl%y = ptl%y + deltay
-        ptl%z = ptl%z + deltaz
-        ptl%t = ptl%t + ptl%dt
-
-        ! Momentum
-        if (spherical_coord_flag) then
-            divv = dvx_dx + &
-                (2.0*vx + dvy_dy + vy*ctheta*istheta + dvz_dz*istheta)*ir
-        else
+            dx_dt = vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz
+            dy_dt = vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz
+            dz_dt = vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz
             divv = dvx_dx + dvy_dy + dvz_dz
         endif
-        deltap = -ptl%p * divv * ptl%dt / 3.0d0
-        ! Momentum diffusion due to wave scattering
+        dp_dt = -ptl%p * divv / 3.0d0
+
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
         if (dpp_wave_flag) then
             rho = fields(4)
-            va = b / dsqrt(rho)
-            if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
         endif
 
-        ! Momentum diffusion due to flow shear
+        !< Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             dvx_dy = fields(nfields+2)
             dvx_dz = 0.0_dp
@@ -3521,23 +3145,63 @@ module particle_module
             sigmaxy = (dvx_dy + dvy_dx) / 2
             sigmaxz = (dvx_dz + dvz_dx) / 2
             sigmayz = (dvy_dz + dvz_dy) / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
-                    2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
-                    2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
-            endif
-            deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-            if (.not. dpp_wave_flag) then
-                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            endif
-            deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz, &
+                ptl, dp_dt, dpp)
         endif
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             p0/abs(dp_dt))
+            else
+                ptl%dt = dt_min
+            endif
+        endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+
+        if (spherical_coord_flag) then
+            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                             kappa%kyy*kappa%kxz**2 + &
+                             kappa%kzz*kappa%kxy**2 - &
+                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                             kappa%kxx*kappa%kyy*kappa%kzz) / &
+                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+            deltax = dx_dt * ptl%dt + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
+            deltay = dy_dt * ptl%dt + (p22*ran2 + p23*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + p33*ran3*sdt
+        else
+            deltax = dx_dt * ptl%dt + &
+                (bxn*kappa%skpara*ran1 - bxn*bzn*kappa%skperp*ibxyn*ran2 - &
+                 byn*kappa%skperp*ibxyn*ran3)*sdt
+            deltay = dy_dt * ptl%dt + &
+                (byn*kappa%skpara*ran1 - byn*bzn*kappa%skperp*ibxyn*ran2 + &
+                 bxn*kappa%skperp*ibxyn*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + &
+                (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
+        endif
+
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
+        ptl%t = ptl%t + ptl%dt
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -3548,10 +3212,10 @@ module particle_module
         else
             ptl%p = ptl%p + deltap
         endif
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_2d_include_3rd
 
@@ -3567,6 +3231,7 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax: the change of x in this step
     !<  deltay: the change of y in this step
     !<  deltaz: the change of z in this step
@@ -3575,7 +3240,7 @@ module particle_module
     !<  deltamu: the change of mu in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_2d_include_3rd_ft(thread_id, rt, ptl, fields, db2, &
-            lc, kappa, deltax, deltay, deltaz, deltap, deltav, deltamu)
+            lc, kappa, fixed_dt, deltax, deltay, deltaz, deltap, deltav, deltamu)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -3584,6 +3249,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -3594,26 +3260,26 @@ module particle_module
         real(dp) :: dvx_dx, dvx_dy
         real(dp) :: dvy_dx, dvy_dy
         real(dp) :: dvz_dx, dvz_dy
-        real(dp) :: divv, bb_gradv, bv_gradv, gshear
+        real(dp) :: divv, bb_gradv, bv_gradv
         real(dp) :: vx, vy, vz, vbx, vby, vbz
         real(dp) :: bx, by, bz, b, ib, ib2, ib3
         real(dp) :: bxn, byn, bzn, bxyn, ibxyn
-        real(dp) :: px, py, p
         real(dp) :: dbx_dx, dbx_dy
         real(dp) :: dby_dx, dby_dy
         real(dp) :: dbz_dx, dbz_dy
         real(dp) :: db_dx, db_dy
         real(dp) :: vdx, vdy, vdz, vdp
+        real(dp) :: dxm, dym
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
         real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: rho
         real(dp) :: rands(2)
         real(dp) :: ctheta, istheta, cot_theta, ir, ir2
         real(dp) :: gbr, gbt, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3638,28 +3304,25 @@ module particle_module
         else
             ibxyn = 1.0_dp / bxyn
         endif
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
 
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltaz = 0.0d0
+        deltap = 0.0d0
+        deltav = 0.0d0
+        deltamu = 0.0d0
+
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                             kappa%kyy*kappa%kxz**2 + &
-                             kappa%kzz*kappa%kxy**2 - &
-                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                             kappa%kxx*kappa%kyy*kappa%kzz) / &
-                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
-            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
         endif
 
-        ! Drift velocity
+        !< Drift velocity
         dbx_dx = fields(nfields+13)
         dbx_dy = fields(nfields+14)
         dby_dx = fields(nfields+16)
@@ -3710,48 +3373,11 @@ module particle_module
                          muf1 * bz * bdot_curvb * ib3)
         endif
 
+        !< Calculate the 1st-order and 2nd-order rates
         vbx = ptl%v * ptl%mu * ib
         vby = vbx * by ! particle velocity along the magnetic field
         vbz = vbx * bz
         vbx = vbx * bx
-        if (spherical_coord_flag) then
-            deltax = (vx + vbx + vdx + kappa%dkxx_dx + &
-                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir) * ptl%dt
-            deltay = ((vy + vby + vdy + kappa%dkxy_dx)*ir + &
-                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2) * ptl%dt
-            deltaz = ((vz + vbz + vdz + kappa%dkxz_dx)*istheta*ir + &
-                (kappa%kxz + kappa%dkyz_dy)*istheta*ir2) * ptl%dt
-        else
-            deltax = (vx + vbx + vdx + kappa%dkxx_dx + kappa%dkxy_dy) * ptl%dt
-            deltay = (vy + vby + vdy + kappa%dkxy_dx + kappa%dkyy_dy) * ptl%dt
-            deltaz = (vz + vbz + vdz + kappa%dkxz_dx + kappa%dkyz_dy) * ptl%dt
-        endif
-
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-
-        sdt = dsqrt(ptl%dt)
-
-        if (spherical_coord_flag) then
-            deltax = deltax + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
-            deltay = deltay + (p22*ran2 + p23*ran3)*sdt
-            deltaz = deltaz + p33*ran3*sdt
-        else
-            deltax = deltax + (-bxn*bzn*kappa%skperp*ibxyn*ran1 - &
-                               byn*kappa%skperp*ibxyn*ran2)*sdt
-            deltay = deltay + (-byn*bzn*kappa%skperp*ibxyn*ran1 + &
-                               bxn*kappa%skperp*ibxyn*ran2)*sdt
-            deltaz = deltaz + bxyn*kappa%skperp*ran1*sdt
-        endif
-
-        ptl%x = ptl%x + deltax
-        ptl%y = ptl%y + deltay
-        ptl%z = ptl%z + deltaz
-        ptl%t = ptl%t + ptl%dt
-
-        ! Momentum and velocity
         dvx_dx = fields(nfields+1)
         dvx_dy = fields(nfields+2)
         dvy_dx = fields(nfields+4)
@@ -3759,6 +3385,12 @@ module particle_module
         dvz_dx = fields(nfields+7)
         dvz_dy = fields(nfields+8)
         if (spherical_coord_flag) then
+            dx_dt = vx + vbx + vdx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy + kappa%kxy*cot_theta)*ir
+            dy_dt = (vy + vby + vdy + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*cot_theta)*ir2
+            dz_dt = (vz + vbz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                (kappa%kxz + kappa%dkyz_dy)*istheta*ir2
             divv = dvx_dx + (2.0*vx + dvy_dy + vy*cot_theta)*ir
             bb_gradv = (bx*bx*dvx_dx + bx*by*dvx_dy*ir - bx*(by*vy + bz*vz)*ir + &
                         by*bx*dvy_dx + by*by*dvy_dy*ir + by*(by*vx - cot_theta*bz*vz)*ir + &
@@ -3767,6 +3399,9 @@ module particle_module
                         by*vx*dvy_dx + by*vy*dvy_dy*ir + by*(vy*vx - cot_theta*vz*vz)*ir + &
                         bz*vx*dvz_dx + bz*vy*dvz_dy*ir + bz*vz*(vx + cot_theta*vy)*ir) * ib
         else
+            dx_dt = vx + vbx + vdx + kappa%dkxx_dx + kappa%dkxy_dy
+            dy_dt = vy + vby + vdy + kappa%dkxy_dx + kappa%dkyy_dy
+            dz_dt = vz + vbz + vdz + kappa%dkxz_dx + kappa%dkyz_dy
             divv = dvx_dx + dvy_dy
             bb_gradv = (bx * (bx * dvx_dx + by * dvx_dy) + &
                         by * (bx * dvy_dx + by * dvy_dy) + &
@@ -3776,25 +3411,16 @@ module particle_module
                         bz * (vx * dvz_dx + vy * dvz_dy)) * ib
         endif
         acc_rate = -(muf1 * divv + muf2 * bb_gradv + ptl%mu * bv_gradv / ptl%v)
-        deltap = ptl%p * acc_rate * ptl%dt
-        deltav = ptl%v * acc_rate * ptl%dt
+        dp_dt = ptl%p * acc_rate
 
-        ! Momentum diffusion due to wave scattering
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
         if (dpp_wave_flag) then
             rho = fields(4)
-            va = b / dsqrt(rho)
-            if (momentum_dependency == 1) then
-                dp_dpp = (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                dp_dpp = (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            dp_dpp = dp_dpp + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
         endif
 
-        ! Momentum diffusion due to flow shear
+        !< Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             dvx_dy = fields(nfields+2)
             dvy_dx = fields(nfields+4)
@@ -3806,57 +3432,85 @@ module particle_module
             sigmaxy = (dvx_dy + dvy_dx) / 2
             sigmaxz = dvz_dx / 2
             sigmayz = dvz_dy / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
-                    2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
-                    2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
-            endif
-            dp_dpp = 0.0d0
-            if (gshear > 0) then
-                dp_dpp = (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                dp_dpp = dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-            endif
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz, &
+                ptl, dp_dt, dpp)
         endif
 
-        ! Pitch-angle evolution
-        div_bnorm = -(bx * db_dx + by * db_dy * ir) * ib2
-        dmu_dt = ptl%v * div_bnorm + ptl%mu * divv - &
-            3 * ptl%mu * bb_gradv - 2 * bv_gradv / ptl%v
-        dmu_dt = dmu_dt * muf1
-        h0 = 0.2  ! Enabling pitch-angle scattering around mu=0
-        turb_gamma = 3.0 - pindex  ! Turbulence spectral index
-        dtmp = abs(ptl%mu)**(turb_gamma-1) + h0
-        duu = duu0 * (1-mu2) * dtmp
-        if (ptl%mu .gt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp + &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
-        else if (ptl%mu .lt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp - &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
+        !< Pitch-angle evolution
+        if (spherical_coord_flag) then
+            div_bnorm = -(bx * db_dx + by * db_dy * ir) * ib2
         else
-            duu_du = 0.0d0
+            div_bnorm = -(bx * db_dx + by * db_dy) * ib2
+        endif
+        call calc_duu(ptl, div_bnorm, divv, bb_gradv, bv_gradv, mu2, &
+            dmu_dt, duu, duu_du)
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0) .and. &
+                (dmu_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             0.1*p0/abs(dp_dt), &
+                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+            else
+                ptl%dt = dt_min
+            endif
         endif
 
-        if (momentum_dependency == 1) then
-            dtmp = (ptl%p / p0)**(turb_gamma-1)
-            duu = duu * dtmp
-            duu_du = duu_du * dtmp
-        endif
-        deltamu = (dmu_dt + duu_du) * ptl%dt
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        deltamu = deltamu + ran1*dsqrt(2.0*duu)*sdt
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+
+        if (spherical_coord_flag) then
+            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                             kappa%kyy*kappa%kxz**2 + &
+                             kappa%kzz*kappa%kxy**2 - &
+                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                             kappa%kxx*kappa%kyy*kappa%kzz) / &
+                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+            deltax = dx_dt * ptl%dt + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
+            deltay = dy_dt * ptl%dt + (p22*ran2 + p23*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + p33*ran3*sdt
+        else
+            deltax = dx_dt * ptl%dt + (-bxn*bzn*kappa%skperp*ibxyn*ran1 - &
+                byn*kappa%skperp*ibxyn*ran2)*sdt
+            deltay = dy_dt * ptl%dt + (-byn*bzn*kappa%skperp*ibxyn*ran1 + &
+                bxn*kappa%skperp*ibxyn*ran2)*sdt
+            deltaz = dz_dt * ptl%dt + bxyn*kappa%skperp*ran1*sdt
+        endif
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
+        deltav = ptl%v * deltap / ptl%p
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltamu = dmu_dt * ptl%dt + ran1*dsqrt(2*duu)*sdt
+
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
         ptl%mu = ptl%mu + deltamu
+        ptl%t = ptl%t + ptl%dt
+
+        if (ptl%mu > mu_max) then
+            deltamu = mu_max - (ptl%mu - deltamu)
+            ptl%mu = mu_max
+        else if (ptl%mu < -mu_max) then
+            deltamu = -mu_max - (ptl%mu - deltamu)
+            ptl%mu = -mu_max
+        endif
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -3871,13 +3525,13 @@ module particle_module
             ptl%v = ptl%v + deltav
         endif
 
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%v = ptl%v - deltav
-            deltav = ptl%v * 0.5 * p0 / ptl%p - ptl%v
+            deltav = ptl%v * 0.25 * p0 / ptl%p - ptl%v
             ptl%v = ptl%v + deltav
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
     end subroutine push_particle_2d_include_3rd_ft
 
@@ -3894,10 +3548,11 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax, deltay, deltaz, deltap: the change of x, y, z and p in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_3d(thread_id, rt, surface_height1, surface_height2, &
-            ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap)
+            ptl, fields, db2, lc, kappa, fixed_dt, deltax, deltay, deltaz, deltap)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
@@ -3907,6 +3562,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt, surface_height1, surface_height2
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -3917,7 +3573,7 @@ module particle_module
         real(dp) :: dvx_dx, dvx_dy, dvx_dz
         real(dp) :: dvy_dx, dvy_dy, dvy_dz
         real(dp) :: dvz_dx, dvz_dy, dvz_dz
-        real(dp) :: divv, gshear
+        real(dp) :: divv
         real(dp) :: vx, vy, vz
         real(dp) :: bx, by, bz, b, ib, ib2, ib3
         real(dp) :: bxn, byn, bzn, bxyn, ibxyn
@@ -3925,15 +3581,14 @@ module particle_module
         real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
         real(dp) :: db_dx, db_dy, db_dz
         real(dp) :: vdx, vdy, vdz, vdp
-        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax, dxm, dym, dzm
-        reaL(dp) :: xmin1, ymin1, zmin1, xmax1, ymax1, zmax1, dxmh, dymh, dzmh
+        real(dp) :: dxm, dym, dzm
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: rho
         real(dp) :: rands(2)
         real(dp) :: ctheta, istheta, ir, ir2
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         logical :: in_acc_region
@@ -3962,37 +3617,21 @@ module particle_module
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
         dvz_dz = fields(nfields+9)
-        xmin = fconfig%xmin
-        ymin = fconfig%ymin
-        zmin = fconfig%zmin
-        xmax = fconfig%xmax
-        ymax = fconfig%ymax
-        zmax = fconfig%zmax
         dxm = mhd_config%dx
         dym = mhd_config%dy
         dzm = mhd_config%dz
-        dxmh = 0.5 * dxm
-        dymh = 0.5 * dym
-        dzmh = 0.5 * dzm
 
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltaz = 0.0d0
+        deltap = 0.0d0
+
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                             kappa%kyy*kappa%kxz**2 + &
-                             kappa%kzz*kappa%kxy**2 - &
-                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                             kappa%kxx*kappa%kyy*kappa%kzz) / &
-                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
-            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
         endif
 
         ! Drift velocity
@@ -4024,71 +3663,34 @@ module particle_module
             vdz = vdp * ((dby_dx-dbx_dy)*ib2 - 2*(by*db_dx-bx*db_dy)*ib3)
         endif
 
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        ymin1 = ymin - dymh
-        xmax1 = xmax + dxmh
-        ymax1 = ymax + dymh
-
+        !< Calculate the 1st-order and 2nd-order rates
         if (spherical_coord_flag) then
-            deltax = (vx + vdx + kappa%dkxx_dx + &
+            dx_dt = vx + vdx + kappa%dkxx_dx + &
                 (2.0*kappa%kxx + kappa%dkxy_dy + &
-                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir) * ptl%dt
-            deltay = ((vy + vdy + kappa%dkxy_dx)*ir + &
+                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir
+            dy_dt = (vy + vdy + kappa%dkxy_dx)*ir + &
                 (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta + &
-                kappa%dkyz_dz*istheta)*ir2) * ptl%dt
-            deltaz = ((vz + vdz + kappa%dkxz_dx)*istheta*ir + &
-                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2) * ptl%dt
-        else
-            deltax = (vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz) * ptl%dt
-            deltay = (vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz) * ptl%dt
-            deltaz = (vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz) * ptl%dt
-        endif
-
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-
-        sdt = dsqrt(ptl%dt)
-
-        if (spherical_coord_flag) then
-            deltax = deltax + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
-            deltay = deltay + (p22*ran2 + p23*ran3)*sdt
-            deltaz = deltaz + p33*ran3*sdt
-        else
-            deltax = deltax + &
-                (bxn*kappa%skpara*ran1 - bxn*bzn*kappa%skperp*ibxyn*ran2 - &
-                 byn*kappa%skperp*ibxyn*ran3)*sdt
-            deltay = deltay + &
-                (byn*kappa%skpara*ran1 - byn*bzn*kappa%skperp*ibxyn*ran2 + &
-                 bxn*kappa%skperp*ibxyn*ran3)*sdt
-            deltaz = deltaz + (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
-        endif
-
-        ! Momentum
-        if (spherical_coord_flag) then
+                kappa%dkyz_dz*istheta)*ir2
+            dz_dt = (vz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2
             divv = dvx_dx + &
                 (2.0*vx + dvy_dy + vy*ctheta*istheta + dvz_dz*istheta)*ir
         else
+            dx_dt = vx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz
+            dy_dt = vy + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz
+            dz_dt = vz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz
             divv = dvx_dx + dvy_dy + dvz_dz
         endif
-        deltap = -ptl%p * divv * ptl%dt / 3.0d0
-        ! Momentum diffusion due to wave scattering
+        dp_dt = -ptl%p * divv / 3.0d0
+
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
         if (dpp_wave_flag) then
             rho = fields(4)
-            va = b / dsqrt(rho)
-            if (momentum_dependency == 1) then
-                deltap = deltap + (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                deltap = deltap + (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            deltap = deltap + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
         endif
 
-        ! Momentum diffusion due to flow shear
+        !< Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             dvx_dy = fields(nfields+2)
             dvx_dz = fields(nfields+3)
@@ -4102,23 +3704,64 @@ module particle_module
             sigmaxy = (dvx_dy + dvy_dx) / 2
             sigmaxz = (dvx_dz + dvz_dx) / 2
             sigmayz = (dvy_dz + dvz_dy) / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
-                    2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
-                    2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
-            endif
-            deltap = deltap + (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-            if (.not. dpp_wave_flag) then
-                ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            endif
-            deltap = deltap + dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz, &
+                ptl, dp_dt, dpp)
         endif
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             dzm/abs(dz_dt), (kappa%skperp/dz_dt)**2, &
+                             p0/abs(dp_dt))
+            else
+                ptl%dt = dt_min
+            endif
+        endif
+
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+
+        if (spherical_coord_flag) then
+            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                             kappa%kyy*kappa%kxz**2 + &
+                             kappa%kzz*kappa%kxy**2 - &
+                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                             kappa%kxx*kappa%kyy*kappa%kzz) / &
+                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+            deltax = dx_dt * ptl%dt + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
+            deltay = dy_dt * ptl%dt + (p22*ran2 + p23*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + p33*ran3*sdt
+        else
+            deltax = dx_dt * ptl%dt + &
+                (bxn*kappa%skpara*ran1 - bxn*bzn*kappa%skperp*ibxyn*ran2 - &
+                 byn*kappa%skperp*ibxyn*ran3)*sdt
+            deltay = dy_dt * ptl%dt + &
+                (byn*kappa%skpara*ran1 - byn*bzn*kappa%skperp*ibxyn*ran2 + &
+                 bxn*kappa%skperp*ibxyn*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + &
+                (bzn*kappa%skpara*ran1 + bxyn*kappa%skperp*ran2)*sdt
+        endif
+
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
+        ptl%t = ptl%t + ptl%dt
 
         if (acc_region_flag == 1) then
             in_acc_region = particle_in_acceleration_region(ptl)
@@ -4134,16 +3777,11 @@ module particle_module
         else
             ptl%p = ptl%p + deltap
         endif
-        if (ptl%p < 0.5 * p0) then
+        if (ptl%p < 0.25 * p0) then
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
-
-        ptl%x = ptl%x + deltax
-        ptl%y = ptl%y + deltay
-        ptl%z = ptl%z + deltaz
-        ptl%t = ptl%t + ptl%dt
     end subroutine push_particle_3d
 
     !---------------------------------------------------------------------------
@@ -4159,6 +3797,7 @@ module particle_module
     !<  db2: turbulence variance and its gradients at particle position
     !<  lc: turbulence correlation length and its gradients at particle position
     !<  kappa: kappa and related variables
+    !<  fixed_dt: whether to fix the time step
     !<  deltax: the change of x in this step
     !<  deltay: the change of y in this step
     !<  deltaz: the change of z in this step
@@ -4167,7 +3806,7 @@ module particle_module
     !<  deltamu: the change of mu in this step
     !---------------------------------------------------------------------------
     subroutine push_particle_3d_ft(thread_id, rt, surface_height1, surface_height2, &
-            ptl, fields, db2, lc, kappa, deltax, deltay, deltaz, deltap, &
+            ptl, fields, db2, lc, kappa, fixed_dt, deltax, deltay, deltaz, deltap, &
             deltav, deltamu)
         use constants, only: pi
         use mhd_config_module, only: mhd_config
@@ -4178,6 +3817,7 @@ module particle_module
         use random_number_generator, only: unif_01, two_normals
         implicit none
         integer, intent(in) :: thread_id
+        logical, intent(in) :: fixed_dt
         real(dp), intent(in) :: rt, surface_height1, surface_height2
         type(particle_type), intent(inout) :: ptl
         real(dp), dimension(*), intent(inout) :: fields
@@ -4188,7 +3828,7 @@ module particle_module
         real(dp) :: dvx_dx, dvx_dy, dvx_dz
         real(dp) :: dvy_dx, dvy_dy, dvy_dz
         real(dp) :: dvz_dx, dvz_dy, dvz_dz
-        real(dp) :: divv, bb_gradv, bv_gradv, gshear
+        real(dp) :: divv, bb_gradv, bv_gradv
         real(dp) :: vx, vy, vz, vbx, vby, vbz
         real(dp) :: bx, by, bz, b, ib, ib2, ib3
         real(dp) :: bxn, byn, bzn, bxyn, ibxyn
@@ -4198,18 +3838,17 @@ module particle_module
         real(dp) :: dbz_dx, dbz_dy, dbz_dz
         real(dp) :: db_dx, db_dy, db_dz
         real(dp) :: vdx, vdy, vdz, vdp
-        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax, dxm, dym, dzm
-        reaL(dp) :: xmin1, ymin1, zmin1, xmax1, ymax1, zmax1, dxmh, dymh, dzmh
+        real(dp) :: dxm, dym, dzm
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
         real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
-        real(dp) :: rho, va ! Plasma density and Alfven speed
+        real(dp) :: rho
         real(dp) :: rands(2)
         real(dp) :: ctheta, istheta, cot_theta, ir, ir2
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
-        real(dp) :: bbsigma ! b_ib_jsigma_ij
+        real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         logical :: in_acc_region
@@ -4235,41 +3874,27 @@ module particle_module
         else
             ibxyn = 1.0_dp / bxyn
         endif
-        xmin = fconfig%xmin
-        ymin = fconfig%ymin
-        zmin = fconfig%zmin
-        xmax = fconfig%xmax
-        ymax = fconfig%ymax
-        zmax = fconfig%zmax
         dxm = mhd_config%dx
         dym = mhd_config%dy
         dzm = mhd_config%dz
-        dxmh = 0.5 * dxm
-        dymh = 0.5 * dym
-        dzmh = 0.5 * dzm
 
+        deltax = 0.0d0
+        deltay = 0.0d0
+        deltaz = 0.0d0
+        deltap = 0.0d0
+        deltav = 0.0d0
+        deltamu = 0.0d0
+
+        !< Parameters used below
         if (spherical_coord_flag) then
             ctheta = cos(ptl%y)
             istheta = 1.0 / sin(ptl%y)
             cot_theta = ctheta * istheta
             ir = 1.0 / ptl%x
             ir2 = 1.0 / ptl%x**2
-            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                             kappa%kyy*kappa%kxz**2 + &
-                             kappa%kzz*kappa%kxy**2 - &
-                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                             kappa%kxx*kappa%kyy*kappa%kzz) / &
-                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
-            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
         endif
 
-        ! Drift velocity
+        !< Drift velocity
         dbx_dx = fields(nfields+13)
         dbx_dy = fields(nfields+14)
         dbx_dz = fields(nfields+15)
@@ -4331,52 +3956,11 @@ module particle_module
                          muf1 * bz * bdot_curvb * ib3)
         endif
 
-        !< The field data has two ghost cells, so the particles can cross the
-        !< boundary without causing segment fault errors
-        xmin1 = xmin - dxmh
-        ymin1 = ymin - dymh
-        xmax1 = xmax + dxmh
-        ymax1 = ymax + dymh
-
+        !< Calculate the 1st-order and 2nd-order rates
         vbx = ptl%v * ptl%mu * ib
         vby = vbx * by ! particle velocity along the magnetic field
         vbz = vbx * bz
         vbx = vbx * bx
-        if (spherical_coord_flag) then
-            deltax = (vx + vbx + vdx + kappa%dkxx_dx + &
-                (2.0*kappa%kxx + kappa%dkxy_dy + &
-                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir) * ptl%dt
-            deltay = ((vy + vby + vdy + kappa%dkxy_dx)*ir + &
-                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta + &
-                kappa%dkyz_dz*istheta)*ir2) * ptl%dt
-            deltaz = ((vz + vbz + vdz + kappa%dkxz_dx)*istheta*ir + &
-                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2) * ptl%dt
-        else
-            deltax = (vx + vbx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz) * ptl%dt
-            deltay = (vy + vby + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz) * ptl%dt
-            deltaz = (vz + vbz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz) * ptl%dt
-        endif
-
-        sqrt3 = dsqrt(3.0_dp)
-        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-
-        sdt = dsqrt(ptl%dt)
-
-        if (spherical_coord_flag) then
-            deltax = deltax + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
-            deltay = deltay + (p22*ran2 + p23*ran3)*sdt
-            deltaz = deltaz + p33*ran3*sdt
-        else
-            deltax = deltax + (-bxn*bzn*kappa%skperp*ibxyn*ran1 - &
-                               byn*kappa%skperp*ibxyn*ran2)*sdt
-            deltay = deltay + (-byn*bzn*kappa%skperp*ibxyn*ran1 + &
-                               bxn*kappa%skperp*ibxyn*ran2)*sdt
-            deltaz = deltaz + bxyn*kappa%skperp*ran1*sdt
-        endif
-
-        ! Momentum and velocity
         dvx_dx = fields(nfields+1)
         dvx_dy = fields(nfields+2)
         dvx_dz = fields(nfields+3)
@@ -4387,6 +3971,14 @@ module particle_module
         dvz_dy = fields(nfields+8)
         dvz_dz = fields(nfields+9)
         if (spherical_coord_flag) then
+            dx_dt = vx + vbx + vdx + kappa%dkxx_dx + &
+                (2.0*kappa%kxx + kappa%dkxy_dy + &
+                kappa%kxy*ctheta*istheta + kappa%dkxz_dz*istheta)*ir
+            dy_dt = (vy + vby + vdy + kappa%dkxy_dx)*ir + &
+                (kappa%kxy + kappa%dkyy_dy + kappa%kyy*ctheta*istheta + &
+                kappa%dkyz_dz*istheta)*ir2
+            dz_dt = (vz + vbz + vdz + kappa%dkxz_dx)*istheta*ir + &
+                (kappa%kxz + kappa%dkyz_dy + kappa%dkzz_dz*istheta)*istheta*ir2
             divv = dvx_dx + (2.0*vx + dvy_dy + vy*cot_theta + dvz_dz*istheta)*ir
             dtmp = istheta * ir
             bb_gradv = (bx*bx*dvx_dx + bx*by*dvx_dy*ir + bx*bz*dvx_dz*dtmp - bx*(by*vy + bz*vz)*ir + &
@@ -4396,6 +3988,9 @@ module particle_module
                         by*vx*dvy_dx + by*vy*dvy_dy*ir + by*vz*dvy_dz*dtmp + by*(vy*vx - cot_theta*vz*vz)*ir + &
                         bz*vx*dvz_dx + bz*vy*dvz_dy*ir + bz*vz*dvz_dz*dtmp + bz*vz*(vx + cot_theta*vy)*ir) * ib
         else
+            dx_dt = vx + vbx + vdx + kappa%dkxx_dx + kappa%dkxy_dy + kappa%dkxz_dz
+            dy_dt = vy + vby + vdy + kappa%dkxy_dx + kappa%dkyy_dy + kappa%dkyz_dz
+            dz_dt = vz + vbz + vdz + kappa%dkxz_dx + kappa%dkyz_dy + kappa%dkzz_dz
             divv = dvx_dx + dvy_dy + dvz_dz
             bb_gradv = (bx * (bx * dvx_dx + by * dvx_dy + bz * dvx_dz) + &
                         by * (bx * dvy_dx + by * dvy_dy + bz * dvy_dz) + &
@@ -4405,25 +4000,16 @@ module particle_module
                         bz * (vx * dvz_dx + vy * dvz_dy + vz * dvz_dz)) * ib
         endif
         acc_rate = -(muf1 * divv + muf2 * bb_gradv + ptl%mu * bv_gradv / ptl%v)
-        deltap = ptl%p * acc_rate * ptl%dt
-        deltav = ptl%v * acc_rate * ptl%dt
+        dp_dt = ptl%p * acc_rate
 
-        ! Momentum diffusion due to wave scattering
+        !< Momentum diffusion due to wave scattering
+        dpp = 0.0d0
         if (dpp_wave_flag) then
             rho = fields(4)
-            va = b / dsqrt(rho)
-            if (momentum_dependency == 1) then
-                dp_dpp = (8*ptl%p / (27*kappa%kpara)) * va**2 * ptl%dt
-            else
-                dp_dpp = (4*ptl%p / (9*kappa%kpara)) * va**2 * ptl%dt
-            endif
-            ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-            dp_dpp = dp_dpp + ran1 * va * ptl%p * dsqrt(2/(9*kappa%kpara)) * sdt
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
+            call calc_dpp_wave_scattering(rho, b, kappa%kpara, ptl, dp_dt, dpp)
         endif
 
-        ! Momentum diffusion due to flow shear
+        !< Momentum diffusion due to flow shear
         if (dpp_shear_flag) then
             sigmaxx = dvx_dx - divv / 3
             sigmayy = dvy_dy - divv / 3
@@ -4431,57 +4017,87 @@ module particle_module
             sigmaxy = (dvx_dy + dvy_dx) / 2
             sigmaxz = (dvx_dz + dvz_dx) / 2
             sigmayz = (dvy_dz + dvz_dy) / 2
-            if (weak_scattering) then
-                bbsigma = sigmaxx * bx**2 + sigmayy * by**2 + sigmazz * bz**2 + &
-                    2.0 * (sigmaxy * bx * by + sigmaxz * bx * bz + sigmayz * by * bz)
-                bbsigma = bbsigma * ib * ib
-                gshear = bbsigma**2 / 5
-            else
-                gshear = 2 * (sigmaxx**2 + sigmayy**2 + sigmazz**2 + &
-                    2 * (sigmaxy**2 + sigmaxz**2 + sigmayz**2)) / 15
-            endif
-            dp_dpp = 0.0d0
-            if (gshear > 0) then
-                dp_dpp = (2 + pindex) * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**(pindex-1) * p0**(2.0-pindex) * ptl%dt
-                if (.not. dpp_wave_flag) then
-                    ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-                endif
-                dp_dpp = dsqrt(2 * gshear * tau0 * kappa%knorm0 * &
-                    ptl%p**pindex * p0**(2.0-pindex)) * ran1 * sdt
-            endif
-            deltap = deltap + dp_dpp
-            deltav = deltav + ptl%v * dp_dpp / ptl%p
+            call calc_dpp_flow_shear(b, bx, by, bz, kappa%knorm0, &
+                sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz, &
+                ptl, dp_dt, dpp)
         endif
 
-        ! Pitch-angle evolution
-        div_bnorm = -(bx * db_dx + by * db_dy * ir + bz * db_dz * ir * istheta) * ib2
-        dmu_dt = ptl%v * div_bnorm + ptl%mu * divv - &
-            3 * ptl%mu * bb_gradv - 2 * bv_gradv / ptl%v
-        dmu_dt = dmu_dt * muf1
-        h0 = 0.2  ! Enabling pitch-angle scattering around mu=0
-        turb_gamma = 3.0 - pindex  ! Turbulence spectral index
-        dtmp = abs(ptl%mu)**(turb_gamma-1) + h0
-        duu = duu0 * (1-mu2) * dtmp
-        if (ptl%mu .gt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp + &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
-        else if (ptl%mu .lt. 0.0d0) then
-            duu_du = duu0 * (-2*ptl%mu * dtmp - &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
+        !< Pitch-angle evolution
+        if (spherical_coord_flag) then
+            div_bnorm = -(bx * db_dx + by * db_dy * ir + bz * db_dz * ir * istheta) * ib2
         else
-            duu_du = 0.0d0
+            div_bnorm = -(bx * db_dx + by * db_dy + bz * db_dz) * ib2
+        endif
+        call calc_duu(ptl, div_bnorm, divv, bb_gradv, bv_gradv, mu2, &
+            dmu_dt, duu, duu_du)
+
+        !< Set the time step
+        if (.not. fixed_dt) then
+            if ((dx_dt .ne. 0.0d0) .and. &
+                (dy_dt .ne. 0.0d0) .and. &
+                (dz_dt .ne. 0.0d0) .and. &
+                (dp_dt .ne. 0.0d0) .and. &
+                (dmu_dt .ne. 0.0d0)) then
+                ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
+                             dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
+                             dzm/abs(dy_dt), (kappa%skperp/dz_dt)**2, &
+                             0.1*p0/abs(dp_dt), &
+                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+            else
+                ptl%dt = dt_min
+            endif
         endif
 
-        if (momentum_dependency == 1) then
-            dtmp = (ptl%p / p0)**(turb_gamma-1)
-            duu = duu * dtmp
-            duu_du = duu_du * dtmp
-        endif
-        deltamu = (dmu_dt + duu_du) * ptl%dt
+        !< Update the particle
+        sdt = dsqrt(ptl%dt)
+        sqrt3 = dsqrt(3.0_dp)
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
-        deltamu = deltamu + ran1*dsqrt(2.0*duu)*sdt
+        ran2 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+
+        if (spherical_coord_flag) then
+            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
+                             kappa%kyy*kappa%kxz**2 + &
+                             kappa%kzz*kappa%kxy**2 - &
+                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                             kappa%kxx*kappa%kyy*kappa%kzz) / &
+                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
+                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
+                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
+            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+            deltax = dx_dt * ptl%dt + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
+            deltay = dy_dt * ptl%dt + (p22*ran2 + p23*ran3)*sdt
+            deltaz = dz_dt * ptl%dt + p33*ran3*sdt
+        else
+            deltax = dx_dt * ptl%dt + (-bxn*bzn*kappa%skperp*ibxyn*ran1 - &
+                byn*kappa%skperp*ibxyn*ran2)*sdt
+            deltay = dy_dt * ptl%dt + (-byn*bzn*kappa%skperp*ibxyn*ran1 + &
+                bxn*kappa%skperp*ibxyn*ran2)*sdt
+            deltaz = dy_dt * ptl%dt + bxyn*kappa%skperp*ran1*sdt
+        endif
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
+        deltav = ptl%v * deltap / ptl%p
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltamu = dmu_dt * ptl%dt + ran1*dsqrt(2*duu)*sdt
+
+        ptl%x = ptl%x + deltax
+        ptl%y = ptl%y + deltay
+        ptl%z = ptl%z + deltaz
         ptl%mu = ptl%mu + deltamu
+        ptl%t = ptl%t + ptl%dt
+
+        if (ptl%mu > mu_max) then
+            deltamu = mu_max - (ptl%mu - deltamu)
+            ptl%mu = mu_max
+        else if (ptl%mu < -mu_max) then
+            deltamu = -mu_max - (ptl%mu - deltamu)
+            ptl%mu = -mu_max
+        endif
 
         if (acc_region_flag == 1) then
             in_acc_region = particle_in_acceleration_region(ptl)
@@ -4500,19 +4116,15 @@ module particle_module
             ptl%p = ptl%p + deltap
             ptl%v = ptl%v + deltav
         endif
-        if (ptl%p < 0.5 * p0) then
+
+        if (ptl%p < 0.25 * p0) then
             ptl%v = ptl%v - deltav
-            deltav = ptl%v * 0.5 * p0 / ptl%p - ptl%v
+            deltav = ptl%v * 0.25 * p0 / ptl%p - ptl%v
             ptl%v = ptl%v + deltav
             ptl%p = ptl%p - deltap
-            deltap = 0.5 * p0 - ptl%p
-            ptl%p = 0.5 * p0
+            deltap = 0.25 * p0 - ptl%p
+            ptl%p = 0.25 * p0
         endif
-
-        ptl%x = ptl%x + deltax
-        ptl%y = ptl%y + deltay
-        ptl%z = ptl%z + deltaz
-        ptl%t = ptl%t + ptl%dt
     end subroutine push_particle_3d_ft
 
     !---------------------------------------------------------------------------
