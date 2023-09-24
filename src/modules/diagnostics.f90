@@ -610,12 +610,12 @@ module diagnostics
             call h5dclose_f(dset_id, error)
             call h5sclose_f(filespace, error)
             ! Distribution data
-            dcount_2d(1) = nmu_global + 1
-            dcount_2d(2) = npp_global + 1
+            dcount_2d(1) = nmu_global
+            dcount_2d(2) = npp_global
             doffset_2d(1) = 0
             doffset_2d(2) = 0
-            dset_dims_2d(1) = nmu_global + 1
-            dset_dims_2d(2) = npp_global + 1
+            dset_dims_2d(1) = nmu_global
+            dset_dims_2d(2) = npp_global
             call h5screate_simple_f(2, dset_dims_2d, filespace, error)
             call h5dcreate_f(file_id, "fglobal", H5T_NATIVE_DOUBLE, &
                 filespace, dset_id, error)
