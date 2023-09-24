@@ -169,7 +169,7 @@ module diagnostics
         mubins_edges_global = 0.0_dp
         dmu = 2.0 / nmu_global
         do i = 1, nmu_global+1
-            mubins_edges_global(i) = -1.0 + (i - 1) + dmu
+            mubins_edges_global(i) = -1.0 + (i - 1) * dmu
         enddo
 
         if (local_dist) then
@@ -237,7 +237,7 @@ module diagnostics
             enddo
             mubins1_edges = 0.0_dp
             do i = 1, nmu1+1
-                mubins1_edges(i) = -1.0 + (i - 1) + dmu1
+                mubins1_edges(i) = -1.0 + (i - 1) * dmu1
             enddo
         endif
 
@@ -260,7 +260,7 @@ module diagnostics
             enddo
             mubins2_edges = 0.0_dp
             do i = 1, nmu2+1
-                mubins2_edges(i) = -1.0 + (i - 1) + dmu2
+                mubins2_edges(i) = -1.0 + (i - 1) * dmu2
             enddo
         endif
 
@@ -283,7 +283,7 @@ module diagnostics
             enddo
             mubins3_edges = 0.0_dp
             do i = 1, nmu3+1
-                mubins3_edges(i) = -1.0 + (i - 1) + dmu3
+                mubins3_edges(i) = -1.0 + (i - 1) * dmu3
             enddo
         endif
 
@@ -306,7 +306,7 @@ module diagnostics
             enddo
             mubins4_edges = 0.0_dp
             do i = 1, nmu4+1
-                mubins4_edges(i) = -1.0 + (i - 1) + dmu4
+                mubins4_edges(i) = -1.0 + (i - 1) * dmu4
             enddo
         endif
     end subroutine init_local_particle_distributions
@@ -457,7 +457,7 @@ module diagnostics
             if (p > pmin .and. p <= pmax .and. &
                 mu >= -1.0d0 .and. mu <= 1.0d0) then
                 ip = floor((log10(p)-pmin_log) / dp_log) + 1
-                imu = floor(mu + 1.0d0) / dmu + 1
+                imu = floor((mu + 1.0d0) / dmu) + 1
                 fglobal(imu,ip) = fglobal(imu,ip) + weight
             endif
 
@@ -467,8 +467,8 @@ module diagnostics
                     ix1 = floor((x - xmin)/dx_diag1) + 1
                     iy1 = floor((y - ymin)/dy_diag1) + 1
                     iz1 = floor((z - zmin)/dz_diag1) + 1
-                    ip1 = floor((log10(p)-pmin1_log) / dp1_log)
-                    imu1 = floor(mu + 1.0d0) / dmu1 + 1
+                    ip1 = floor((log10(p)-pmin1_log) / dp1_log) + 1
+                    imu1 = floor((mu + 1.0d0) / dmu1) + 1
                     condx = ix1 >= 1 .and. ix1 <= nrx1
                     condy = iy1 >= 1 .and. iy1 <= nry1
                     condz = iz1 >= 1 .and. iz1 <= nrz1
@@ -485,8 +485,8 @@ module diagnostics
                     ix2 = floor((x - xmin)/dx_diag2) + 1
                     iy2 = floor((y - ymin)/dy_diag2) + 1
                     iz2 = floor((z - zmin)/dz_diag2) + 1
-                    ip2 = floor((log10(p)-pmin2_log) / dp2_log)
-                    imu2 = floor(mu + 1.0d0) / dmu2 + 1
+                    ip2 = floor((log10(p)-pmin2_log) / dp2_log) + 1
+                    imu2 = floor((mu + 1.0d0) / dmu2) + 1
                     condx = ix2 >= 1 .and. ix2 <= nrx2
                     condy = iy2 >= 1 .and. iy2 <= nry2
                     condz = iz2 >= 1 .and. iz2 <= nrz2
@@ -503,8 +503,8 @@ module diagnostics
                     ix3 = floor((x - xmin)/dx_diag3) + 1
                     iy3 = floor((y - ymin)/dy_diag3) + 1
                     iz3 = floor((z - zmin)/dz_diag3) + 1
-                    ip3 = floor((log10(p)-pmin3_log) / dp3_log)
-                    imu3 = floor(mu + 1.0d0) / dmu3 + 1
+                    ip3 = floor((log10(p)-pmin3_log) / dp3_log) + 1
+                    imu3 = floor((mu + 1.0d0) / dmu3) + 1
                     condx = ix3 >= 1 .and. ix3 <= nrx3
                     condy = iy3 >= 1 .and. iy3 <= nry3
                     condz = iz3 >= 1 .and. iz3 <= nrz3
@@ -521,8 +521,8 @@ module diagnostics
                     ix4 = floor((x - xmin)/dx_diag4) + 1
                     iy4 = floor((y - ymin)/dy_diag4) + 1
                     iz4 = floor((z - zmin)/dz_diag4) + 1
-                    ip4 = floor((log10(p)-pmin4_log) / dp4_log)
-                    imu4 = floor(mu + 1.0d0) / dmu4 + 1
+                    ip4 = floor((log10(p)-pmin4_log) / dp4_log) + 1
+                    imu4 = floor((mu + 1.0d0) / dmu4) + 1
                     condx = ix4 >= 1 .and. ix4 <= nrx4
                     condy = iy4 >= 1 .and. iy4 <= nry4
                     condz = iz4 >= 1 .and. iz4 <= nrz4
