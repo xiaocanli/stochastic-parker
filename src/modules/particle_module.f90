@@ -2213,9 +2213,17 @@ module particle_module
         if (.not. fixed_dt) then
             if ((dx_dt .ne. 0.0d0) .and. (dp_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
-                             0.1*p0/abs(dp_dt))
+                             0.1*ptl%p/abs(dp_dt))
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -2400,10 +2408,18 @@ module particle_module
                 (dp_dt .ne. 0.0d0) .and. &
                 (dmu_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
-                             0.1*p0/abs(dp_dt), &
-                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+                             0.1*ptl%p/abs(dp_dt), &
+                             0.1/abs(dmu_dt), 2.0*duu/dmu_dt**2)
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -2609,9 +2625,17 @@ module particle_module
                 (dp_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
-                             0.1*p0/abs(dp_dt))
+                             0.1*ptl%p/abs(dp_dt))
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -2893,10 +2917,18 @@ module particle_module
                 (dmu_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
-                             0.1*p0/abs(dp_dt), &
-                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+                             0.1*ptl%p/abs(dp_dt), &
+                             0.1/abs(dmu_dt), 2.0*duu/dmu_dt**2)
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -3157,9 +3189,17 @@ module particle_module
                 (dp_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
-                             p0/abs(dp_dt))
+                             0.1*ptl%p/abs(dp_dt))
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -3454,10 +3494,18 @@ module particle_module
                 (dmu_dt .ne. 0.0d0)) then
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
-                             0.1*p0/abs(dp_dt), &
-                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+                             0.1*ptl%p/abs(dp_dt), &
+                             0.1/abs(dmu_dt), 2.0*duu/dmu_dt**2)
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -3717,9 +3765,17 @@ module particle_module
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
                              dzm/abs(dz_dt), (kappa%skperp/dz_dt)**2, &
-                             p0/abs(dp_dt))
+                             0.1*ptl%p/abs(dp_dt))
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
@@ -4041,10 +4097,18 @@ module particle_module
                 ptl%dt = min(dxm/abs(dx_dt), (kappa%skperp/dx_dt)**2, &
                              dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
                              dzm/abs(dy_dt), (kappa%skperp/dz_dt)**2, &
-                             0.1*p0/abs(dp_dt), &
-                             0.01/abs(dmu_dt), duu/dmu_dt**2)
+                             0.1*ptl%p/abs(dp_dt), &
+                             0.1/abs(dmu_dt), 2.0*duu/dmu_dt**2)
             else
                 ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too small
+            if (ptl%dt .lt. dt_min) then
+                ptl%dt = dt_min
+            endif
+            !< Make sure the time step is not too large
+            if (ptl%dt .gt. dt_max) then
+                ptl%dt = dt_max
             endif
         endif
 
