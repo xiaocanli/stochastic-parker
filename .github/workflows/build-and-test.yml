@@ -48,5 +48,7 @@ jobs:
     - name: Build and Test Linux
       if: contains(matrix.os, 'ubuntu')
       run: |
+        test "$?BASH_VERSION" = "0" || eval 'setenv() { export "$1=$2"; }'
+        setenv MT_STREAM $HOME/.local/mt_stream/mt_stream_f90-1.11
         ls "$MT_STREAM"
         mkdir build && cd build && cmake .. && make && make install
