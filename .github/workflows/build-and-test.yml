@@ -46,7 +46,7 @@ jobs:
         source ./config/install_mt_stream.sh
 
     - name: Build and Test Linux
-      if: contains(matrix.os, 'ubuntu'))
+      if: contains(matrix.os, 'ubuntu')
       run: |
         ls "$MT_STREAM"
         mkdir build && cd build && cmake .. && make && make install
