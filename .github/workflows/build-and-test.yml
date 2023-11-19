@@ -30,7 +30,7 @@ jobs:
         sudo apt install -y libopenmpi-dev libhdf5-openmpi-dev
 
     - name: Install FoBiS.py FLAP MT_STREAM
-      if: contains(matrix.os, 'ubuntu'))
+      if: contains(matrix.os, 'ubuntu')
       run: |
         if [[ ! -d "$HOME/.local/bin" ]]; then
           mkdir "$HOME/.local/bin"
