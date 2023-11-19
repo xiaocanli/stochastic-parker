@@ -16,6 +16,6 @@ else
     make
     cd ../../
     test "$?BASH_VERSION" = "0" || eval 'setenv() { export "$1=$2"; }'
-    setenv MT_STREAM_GCC ${PWD}/mt_stream/mt_stream_f90-1.11
+    setenv MT_STREAM ${PWD}/mt_stream/mt_stream_f90-1.11
     cd $build_dir
 fi

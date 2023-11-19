@@ -22,3 +22,4 @@ start-gr[0-9]
 *.pyc
 .vscode
 docs/source/_build
+*.mod

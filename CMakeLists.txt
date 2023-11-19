@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.9)
 
 project("stochastic_parker")
 
+# omit environment variable PATH from CMake find_* use
+set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH false)
+
 #------------------------------------------------------------------------------#
 # Quiet newer versions of cmake about HDF5_ROOT
 #------------------------------------------------------------------------------#
@@ -83,7 +86,7 @@ endif(USE_AVX512)
 # HDF5 library
 #------------------------------------------------------------------------------#
 
-set(HDF5_USE_STATIC_LIBRARIES ON)
+set(HDF5_USE_STATIC_LIBRARIES OFF)
 find_package(HDF5 COMPONENTS Fortran REQUIRED)
 add_definitions(${HDF5_DEFINITIONS})
 include_directories(${HDF5_Fortran_INCLUDE_DIRS})

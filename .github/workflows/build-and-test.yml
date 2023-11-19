@@ -1,0 +1,52 @@
+name: Build and Test
+
+on: [push, pull_request]
+
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+    env:
+      GCC_V: 12
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Dependencies Ubuntu
+      if: contains(matrix.os, 'ubuntu')
+      run: |
+        sudo apt-get update
+        sudo apt install -y   \
+          build-essential     \
+          cmake               \
+          gfortran-${GCC_V}   \
+          python3             \
+          wget
+        sudo update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} 100
+        sudo apt install -y libopenmpi-dev libhdf5-openmpi-dev
+
+    - name: Install FoBiS.py FLAP MT_STREAM
+      if: contains(matrix.os, 'ubuntu'))
+      run: |
+        if [[ ! -d "$HOME/.local/bin" ]]; then
+          mkdir "$HOME/.local/bin"
+        fi
+        export PATH="$HOME/.local/bin:$PATH"
+        export FC=/usr/bin/gfortran-${GCC_V}
+        cmake --version
+        ln -fs /usr/bin/gfortran-${GCC_V} "$HOME/.local/bin/gfortran" && gfortran --version
+        ls -l /usr/bin/gfortran-${GCC_V}
+        ln -fs /usr/bin/gcov-${GCC_V} "$HOME/.local/bin/gcov" && gcov --version
+        pip install --upgrade FoBiS.py
+        source ./config/install_flap.sh
+        source ./config/install_mt_stream.sh
+
+    - name: Build and Test Linux
+      if: contains(matrix.os, 'ubuntu'))
+      run: |
+        ls "$MT_STREAM"
+        mkdir build && cd build && cmake .. && make && make install
