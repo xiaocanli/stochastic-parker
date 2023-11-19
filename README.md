@@ -5,6 +5,7 @@ This is a code solving Parker's cosmic ray transport equation and its extensions
 stochastic method.
 
 ## Status
+![Build](https://github.com/xiaocanli/stochastic-parker/actions/workflows/build-and-test.yml/badge.svg)
 [![Documentation Status](https://readthedocs.org/projects/stochastic-parker/badge/?version=latest)](https://stochastic-parker.readthedocs.io/en/latest/?badge=latest)
 
 ## License
