@@ -44,6 +44,7 @@ jobs:
         pip install --upgrade FoBiS.py
         source ./config/install_flap.sh
         source ./config/install_mt_stream.sh
+        mkdir -p ~/.cache/cache-gpat
 
     - name: Cache Install Dependencies
       uses: actions/cache@v3.3.2
@@ -51,7 +52,7 @@ jobs:
         cache-name: cache-install-dependencies
       with:
         path: |
-          ~/caches
+          ~/.cache/cache-gpat
         key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('.github/workflows/build-and-test.yml') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ env.cache-name }}-
