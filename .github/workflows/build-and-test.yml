@@ -45,17 +45,16 @@ jobs:
         source ./config/install_flap.sh
         source ./config/install_mt_stream.sh
 
-    - name: CCache Cache
+    - name: Cache Install Dependencies
       uses: actions/cache@v3.3.2
-      # - once stored under a key, they become immutable (even if local cache path content changes)
-      # - for a refresh the key has to change, e.g., hash of a tracked file in the key
+      env:
+        cache-name: cache-install-dependencies
       with:
         path: |
-          ~/.ccache
-          ~/.cache/ccache
-        key: ccache-build-and-test-${{ hashFiles('.github/workflows/build-and-test.yml') }}
+          **/dependencies
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('.github/workflows/build-and-test.yml') }}
         restore-keys: |
-          ccache-build-and-test-
+          ${{ runner.os }}-build-${{ env.cache-name }}-
 
     - name: Build and Test Linux
       if: contains(matrix.os, 'ubuntu')
