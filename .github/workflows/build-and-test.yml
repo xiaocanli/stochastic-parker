@@ -51,7 +51,7 @@ jobs:
         cache-name: cache-install-dependencies
       with:
         path: |
-          **/dependencies
+          ~/caches
         key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('.github/workflows/build-and-test.yml') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ env.cache-name }}-
