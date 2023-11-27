@@ -99,8 +99,7 @@ of :math:`B_x`, :math:`B_y` and :math:`B`, so
 :math:`\partial \kappa_\perp/\partial y` still depend on the derivatives
 :math:`\partial B_x/\partial x`, :math:`\partial B_x/\partial y`,
 :math:`\partial B_y/\partial x`, and :math:`\partial B_y/\partial y`.
-The detailed expressions depend on the diffusion model to choose. Using
-equ_parker_qlt_,
+The detailed expressions depend on the diffusion model to choose. Considering the expression of :math:`\kappa_\parallel`, we get
 
 .. math::
 

@@ -1,7 +1,7 @@
 Welcome to GPAT's documentation!
 =============================================
 
-**GPAT** (Global Particle Acceleration and Transport)  is a program for solving particle transport equations. It solves either Parker's transport equation for nearly isotropic particle distributions or the focused transport equations for anisotropic particle distributions. The code uses the stochastic integration method to solve these equations. For details on the algorithms implemented, please check out See :doc:`theory`.
+**GPAT** (Global Particle Acceleration and Transport)  is a program for solving particle transport equations. It solves either Parker's transport equation for nearly isotropic particle distributions or the focused transport equations for anisotropic particle distributions. The code uses the stochastic integration method to solve these equations. For details on the algorithms implemented, please check out the theory section.
 
 Contact us
 ----------
@@ -58,4 +58,5 @@ Epilogue
    :maxdepth: 1
    :hidden:
 
+   publications
    acknowledgments

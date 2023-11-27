@@ -49,6 +49,7 @@ to describe the spatial diffusion. For 2D problems,
        -b_yb_z &
        b_x
      \end{pmatrix}
+
 To calculate the drift velocity
 
 .. math::

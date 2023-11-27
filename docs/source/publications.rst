@@ -1,5 +1,5 @@
-Referred papers
----------------
+Publications
+------------
 
 - Modeling Electron Acceleration and Transport in the Early Impulsive Phase of the 2017 September 10th Solar Flare, Xiaocan Li, Fan Guo, Bin Chen, and Chengcai Shen, Lindsay Glesener, `The Astrophysical Journal` Jun 2022
 

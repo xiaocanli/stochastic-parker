@@ -4,8 +4,7 @@ Momentum Diffusion
 .. note:: 
   Momentum diffusion is only partially supported now.
 
-We can include an momentum diffusion term to the right side of
-equ_parker_.
+We can include an momentum diffusion term to the right side of the Parker transport equation.
 
 .. math::
    :name: equ_parker_2nd

@@ -18,7 +18,9 @@ Requirments
    -  **GCC** or **Intel** Fortran compilers.
    -  **MPI**: OpenMPI or MPICH. It should work with the others.
    -  **HDF5**: parallel version.
+
    .. tip::
+
       On Perlmutter@NERSC, you can load the modules by ``module load cpu cmake cray-hdf5-parallel``
 
 -  `FoBiS.py <https://github.com/szaghi/FoBiS>`__: a building system for Fortran projects
