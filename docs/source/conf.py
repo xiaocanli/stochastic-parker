@@ -2,7 +2,7 @@
 
 # -- Project information
 
-project = 'stochastic-parker'
+project = 'Global Particle Acceleration and Transport (GPAT) Model'
 copyright = '2015-2022, Xiaocan Li'
 author = 'Xiaocan Li'
 

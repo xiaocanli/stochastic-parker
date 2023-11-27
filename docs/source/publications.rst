@@ -1,6 +1,3 @@
-Publications
-============
-
 Referred papers
 ---------------
 

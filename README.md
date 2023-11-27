@@ -1,8 +1,7 @@
-stochastic-parker
+Global Particle Acceleration and Transport (GPAT) Model
 ================
 
-This is a code solving Parker's cosmic ray transport equation and its extensions using the
-stochastic method.
+This code solves particle transport equations using the stochastic method.
 
 ## Status
 ![Build](https://github.com/xiaocanli/stochastic-parker/actions/workflows/build-and-test.yml/badge.svg)

@@ -1,15 +1,61 @@
-Welcome to stochastic-parker's documentation!
+Welcome to GPAT's documentation!
 =============================================
 
-**stochastic-parker**  is a Fortran program for solving the Parker's transport equation (and its extensions) using the stochastic method. It uses MHD simulation data (magnetic field, velocity, density, etc.) as background to evolve the transport equation. It has been used in studying particle acceleration and transport in magnetic reconnection, solar flares, and solar eruption regions.
+**GPAT** (Global Particle Acceleration and Transport)  is a program for solving particle transport equations. It solves either Parker's transport equation for nearly isotropic particle distributions or the focused transport equations for anisotropic particle distributions. The code uses the stochastic integration method to solve these equations. For details on the algorithms implemented, please check out See :doc:`theory`.
 
-Contents
---------
+Contact us
+----------
 
+If you're beginning to use GPAT or have any questions, feel free to drop by the `discussions page <https://github.com/xiaocanli/stochastic-parker/discussions>`__. For bug reports or to request new features, you can also open a new `issue <https://github.com/xiaocanli/stochastic-parker/issues>`__.
+
+.. raw:: html
+
+   <style>
+   /* front page: hide chapter titles
+    * needed for consistent HTML-PDF-EPUB chapters
+    */
+   section#install,
+   section#usage,
+   section#theory,
+   section#epilogue {
+       display:none;
+   }
+   </style>
+
+Install
+------------
 .. toctree::
+   :caption: INSTALLATION
+   :maxdepth: 1
+   :hidden:
 
-   overview
    install
+
+Usage
+------------
+.. toctree::
+   :caption: USAGE
+   :maxdepth: 1
+   :hidden:
+
    usage
-   theory
-   publications
+
+Theory
+------------
+.. toctree::
+   :caption: THEORY
+   :maxdepth: 1
+   :hidden:
+
+   theory/introduction
+   theory/parker_transport
+   theory/focused_transport
+
+Epilogue
+------------
+.. toctree::
+   :caption: EPILOGUE
+   :maxdepth: 1
+   :hidden:
+
+   acknowledgments
