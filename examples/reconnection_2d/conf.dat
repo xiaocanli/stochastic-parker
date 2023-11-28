@@ -30,23 +30,69 @@ kpara0 = 0.01
 kret = 0.03
 
 !< Minimum time step allowed
-dt_min = 1E-6
+dt_min = 1E-8
 
 !< Minimum relative time step w.r.t. one field time interval
-dt_min_rel = 1E-4
+dt_min_rel = 1E-7
 
 !< Maximum relative time step w.r.t. one field time interval
 dt_max_rel = 1E-2
 
-!< Sizes of distributions
-nreduce = 8
-npp = 128
+!< Number of momentum bins for global spectrum
+npp_global = 128
+
+!< Number of bins in mu for global distributions
+!< Only for focused transport
+nmu_global = 32
+
+!< Only dump local distributions every few MHD output intervals
+!< When dump_interval is > # of MHD outputs, it will not dump the distribution
+
+!< Parameter set 1 for local distributions
+dump_interval1 = 1
+pmin1 = 1.0E-2
+pmax1 = 1.0E1
+npbins1 = 12
+nmu1 = 1
+rx1 = 4
+ry1 = 4
+rz1 = 4
+
+!< Parameter set 2 for local distributions
+dump_interval2 = 1
+pmin2 = 1.0E-2
+pmax2 = 1.0E1
+npbins2 = 64
+nmu2 = 1
+rx2 = 8
+ry2 = 8
+rz2 = 8
+
+!< Parameter set 3 for local distributions
+dump_interval3 = 1
+pmin3 = 1.0E-2
+pmax3 = 1.0E1
+npbins3 = 32
+nmu3 = 16
+rx3 = 16
+ry3 = 16
+rz3 = 16
+
+!< Parameter set 4 for local distributions
+dump_interval4 = 10000
+pmin4 = 1.0E-2
+pmax4 = 1.0E1
+npbins4 = 32
+nmu4 = 16
+rx4 = 8
+ry4 = 8
+rz4 = 8
 
 !< Region to turn on particle acceleration when the flag is 1
 acc_region_flag = 0
 acc_xmin = -1.0
 acc_xmax = -0.5
-acc_ymin = 0.04
+acc_ymin = 0.08
 acc_ymax = 1.0
 acc_zmin = 0.0
 acc_zmax = 1.0

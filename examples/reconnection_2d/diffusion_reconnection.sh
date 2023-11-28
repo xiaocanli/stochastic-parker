@@ -1,41 +1,46 @@
 #!/bin/bash
 
-MACHINE=Cori
+MACHINE=Perlmutter
 # MACHINE=Frontera
 
 conf=conf.dat
 mhd_config_filename=mhd_config.dat
-mpi_size=32
-ntasks_per_node=32
+
+focused_transport=.false.
+
+mpi_size=128
+ntasks_per_node=128
 size_mpi_sub=1   # Size of a MPI sub-communicator
 nptl=500
 ts=0
 te=200
 single_time_frame=0
-time_interp=1    # whether to interpolation in-between time frames
-dist_flag=1      # 0 for Maxwellian. 1 for delta function. 2 for power-law
-power_index=6.2  # power-law index for the initial distribution
-split_flag=1     # 0 for without particle split, 1 for with split
-split_ratio=2.0  # momentum increase ratio for particle splitting
-local_dist=1     # whether diagnose local particle distribution
+time_interp=1        # whether to interpolation in-between time frames
+dist_flag=1          # 0 for Maxwellian. 1 for delta function. 2 for power-law
+power_index=6.2      # power-law index for the initial distribution
+split_flag=1         # 0 for without particle split, 1 for with split
+split_ratio=2.0      # (> 1.0 ) momentum increase ratio for particle splitting
+pmin_split=2.0       # (> 1.0) minimum momentum (in p0) to start splitting particles
+local_dist=.true.    # whether diagnose local particle distribution
+dump_escaped=.false. # whether to dump escaped particles
 
 track_particle_flag=0 # whether to track particles
-nptl_selected=20     # number of selected particles to track
+nptl_selected=100     # number of selected particles to track
 nsteps_interval=1   # steps interval to track particles
 nptl_max=1000000
 
 inject_new_ptl=1 # whether to inject new particles at every step
 inject_same_nptl=1 # whether to inject the same number of particles every step
 inject_part_box=0 # inject in part of the box
-ptl_xmin=0.245
-ptl_xmax=0.255
-ptl_ymin=0.04
-ptl_ymax=0.15
-ptl_zmin=0.00
-ptl_zmax=0.02
+ptl_xmin=-0.25
+ptl_xmax=0.25
+ptl_ymin=0.00
+ptl_ymax=1.00
+ptl_zmin=-0.25
+ptl_zmax=0.25
 
 inject_large_jz=0 # whether to inject particles where jz is large
-jz_min=200 # The minimum jz for injection
+jz_min=500 # The minimum jz for injection
 ncells_large_jz_norm=20000 # Normalization for the number of cells with large jz
 
 inject_large_db2=0 # whether to inject particles where db2 is large
@@ -53,8 +58,8 @@ weak_scattering=1 # whether in weak-scattering regime
 deltab_flag=0   # whether to have spatially dependent turbulence amplitude
 correlation_flag=0 # whether to have spatially dependent turbulence correlation length
 ndim_field=2 # The dimension of the field
-drift_param1=3.315064e+08 # parameter #1 for particle drift in 3D
-drift_param2=9.535508e+08 # parameter #2 for particle drift in 3D
+drift_param1=850964.408   # parameter #1 for particle drift in 3D
+drift_param2=13575468.975 # parameter #2 for particle drift in 3D
 charge=-1 # charge in unit charge
 spherical_coord=0 # whether the grid is spherical
 uniform_grid=1 # whether the grid is uniform
@@ -64,22 +69,23 @@ particle_data_dump=0 # whether to dump particle data
 include_3rd_dim=0 # whether to include transport along the 3rd-dim in 2D simulations
 
 acc_by_surface=0 # whether the acceleration region is separated by a surface
-surface_filename1=ts_plane_bot # surface 1
+surface_filename1=ts_plane_top # surface 1
 surface_norm1=+y # the surface norm direction
 surface2_existed=.false.
-is_intersection=.true.
+is_intersection=.false.
 surface_filename2=ts_plane_top # surface 2
-surface_norm2=-y
+surface_norm2=+y
+
+varying_dt_mhd=.false. # whether the time interval for MHD fields is varying
 
 change_variable () {
     sed -i -e "s/\($1 = \).*/\1$2/" $conf
 }
 
-if [ "$MACHINE" = "Cori" ]; then
+if [ "$MACHINE" = "Perlmutter" ]; then
     export OMP_PROC_BIND=true
-    # export OMP_PROC_BIND=spread
-    export OMP_PLACES=threads
-    export OMP_NUM_THREADS=1
+    export OMP_PLACES=cores
+    export OMP_NUM_THREADS=2
 else
     export IBRUN_TASKS_PER_NODE=$ntasks_per_node
     export OMP_NUM_THREADS=1
@@ -97,13 +103,18 @@ run_stochastic () {
     mkdir -p $diagnostics_directory
     rm $diagnostics_directory/*
     tau0_scattering=$8
-    commands="./stochastic-mhd.exec -sm $size_mpi_sub \
+    duu0=$9
+    particle_v0=${10}
+    commands="./stochastic-mhd.exec \
+        -ft $focused_transport -pv $particle_v0 \
+        -sm $size_mpi_sub \
         -dm $4 -mc $mhd_config_filename -np $nptl \
         -ti $time_interp -ts $ts -te $te -st $single_time_frame \
         -df $dist_flag -pi $power_index \
-        -sf $split_flag -sr $split_ratio \
+        -sf $split_flag -sr $split_ratio -ps $pmin_split \
         -tf $track_particle_flag -ns $nptl_selected -ni $nsteps_interval \
-        -dd $diagnostics_directory -cf $conf -ld $local_dist \
+        -dd $diagnostics_directory -cf $conf \
+        -ld $local_dist -de $dump_escaped \
         -nm $nptl_max -in $inject_new_ptl -ij $inject_large_jz \
         -sn $inject_same_nptl -ip $inject_part_box -jz $jz_min \
         -nn $ncells_large_jz_norm -ib $inject_large_db2 \
@@ -119,8 +130,9 @@ run_stochastic () {
         -i3 $include_3rd_dim -as $acc_by_surface \
         -sf1 $surface_filename1 -sn1 $surface_norm1 \
         -s2e $surface2_existed -ii $is_intersection \
-        -sf2 $surface_filename2 -sn2 $surface_norm2"
-if [ "$MACHINE" = "Cori" ]; then
+        -sf2 $surface_filename2 -sn2 $surface_norm2 \
+        -vdt $varying_dt_mhd -du $duu0"
+if [ "$MACHINE" = "Perlmutter" ]; then
     srun -n $mpi_size --ntasks-per-node $ntasks_per_node \
         -c $OMP_NUM_THREADS --cpu-bind=cores $commands
 else
@@ -135,12 +147,23 @@ fi
 }
 
 stochastic () {
-    tau0=7.548180e-05 # scattering time for initial particles
-    kpara0=7.419363e-03
+    pindex=1.3333333 # 3.0-turbulence spectral slope
+    momentum_dependency=1
+    mag_dependency=1
+    dir_mhd_data=$1
+
+    # 1keV electron, 50Gauss, slab1, Lc333km
+    tau0=7.53877e-5 # scattering time for initial particles (only used for momentum diffusion)
+    kpara0=0.00743592
+    duu0=5578.445 # not used for Parker transport
+    kret=0.01  # kperp/kpara
+    particle_v0=17.20195  # particle speed / velocity normalization (not used for Parker transport)
     diagnostics_directory=data/$2/transport_test_run/
-    run_stochastic 1 1.3333333 1 $1 $kpara0 0.01 $diagnostics_directory $tau0
+    run_stochastic $momentum_dependency $pindex $mag_dependency \
+        $dir_mhd_data $kpara0 $kret $diagnostics_directory $tau0 \
+        $duu0 $particle_v0
 }
 
-mhd_run_dir=/global/cscratch1/sd/xiaocan/athena_reconnection_test/test_periodic_bc/bin_data/
-run_name=test_periodic_bc
+mhd_run_dir=/pscratch/sd/x/xiaocan/test/transport_test/athena_reconnection_test/bin_data/
+run_name=athena_reconnection_test
 stochastic $mhd_run_dir $run_name

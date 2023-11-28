@@ -4,8 +4,8 @@ mhd_analysis_dir=mhd_data
 
 mhd_code=Athena++
 output_type=reconnection.prim
-run_name=test_periodic_bc
-run_dir=/global/cscratch1/sd/xiaocan/athena_reconnection_test/$run_name/
+run_name=athena_reconnection_test
+run_dir=/pscratch/sd/x/xiaocan/test/transport_test/$run_name/
 config_name=athinput.reconnection
 boundary=0 # 0 for periodic, 1 for open
 tframe=0
