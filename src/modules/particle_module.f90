@@ -1795,9 +1795,9 @@ module particle_module
                     dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
                 endif
                 if (focused_transport) then
-                    kpp = kappa%kpara - kappa%kperp
-                else
                     kpp = -kappa%kperp
+                else
+                    kpp = kappa%kpara - kappa%kperp
                 endif
                 kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                     2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -1845,9 +1845,9 @@ module particle_module
                     dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
                 endif
                 if (focused_transport) then
-                    kpp = kappa%kpara - kappa%kperp
-                else
                     kpp = -kappa%kperp
+                else
+                    kpp = kappa%kpara - kappa%kperp
                 endif
                 kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                     2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -1893,9 +1893,9 @@ module particle_module
                 dkdz = dkdz + 2 * lc(4) / (3 * lc(1))
             endif
             if (focused_transport) then
-                kpp = kappa%kpara - kappa%kperp
-            else
                 kpp = -kappa%kperp
+            else
+                kpp = kappa%kpara - kappa%kperp
             endif
             kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                 2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
