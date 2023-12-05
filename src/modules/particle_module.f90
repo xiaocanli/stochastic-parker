@@ -2662,6 +2662,10 @@ module particle_module
             Qmp = atmp - (a1 + c1)
             Qpm = atmp + (a1 - c1)
             Qmm = atmp - (a1 - c1)
+            if (Qmp > 0.0_dp) then
+                ! atmp and (a1 + c1) can be very close
+                Qmp = 0.0_dp
+            endif
             qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
             qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
             deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
@@ -2957,6 +2961,10 @@ module particle_module
             Qmp = atmp - (a1 + c1)
             Qpm = atmp + (a1 - c1)
             Qmm = atmp - (a1 - c1)
+            if (Qmp > 0.0_dp) then
+                ! atmp and (a1 + c1) can be very close
+                Qmp = 0.0_dp
+            endif
             qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
             qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
             deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
