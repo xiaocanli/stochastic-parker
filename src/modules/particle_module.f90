@@ -1795,9 +1795,9 @@ module particle_module
                     dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
                 endif
                 if (focused_transport) then
-                    kpp = kappa%kpara - kappa%kperp
-                else
                     kpp = -kappa%kperp
+                else
+                    kpp = kappa%kpara - kappa%kperp
                 endif
                 kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                     2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -1845,9 +1845,9 @@ module particle_module
                     dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
                 endif
                 if (focused_transport) then
-                    kpp = kappa%kpara - kappa%kperp
-                else
                     kpp = -kappa%kperp
+                else
+                    kpp = kappa%kpara - kappa%kperp
                 endif
                 kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                     2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -1893,9 +1893,9 @@ module particle_module
                 dkdz = dkdz + 2 * lc(4) / (3 * lc(1))
             endif
             if (focused_transport) then
-                kpp = kappa%kpara - kappa%kperp
-            else
                 kpp = -kappa%kperp
+            else
+                kpp = kappa%kpara - kappa%kperp
             endif
             kappa%dkxx_dx = kappa%kperp*dkdx + kpp*dkdx*bx**2*ib2 + &
                 2.0*kpp*bx*(dbx_dx*b-bx*db_dx)*ib3
@@ -2662,6 +2662,10 @@ module particle_module
             Qmp = atmp - (a1 + c1)
             Qpm = atmp + (a1 - c1)
             Qmm = atmp - (a1 - c1)
+            if (Qmp > 0.0_dp) then
+                ! atmp and (a1 + c1) can be very close
+                Qmp = 0.0_dp
+            endif
             qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
             qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
             deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
@@ -2678,6 +2682,9 @@ module particle_module
         ptl%y = ptl%y + deltay
         ptl%z = ptl%z + deltaz
         ptl%t = ptl%t + ptl%dt
+
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -2954,6 +2961,10 @@ module particle_module
             Qmp = atmp - (a1 + c1)
             Qpm = atmp + (a1 - c1)
             Qmm = atmp - (a1 - c1)
+            if (Qmp > 0.0_dp) then
+                ! atmp and (a1 + c1) can be very close
+                Qmp = 0.0_dp
+            endif
             qtmp1 = dsqrt(-Qmp/(Qmm**2+4*b1**2))
             qtmp2 = dsqrt(Qpp/(Qpm**2+4*b1**2))
             deltax = dx_dt * ptl%dt + (-Qmm*qtmp1*ran1 + Qpm*qtmp2*ran2)*sdt
@@ -3242,6 +3253,9 @@ module particle_module
         ptl%y = ptl%y + deltay
         ptl%z = ptl%z + deltaz
         ptl%t = ptl%t + ptl%dt
+
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
 
         if (acc_region_flag == 1) then
             if (particle_in_acceleration_region(ptl)) then
@@ -3818,6 +3832,9 @@ module particle_module
         ptl%y = ptl%y + deltay
         ptl%z = ptl%z + deltaz
         ptl%t = ptl%t + ptl%dt
+
+        ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
+        deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
 
         if (acc_region_flag == 1) then
             in_acc_region = particle_in_acceleration_region(ptl)

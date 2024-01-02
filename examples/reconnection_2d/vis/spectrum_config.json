@@ -1,9 +1,8 @@
 {
-    "test_periodic_bc/transport_test_run": {
-        "run_name"          : "test_periodic_bc/transport_test_run",
+    "athena_reconnection_test/transport_test_run": {
+        "run_name"          : "athena_reconnection_test/transport_test_run",
         "tmin"              : 0,
         "tmax"              : 200,
-        "nreduce"           : 8,
         "e0"                : 1,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],

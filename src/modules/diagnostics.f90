@@ -619,7 +619,7 @@ module diagnostics
             call h5screate_simple_f(2, dset_dims_2d, filespace, error)
             call h5dcreate_f(file_id, "fglobal", H5T_NATIVE_DOUBLE, &
                 filespace, dset_id, error)
-            call write_data_h5(dset_id, dcount_2d, doffset_2d, dset_dims_2d, fglobal)
+            call write_data_h5(dset_id, dcount_2d, doffset_2d, dset_dims_2d, fglobal_sum)
             call h5dclose_f(dset_id, error)
             call h5sclose_f(filespace, error)
             call close_file_h5(file_id)

@@ -1,7 +1,7 @@
 {
-    "test_periodic_bc": {
-        "run_name"          : "test_periodic_bc",
-        "run_dir"           : "/global/cscratch1/sd/xiaocan/athena_reconnection_test/test_periodic_bc/",
+    "athena_reconnection_test": {
+        "run_name"          : "athena_reconnection_test",
+        "run_dir"           : "/pscratch/sd/x/xiaocan/test/transport_test/athena_reconnection_test/",
         "tmin"              : 0,
         "tmax"              : 200,
         "config_name"       : "athinput.reconnection",
