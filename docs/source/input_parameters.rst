@@ -1,5 +1,5 @@
-Input Parameters for GPAT Simulations
-=====================================
+Input Parameters
+================
 
 The input parameters are mostly in script ``diffusion*.sh`` (e.g., ``diffusion_reconnection.sh`` for the 2D reconnection example). A few others are in ``conf*.dat`` (e.g., ``conf.dat`` for the 2D reconnection example). The input parameters are explained below.
 
