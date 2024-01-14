@@ -81,7 +81,12 @@ To check all the available command-line arguments,
 
     srun -n 1 ./stochastic-mhd.exec -h
 
-Or you can check the comments in ``diffusion_reconnection.sh``. For this test run, you don't need to change these input parameters. The default name of the transport run is ``transport_test_run``. We can request an interactive node to run the test, for example, on Perlmutter@NERSC,
+Or you can check the comments in ``diffusion_reconnection.sh``.
+
+.. note:: 
+    Now, the input paramters are described at :doc:`input_parameters`.
+
+For this test run, you don't need to change these input parameters. The default name of the transport run is ``transport_test_run``. We can request an interactive node to run the test, for example, on Perlmutter@NERSC,
 
 .. code-block:: sh
 

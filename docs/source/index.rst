@@ -39,6 +39,7 @@ Usage
    :hidden:
 
    usage
+   input_parameters
 
 Theory
 ------------
