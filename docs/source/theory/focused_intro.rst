@@ -29,7 +29,7 @@ used [Zhang09]_ [Zuo13]_ [Zhang17]_ [Kong22]_,
    :name: equ_ft
 
    \begin{aligned}
-     \frac{\partial f}{\partial t} = \nabla\cdot(\boldsymbol{\kappa}_\perp\nabla f) - (v\mu\boldsymbol{b} + \boldsymbol{V} + \boldsymbol{V}_d)\cdot\nabla f + \frac{\partial}{\partial\mu}\left(D_{\mu\mu}\frac{\partial f}{\partial\mu}\right) - \frac{d\mu}{dt}\frac{\partial f}{\partial\mu} - \frac{dp}{dt}\frac{\partial f}{\partial p} \label{equ:ft}
+     \frac{\partial f}{\partial t} = \nabla\cdot(\boldsymbol{\kappa}_\perp\nabla f) - (v\mu\boldsymbol{b} + \boldsymbol{V} + \boldsymbol{V}_d)\cdot\nabla f + \frac{\partial}{\partial\mu}\left(D_{\mu\mu}\frac{\partial f}{\partial\mu}\right) - \frac{d\mu}{dt}\frac{\partial f}{\partial\mu} - \frac{dp}{dt}\frac{\partial f}{\partial p}
    \end{aligned}
 
 where the terms on the right-hand side are cross-field spatial diffusion
