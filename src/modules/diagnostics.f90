@@ -588,7 +588,7 @@ module diagnostics
         write (ctime,'(i4.4)') iframe
         if (mpi_rank == master) then
             fname = trim(file_path)//'fdists_'//ctime//'.h5'
-            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., mpi_sub_comm)
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., mpi_sub_comm)
             ! Mu bins edges
             dcount_1d(1) = nmu_global + 1
             doffset_1d(1) = 0
@@ -653,10 +653,10 @@ module diagnostics
         write (ctime,'(i4.4)') iframe
         if (mpi_cross_rank == master) then
             fname = trim(file_path)//'fdists_'//ctime//'.h5'
-            call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
             ! Local distributions 1
             if (dump_local_dist1) then
                 if (mpi_sub_rank == master) then
+                    call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .false.)
                     ! mu bins edges
                     dcount_1d(1) = nmu1 + 1
                     doffset_1d(1) = 0
@@ -680,8 +680,10 @@ module diagnostics
                         dset_dims_1d, pbins1_edges)
                     call h5dclose_f(dset_id, error)
                     call h5sclose_f(filespace, error)
+                    call close_file_h5(file_id)
                 endif
 
+                call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
                 dcount_5d = (/ nmu1, npbins1, nrx1, nry1, nrz1 /)
                 doffset_5d = (/ 0, 0, nrx1 * mpi_ix, nry1 * mpi_iy, nrz1 * mpi_iz /)
                 dset_dims_5d = (/ nmu1, npbins1, nrx1_mhd, nry1_mhd, nrz1_mhd /)
@@ -692,11 +694,13 @@ module diagnostics
                     flocal1_sum, .true., .true.)
                 call h5dclose_f(dset_id, error)
                 call h5sclose_f(filespace, error)
+                call close_file_h5(file_id)
             endif
 
             ! Local distributions 2
             if (dump_local_dist2) then
                 if (mpi_sub_rank == master) then
+                    call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .false.)
                     ! mu bins edges
                     dcount_1d(1) = nmu2 + 1
                     doffset_1d(1) = 0
@@ -720,8 +724,10 @@ module diagnostics
                         dset_dims_1d, pbins2_edges)
                     call h5dclose_f(dset_id, error)
                     call h5sclose_f(filespace, error)
+                    call close_file_h5(file_id)
                 endif
 
+                call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
                 dcount_5d = (/ nmu2, npbins2, nrx2, nry2, nrz2 /)
                 doffset_5d = (/ 0, 0, nrx2 * mpi_ix, nry2 * mpi_iy, nrz2 * mpi_iz /)
                 dset_dims_5d = (/ nmu2, npbins2, nrx2_mhd, nry2_mhd, nrz2_mhd /)
@@ -732,11 +738,13 @@ module diagnostics
                     flocal2_sum, .true., .true.)
                 call h5dclose_f(dset_id, error)
                 call h5sclose_f(filespace, error)
+                call close_file_h5(file_id)
             endif
 
             ! Local distributions 3
             if (dump_local_dist3) then
                 if (mpi_sub_rank == master) then
+                    call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .false.)
                     ! mu bins edges
                     dcount_1d(1) = nmu3 + 1
                     doffset_1d(1) = 0
@@ -760,8 +768,10 @@ module diagnostics
                         dset_dims_1d, pbins3_edges)
                     call h5dclose_f(dset_id, error)
                     call h5sclose_f(filespace, error)
+                    call close_file_h5(file_id)
                 endif
 
+                call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
                 dcount_5d = (/ nmu3, npbins3, nrx3, nry3, nrz3 /)
                 doffset_5d = (/ 0, 0, nrx3 * mpi_ix, nry3 * mpi_iy, nrz3 * mpi_iz /)
                 dset_dims_5d = (/ nmu3, npbins3, nrx3_mhd, nry3_mhd, nrz3_mhd /)
@@ -772,11 +782,13 @@ module diagnostics
                     flocal3_sum, .true., .true.)
                 call h5dclose_f(dset_id, error)
                 call h5sclose_f(filespace, error)
+                call close_file_h5(file_id)
             endif
 
             ! Local distributions 4
             if (dump_local_dist4) then
                 if (mpi_sub_rank == master) then
+                    call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .false.)
                     ! mu bins edges
                     dcount_1d(1) = nmu4 + 1
                     doffset_1d(1) = 0
@@ -800,8 +812,10 @@ module diagnostics
                         dset_dims_1d, pbins4_edges)
                     call h5dclose_f(dset_id, error)
                     call h5sclose_f(filespace, error)
+                    call close_file_h5(file_id)
                 endif
 
+                call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., mpi_sub_comm)
                 dcount_5d = (/ nmu4, npbins4, nrx4, nry4, nrz4 /)
                 doffset_5d = (/ 0, 0, nrx4 * mpi_ix, nry4 * mpi_iy, nrz4 * mpi_iz /)
                 dset_dims_5d = (/ nmu4, npbins4, nrx4_mhd, nry4_mhd, nrz4_mhd /)
@@ -812,8 +826,8 @@ module diagnostics
                     flocal4_sum, .true., .true.)
                 call h5dclose_f(dset_id, error)
                 call h5sclose_f(filespace, error)
+                call close_file_h5(file_id)
             endif
-            call close_file_h5(file_id)
         endif
         call h5close_f(error)
     end subroutine save_local_distributions
@@ -844,9 +858,6 @@ module diagnostics
         endif
 
         call clean_particle_distributions(local_dist)
-        if (local_dist) then
-            call clean_local_particle_distribution
-        endif
     end subroutine distributions_diagnostics
 
     !---------------------------------------------------------------------------
