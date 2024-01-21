@@ -4137,19 +4137,37 @@ module particle_module
         ran3 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
 
         if (spherical_coord_flag) then
-            p11 = dsqrt(2.0*(kappa%kxx*kappa%kyz**2 + &
-                             kappa%kyy*kappa%kxz**2 + &
-                             kappa%kzz*kappa%kxy**2 - &
-                             2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
-                             kappa%kxx*kappa%kyy*kappa%kzz) / &
-                             (kappa%kyz**2 - kappa%kyy*kappa%kzz))
+            dtmp = 2.0*(kappa%kxx*kappa%kyz**2 + &
+                        kappa%kyy*kappa%kxz**2 + &
+                        kappa%kzz*kappa%kxy**2 - &
+                        2.0*kappa%kxy*kappa%kxz*kappa%kyz - &
+                        kappa%kxx*kappa%kyy*kappa%kzz) / &
+                        (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            if (dtmp < 0.0_dp) then ! It can be negatively very small
+                dtmp = 0.0_dp
+            endif
+            p11 = dsqrt(dtmp)
+            dtmp = 2.0 * (kappa%kyy - (kappa%kyz**2/kappa%kzz))
+            if (dtmp < 0.0_dp) then ! It can be negatively very small
+                dtmp = 0.0_dp
+            endif
             p12 = (kappa%kxz*kappa%kyz - kappa%kxy*kappa%kzz) * &
-                dsqrt(2.0*(kappa%kyy - (kappa%kyz**2/kappa%kzz))) / &
-                (kappa%kyz**2 - kappa%kyy*kappa%kzz)
-            p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
-            p22 = dsqrt(2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)) * ir
-            p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
-            p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+                dsqrt(dtmp) / (kappa%kyz**2 - kappa%kyy*kappa%kzz)
+            dtmp = 2.0 * (kappa%kyy - kappa%kyz**2/kappa%kzz)
+            if (dtmp < 0.0_dp) then ! It can be negatively very small
+                dtmp = 0.0_dp
+            endif
+            p22 = dsqrt(dtmp) * ir
+            dtmp = kappa%kzz
+            if (kappa%kzz <= 0.0_dp) then ! It can be negatively very small
+                p13 = 0.0_dp
+                p23 = 0.0_dp
+                p33 = 0.0_dp
+            else
+                p13 = dsqrt(2.0 / kappa%kzz) * kappa%kxz
+                p23 = dsqrt(2.0 / kappa%kzz) * kappa%kyz * ir
+                p33 = dsqrt(2.0 * kappa%kzz) * istheta * ir
+            endif
             deltax = dx_dt * ptl%dt + (p11*ran1 + p12*ran2 + p13*ran3)*sdt
             deltay = dy_dt * ptl%dt + (p22*ran2 + p23*ran3)*sdt
             deltaz = dz_dt * ptl%dt + p33*ran3*sdt
