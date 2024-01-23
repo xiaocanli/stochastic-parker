@@ -1210,15 +1210,15 @@ module diagnostics
         else
             nmu1 = 1 ! For Parker's transport
         endif
-        rx1 = int(diag_params(8))
-        ry1 = int(diag_params(9))
-        rz1 = int(diag_params(10))
-        nrx1 = (fconfig%nx + rx1 - 1) / rx1
-        nry1 = (fconfig%ny + ry1 - 1) / ry1
-        nrz1 = (fconfig%nz + rz1 - 1) / rz1
-        call echo_diagnostics_params(dump_interval1, pmin1, pmax1, nrx1, nry1, nrz1, &
-                                     npbins1, nmu1, rx1, ry1, rz1)
         if (dump_interval1 < nframes) then ! Otherwise, the set of parameters will be used
+            rx1 = int(diag_params(8))
+            ry1 = int(diag_params(9))
+            rz1 = int(diag_params(10))
+            nrx1 = (fconfig%nx + rx1 - 1) / rx1
+            nry1 = (fconfig%ny + ry1 - 1) / ry1
+            nrz1 = (fconfig%nz + rz1 - 1) / rz1
+            call echo_diagnostics_params(dump_interval1, pmin1, pmax1, nrx1, nry1, nrz1, &
+                                         npbins1, nmu1, rx1, ry1, rz1)
             call check_local_dist_configuration(nrx1, nry1, nrz1, rx1, ry1, rz1)
             dump_local_dist1 = .true.
         else
@@ -1235,15 +1235,15 @@ module diagnostics
         else
             nmu2 = 1 ! For Parker's transport
         endif
-        rx2 = int(diag_params(16))
-        ry2 = int(diag_params(17))
-        rz2 = int(diag_params(18))
-        nrx2 = (fconfig%nx + rx2 - 1) / rx2
-        nry2 = (fconfig%ny + ry2 - 1) / ry2
-        nrz2 = (fconfig%nz + rz2 - 1) / rz2
-        call echo_diagnostics_params(dump_interval2, pmin2, pmax2, nrx2, nry2, nrz2, &
-                                     npbins2, nmu2, rx2, ry2, rz2)
         if (dump_interval2 < nframes) then ! Otherwise, the set of parameters will be used
+            rx2 = int(diag_params(16))
+            ry2 = int(diag_params(17))
+            rz2 = int(diag_params(18))
+            nrx2 = (fconfig%nx + rx2 - 1) / rx2
+            nry2 = (fconfig%ny + ry2 - 1) / ry2
+            nrz2 = (fconfig%nz + rz2 - 1) / rz2
+            call echo_diagnostics_params(dump_interval2, pmin2, pmax2, nrx2, nry2, nrz2, &
+                                         npbins2, nmu2, rx2, ry2, rz2)
             call check_local_dist_configuration(nrx2, nry2, nrz2, rx2, ry2, rz2)
             dump_local_dist2 = .true.
         else
@@ -1260,15 +1260,15 @@ module diagnostics
         else
             nmu3 = 1 ! For Parker's transport
         endif
-        rx3 = int(diag_params(24))
-        ry3 = int(diag_params(25))
-        rz3 = int(diag_params(26))
-        nrx3 = (fconfig%nx + rx3 - 1) / rx3
-        nry3 = (fconfig%ny + ry3 - 1) / ry3
-        nrz3 = (fconfig%nz + rz3 - 1) / rz3
-        call echo_diagnostics_params(dump_interval3, pmin3, pmax3, nrx3, nry3, nrz3, &
-                                     npbins3, nmu3, rx3, ry3, rz3)
         if (dump_interval3 < nframes) then ! Otherwise, the set of parameters will be used
+            rx3 = int(diag_params(24))
+            ry3 = int(diag_params(25))
+            rz3 = int(diag_params(26))
+            nrx3 = (fconfig%nx + rx3 - 1) / rx3
+            nry3 = (fconfig%ny + ry3 - 1) / ry3
+            nrz3 = (fconfig%nz + rz3 - 1) / rz3
+            call echo_diagnostics_params(dump_interval3, pmin3, pmax3, nrx3, nry3, nrz3, &
+                                         npbins3, nmu3, rx3, ry3, rz3)
             call check_local_dist_configuration(nrx3, nry3, nrz3, rx3, ry3, rz3)
             dump_local_dist3 = .true.
         else
@@ -1285,15 +1285,15 @@ module diagnostics
         else
             nmu4 = 1 ! For Parker's transport
         endif
-        rx4 = int(diag_params(32))
-        ry4 = int(diag_params(33))
-        rz4 = int(diag_params(34))
-        nrx4 = (fconfig%nx + rx4 - 1) / rx4
-        nry4 = (fconfig%ny + ry4 - 1) / ry4
-        nrz4 = (fconfig%nz + rz4 - 1) / rz4
-        call echo_diagnostics_params(dump_interval4, pmin4, pmax4, nrx4, nry4, nrz4, &
-                                     npbins4, nmu4, rx4, ry4, rz4)
         if (dump_interval4 < nframes) then ! Otherwise, the set of parameters will be used
+            rx4 = int(diag_params(32))
+            ry4 = int(diag_params(33))
+            rz4 = int(diag_params(34))
+            nrx4 = (fconfig%nx + rx4 - 1) / rx4
+            nry4 = (fconfig%ny + ry4 - 1) / ry4
+            nrz4 = (fconfig%nz + rz4 - 1) / rz4
+            call echo_diagnostics_params(dump_interval4, pmin4, pmax4, nrx4, nry4, nrz4, &
+                                         npbins4, nmu4, rx4, ry4, rz4)
             call check_local_dist_configuration(nrx4, nry4, nrz4, rx4, ry4, rz4)
             dump_local_dist4 = .true.
         else
