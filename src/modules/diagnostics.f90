@@ -458,7 +458,7 @@ module diagnostics
                 mu >= -1.0d0 .and. mu <= 1.0d0) then
                 ip = floor((log10(p)-pmin_log) / dp_log) + 1
                 imu = floor((mu + 1.0d0) / dmu) + 1
-                fglobal(imu,ip) = fglobal(imu,ip) + weight
+                fglobal(imu,ip) = fglobal(imu,ip) + ptl%weight
             endif
 
             if (local_dist) then
