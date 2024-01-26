@@ -176,12 +176,12 @@ module mpi_io_module
     !   rdata: the data read from the file.
     !---------------------------------------------------------------------------
     subroutine read_data_mpi_io_real_4d(fh, datatype, subsizes, disp, offset, rdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(4), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:, :, :, :), intent(out) :: rdata
+        real(sp), dimension(:, :, :, :), intent(out) :: rdata
 
         call set_file_view_real(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
@@ -201,12 +201,12 @@ module mpi_io_module
     !   rdata: the data read from the file.
     !---------------------------------------------------------------------------
     subroutine read_data_mpi_io_real_3d(fh, datatype, subsizes, disp, offset, rdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(3), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:, :, :), intent(out) :: rdata
+        real(sp), dimension(:, :, :), intent(out) :: rdata
 
         call set_file_view_real(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
@@ -218,12 +218,12 @@ module mpi_io_module
     ! Read data from files using MPI/IO for 2D REAL data.
     !---------------------------------------------------------------------------
     subroutine read_data_mpi_io_real_2d(fh, datatype, subsizes, disp, offset, rdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(2), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:, :), intent(out) :: rdata
+        real(sp), dimension(:, :), intent(out) :: rdata
 
         call set_file_view_real(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
@@ -235,12 +235,12 @@ module mpi_io_module
     ! Read data from files using MPI/IO for 1D REAL data.
     !---------------------------------------------------------------------------
     subroutine read_data_mpi_io_real_1d(fh, datatype, subsizes, disp, offset, rdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(1), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:), intent(out) :: rdata
+        real(sp), dimension(:), intent(out) :: rdata
 
         call set_file_view_real(fh, datatype, disp)
         call MPI_FILE_READ_AT_ALL(fh, offset, rdata, &
@@ -328,12 +328,12 @@ module mpi_io_module
     !   wdata: the data to write to file.
     !---------------------------------------------------------------------------
     subroutine write_data_mpi_io_real_4d(fh, datatype, subsizes, disp, offset, wdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(4), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:,:,:,:), intent(in) :: wdata
+        real(sp), dimension(:,:,:,:), intent(in) :: wdata
 
         call set_file_view_real(fh, datatype, disp)
 
@@ -354,12 +354,12 @@ module mpi_io_module
     !   wdata: the data to write to file.
     !---------------------------------------------------------------------------
     subroutine write_data_mpi_io_real_3d(fh, datatype, subsizes, disp, offset, wdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(3), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:,:,:), intent(in) :: wdata
+        real(sp), dimension(:,:,:), intent(in) :: wdata
 
         call set_file_view_real(fh, datatype, disp)
 
@@ -372,12 +372,12 @@ module mpi_io_module
     ! Write data to files using MPI/IO for 2D REAL data.
     !---------------------------------------------------------------------------
     subroutine write_data_mpi_io_real_2d(fh, datatype, subsizes, disp, offset, wdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(2), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:,:), intent(in) :: wdata
+        real(sp), dimension(:,:), intent(in) :: wdata
 
         call set_file_view_real(fh, datatype, disp)
 
@@ -390,12 +390,12 @@ module mpi_io_module
     ! Write data to files using MPI/IO for 1D REAL data.
     !---------------------------------------------------------------------------
     subroutine write_data_mpi_io_real_1d(fh, datatype, subsizes, disp, offset, wdata)
-        use constants, only: fp
+        use constants, only: sp
         implicit none
         integer, intent(in) :: fh, datatype
         integer, dimension(1), intent(in) :: subsizes
         integer(kind=MPI_OFFSET_KIND), intent(in) :: disp, offset
-        real(fp), dimension(:), intent(in) :: wdata
+        real(sp), dimension(:), intent(in) :: wdata
 
         call set_file_view_real(fh, datatype, disp)
 

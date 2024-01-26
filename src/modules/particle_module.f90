@@ -2,7 +2,7 @@
 !< Module of particle data and methods to inject, remove and push particles
 !*******************************************************************************
 module particle_module
-    use constants, only: fp, dp
+    use constants, only: i1, i4, i8, sp, dp
     use simulation_setup_module, only: ndim_field
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
     use mhd_data_parallel, only: nfields, ngrads
@@ -34,10 +34,10 @@ module particle_module
         real(dp) :: x, y, z, p      !< Position and momentum
         real(dp) :: v, mu           !< Velocity and cosine of pitch-angle
         real(dp) :: weight, t, dt   !< Particle weight, time and time step
-        integer  :: split_times     !< Particle splitting times
-        integer  :: count_flag      !< Only count particle when it is 1
-        integer  :: tag             !< Particle tag
-        integer  :: nsteps_tracking !< Total particle tracking steps
+        integer(i1)  :: split_times     !< Particle splitting times
+        integer(i1)  :: count_flag      !< Only count particle when it is 1
+        integer(i8)  :: tag             !< Particle tag
+        integer(i8)  :: nsteps_tracking !< Total particle tracking steps
     end type particle_type
 
     real(dp) :: pmin  !< Minimum particle momentum
@@ -54,12 +54,12 @@ module particle_module
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:128 :: ptls
 
-    integer :: nptl_current         !< Number of particles currently in the box
-    integer :: nptl_old             !< Number of particles without receivers
-    integer :: nptl_max             !< Maximum number of particles allowed
-    integer :: nptl_split           !< Number of particles from splitting
-    integer :: nptl_inject          !< Number of injected particles
-    integer :: tag_max              !< Maximum particle tag
+    integer(i8) :: nptl_current         !< Number of particles currently in the box
+    integer(i8) :: nptl_old             !< Number of particles without receivers
+    integer(i8) :: nptl_max             !< Maximum number of particles allowed
+    integer(i8) :: nptl_split           !< Number of particles from splitting
+    integer(i8) :: nptl_inject          !< Number of injected particles
+    integer(i8) :: tag_max          !< Maximum particle tag
     real(dp) :: leak                !< Leaking particles from boundary considering weight
     real(dp) :: leak_negp           !< Leaking particles with negative momentum
 
@@ -123,10 +123,10 @@ module particle_module
     logical :: acc_by_surface_flag
 
     !< Particle tracking
-    integer, allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
-    integer, allocatable, dimension(:) :: tags_selected_ptls
+    integer(i8), allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
+    integer(i8), allocatable, dimension(:) :: tags_selected_ptls
     type(particle_type), allocatable, dimension(:) :: ptl_traj_points
-    integer :: nsteps_tracked_tot   !< Total tracking steps for all tracked particles
+    integer(i8) :: nsteps_tracked_tot   !< Total tracking steps for all tracked particles
 
     contains
 
@@ -137,7 +137,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine init_particles(nptl_max_allowed)
         implicit none
-        integer, intent(in) :: nptl_max_allowed
+        integer(i8), intent(in) :: nptl_max_allowed
         nptl_max = nptl_max_allowed
         allocate(ptls(nptl_max))
         ptls%x = 0.0
@@ -297,19 +297,24 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine set_particle_datatype_mpi
         implicit none
-        integer :: oldtypes(0:1), blockcounts(0:1)
-        integer :: offsets(0:1), extent
+        integer :: oldtypes(0:2), blockcounts(0:2)
+        integer :: offsets(0:2), extent
         ! Setup description of the 9 MPI_DOUBLE fields.
         offsets(0) = 0
         oldtypes(0) = MPI_DOUBLE_PRECISION
         blockcounts(0) = 9
-        ! Setup description of the 4 MPI_INTEGER fields.
+        ! Setup description of the 2 MPI_INTEGER1 fields.
         call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
         offsets(1) = blockcounts(0) * extent
-        oldtypes(1) = MPI_INTEGER
-        blockcounts(1) = 4
+        oldtypes(1) = MPI_INTEGER1
+        blockcounts(1) = 2
+        ! Setup description of the 2 MPI_INTEGER8 fields.
+        call MPI_TYPE_EXTENT(MPI_INTEGER1, extent, ierr)
+        offsets(2) = blockcounts(1) * extent + offsets(1)
+        oldtypes(2) = MPI_INTEGER8
+        blockcounts(2) = 2
         ! Define structured type and commit it.
-        call MPI_TYPE_STRUCT(2, blockcounts, offsets, oldtypes, &
+        call MPI_TYPE_STRUCT(3, blockcounts, offsets, oldtypes, &
             particle_datatype_mpi, ierr)
         call MPI_TYPE_COMMIT(particle_datatype_mpi, ierr)
     end subroutine set_particle_datatype_mpi
@@ -341,7 +346,8 @@ module particle_module
         implicit none
         real(dp), intent(in) :: xpos, ypos, zpos, dt, power_index
         real(dp), intent(in) :: particle_v0, mu
-        integer, intent(in) :: nptl_current, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl_current
+        integer, intent(in) :: dist_flag, ct_mhd
         real(dp) :: r01, norm, fxp, ptmp, ftest
         ptls(nptl_current)%x = xpos
         ptls(nptl_current)%y = ypos
@@ -396,10 +402,11 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01
         implicit none
-        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
-        integer :: i, imod2
+        integer(i8) :: i 
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xmax_box, ymax_box, zmax_box
@@ -466,9 +473,11 @@ module particle_module
         use mhd_data_parallel, only: interp_shock_location
         use random_number_generator, only: unif_01, two_normals
         implicit none
-        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index, particle_v0
-        integer :: i, iy, iz
+        integer(i8) :: i
+        integer :: iy, iz
         real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
         real(dp) :: ry, rz, dpy, dpz, shock_xpos
         real(dp) :: r01, norm, fxp, ptmp, ftest
@@ -699,7 +708,8 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01
         implicit none
-        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
         real(dp), intent(in) :: dt, jz_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
@@ -714,7 +724,7 @@ module particle_module
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i, imod2
+        integer(i8) :: i
         integer :: ncells_large_jz, ncells_large_jz_g
         !dir$ attributes align:256 :: fields
 
@@ -824,7 +834,8 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_db2
         use random_number_generator, only: unif_01
         implicit none
-        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_db2_norm
         real(dp), intent(in) :: dt, db2_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
@@ -839,7 +850,7 @@ module particle_module
         real(dp), dimension(4) :: db2_array
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i, imod2
+        integer(i8) :: i
         integer :: ncells_large_db2, ncells_large_db2_g
         !dir$ attributes align:32 :: db2_array
 
@@ -943,7 +954,8 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_divv
         use random_number_generator, only: unif_01
         implicit none
-        integer, intent(in) :: nptl, dist_flag, ct_mhd
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_divv_norm
         real(dp), intent(in) :: dt, divv_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
@@ -959,7 +971,7 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: ctheta, istheta
-        integer :: i, imod2
+        integer(i8) :: i
         integer :: ncells_large_divv, ncells_large_divv_g
         !dir$ attributes align:256 :: fields
 
@@ -1085,7 +1097,8 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: px, py, pz, rt
-        integer :: i, tracking_step, offset, step, thread_id
+        integer(i8) :: i, tracking_step, offset
+        integer :: step, thread_id
         type(particle_type) :: ptl
         type(kappa_type) :: kappa
         real(dp) :: surface_height1, surface_height2
@@ -1379,7 +1392,8 @@ module particle_module
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
         logical, intent(in) :: dump_escaped
-        integer :: i, local_flag, global_flag, ncycle
+        integer(i8) :: i
+        integer :: local_flag, global_flag, ncycle
         logical :: all_particles_in_box
         real(dp) :: t0, dtf, xmin, xmax, ymin, ymax, zmin, zmax
         type(particle_type) :: ptl
@@ -1936,7 +1950,7 @@ module particle_module
         implicit none
         character(*), intent(in) :: conf_file
         logical :: condx, condy, condz
-        real(fp) :: temp
+        real(sp) :: temp
         integer :: fh
 
         if (mpi_rank == master) then
@@ -4232,7 +4246,7 @@ module particle_module
     subroutine resize_escaped_particles
         implicit none
         type(particle_type), allocatable, dimension(:) :: escaped_ptls_tmp
-        integer :: i, nmax
+        integer(i8) :: nmax
         allocate(escaped_ptls_tmp(nptl_escaped_max))
         escaped_ptls_tmp = escaped_ptls
         ! Reallocate the escaped particle data array
@@ -4265,7 +4279,7 @@ module particle_module
     subroutine remove_particles(dump_escaped)
         implicit none
         logical, intent(in) :: dump_escaped
-        integer :: i, nremoved
+        integer(i8) :: i, nremoved
         type(particle_type) :: ptl1
 
         ! Resize the escaped particle data array if necessary
@@ -4329,7 +4343,7 @@ module particle_module
     subroutine split_particle(split_ratio, pmin_split)
         implicit none
         real(dp), intent(in) :: split_ratio, pmin_split
-        integer :: i, nptl
+        integer(i8) :: i, nptl
         real(dp) :: p_threshold
         type(particle_type) :: ptl, ptl_new
         nptl = nptl_current
@@ -4361,8 +4375,8 @@ module particle_module
         type(particle_type), dimension(:) :: ptls
         type(particle_type) :: ptl_tmp
         real(dp) :: p_pivot
-        integer :: first, last
-        integer :: i, j
+        integer(i8) :: first, last
+        integer(i8) :: i, j
 
         p_pivot = ptls((first+last) / 2)%p
         i = first
@@ -4419,9 +4433,10 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine select_particles_tracking(nptl, nptl_selected, nsteps_interval)
         implicit none
-        integer, intent(in) :: nptl, nptl_selected, nsteps_interval
-        integer :: iptl, i
-        call quicksort_particle(ptls, 1, nptl_current)
+        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl_selected, nsteps_interval
+        integer(i8) :: iptl, i
+        call quicksort_particle(ptls, 1_i8, nptl_current)
 
         !< Select high-energy particles
         iptl = nptl_current-nptl_selected+1
@@ -4490,7 +4505,8 @@ module particle_module
     subroutine negative_particle_tags(nptl_selected)
         implicit none
         integer, intent(in) :: nptl_selected
-        integer :: iptl, itag
+        integer(i8) :: iptl
+        integer :: itag
         do iptl = nptl_current - nptl_inject + 1, nptl_current
             do itag = 1, nptl_selected
                 if (ptls(iptl)%tag == tags_selected_ptls(itag)) then
@@ -4508,7 +4524,7 @@ module particle_module
     subroutine record_tracked_particle_init(nptl_selected)
         implicit none
         integer, intent(in) :: nptl_selected
-        integer :: iptl, offset
+        integer(i8) :: iptl, offset
         do iptl = nptl_current - nptl_inject + 1, nptl_current
             if (ptls(iptl)%tag < 0) then
                 offset = noffsets_tracked_ptls(-ptls(iptl)%tag)
@@ -4545,9 +4561,9 @@ module particle_module
             form='unformatted', action='write')
         pos1 = 1
         write(fh, pos=pos1) nptl_selected
-        pos1 = pos1 + sizeof(fp)
+        pos1 = pos1 + sizeof(sp)
         write(fh, pos=pos1) nsteps_tracked_ptls
-        pos1 = pos1 + nptl_selected * sizeof(fp)
+        pos1 = pos1 + nptl_selected * sizeof(sp)
         write(fh, pos=pos1) ptl_traj_points
         close(fh)
     end subroutine save_tracked_particle_points

@@ -2,7 +2,7 @@
 !< Module of MHD configuration
 !*******************************************************************************
 module mhd_config_module
-    use constants, only: fp, dp
+    use constants, only: dp
     implicit none
     private
     save

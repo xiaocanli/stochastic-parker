@@ -3,7 +3,7 @@
 !*******************************************************************************
 module simulation_setup_module
     use mhd_config_module, only: mhd_config
-    use constants, only: fp, dp
+    use constants, only: sp, dp
     use mpi_module
     implicit none
     private
@@ -46,7 +46,7 @@ module simulation_setup_module
         use read_config, only: get_variable
         implicit none
         character(*), intent(in) :: conf_file
-        real(fp) :: temp
+        real(sp) :: temp
         integer, dimension(3) :: mpi_topology
         integer :: nx, ny, nz, fh
         if (mpi_rank == master) then
@@ -105,7 +105,7 @@ module simulation_setup_module
         use read_config, only: get_variable
         implicit none
         character(*), intent(in) :: conf_file
-        real(fp) :: temp
+        real(sp) :: temp
         integer, dimension(3) :: pbcs
         integer :: fh
         if (mpi_rank == master) then

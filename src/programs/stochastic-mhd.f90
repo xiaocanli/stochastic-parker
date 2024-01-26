@@ -3,7 +3,7 @@
 !*******************************************************************************
 
 program stochastic
-    use constants, only: fp, dp
+    use constants, only: i8, dp
     use mpi_module
     use omp_lib
     use mhd_config_module, only: load_mhd_config, mhd_config, &
@@ -53,7 +53,7 @@ program stochastic
     character(len=64) :: conf_file, mhd_config_filename
     character(len=64) :: surface_filename1, surface_filename2
     character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
-    integer :: nptl_max, nptl
+    integer(i8) :: nptl_max, nptl
     real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
@@ -944,8 +944,8 @@ program stochastic
             print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)
             print '(A,A)', 'MHD configuration filename: ', trim(mhd_config_filename)
-            print '(A,I10.3)', 'Maximum number of particles: ', nptl_max
-            print '(A,I10.3)', 'Initial number of particles: ', nptl
+            print '(A,I15.3)', 'Maximum number of particles: ', nptl_max
+            print '(A,I15.3)', 'Initial number of particles: ', nptl
             if (dist_flag == 0) then
                 print '(A)', 'Initial distribution is Maxwellian'
             else if (dist_flag == 1) then
@@ -954,7 +954,7 @@ program stochastic
                 print '(A,F14.7)', 'Initial distribution is a power-law with index: ', &
                     power_index
             endif
-            print '(A,E14.7E2)', 'Time interval to push particles: ', dt
+            print '(A,E14.7)', 'Time interval to push particles: ', dt
             print '(A,I10.3)', 'Starting time frame: ', t_start
             print '(A,I10.3)', 'The last time frame: ', t_end
             if (single_time_frame == 1) then

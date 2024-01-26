@@ -2,7 +2,7 @@
 !< Program for organizing MHD simulation data
 !*******************************************************************************
 program organize_mhd_data
-    use constants, only: fp, dp
+    use constants, only: dp
     use mhd_data_sli, only: read_mhd_config_from_outfile, init_mhd_data, &
         free_mhd_data, read_mhd_data, save_organized_mhd_data, &
         adjust_mhd_data_boundary

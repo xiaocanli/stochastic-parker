@@ -2,7 +2,7 @@
 !< Module of MHD data for Shengtai Li's MHD code
 !*******************************************************************************
 module mhd_data_sli
-    use constants, only: fp, dp
+    use constants, only: sp, dp
     implicit none
     private
     public read_mhd_config_from_outfile, init_mhd_data, free_mhd_data, &
@@ -11,16 +11,16 @@ module mhd_data_sli
 
     type file_header
         integer, dimension(4) :: nx4
-        real(fp) :: time
-        real(fp), dimension(4) :: bbox
+        real(sp) :: time
+        real(sp), dimension(4) :: bbox
     end type file_header
 
     type(file_header) :: fheader
 
-    real(fp), allocatable, dimension(:, :, :, :) :: f_array
+    real(sp), allocatable, dimension(:, :, :, :) :: f_array
     !dir$ attributes align:64 :: f_array
 
-    real(fp), allocatable, dimension(:, :, :, :) :: mhd_data_single_core
+    real(sp), allocatable, dimension(:, :, :, :) :: mhd_data_single_core
     !dir$ attributes align:64 :: mhd_data_single_core
 
     contains

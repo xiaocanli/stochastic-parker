@@ -3,7 +3,7 @@
 !< This module is for 3D simulations only.
 !*******************************************************************************
 module acc_region_surface
-    use constants, only: fp, dp
+    use constants, only: dp
     use simulation_setup_module, only: fconfig
     use mpi_module
     implicit none

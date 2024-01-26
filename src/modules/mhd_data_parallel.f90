@@ -2,7 +2,7 @@
 !< Module for dealing with MHD data in parallel
 !*******************************************************************************
 module mhd_data_parallel
-    use constants, only: fp, dp
+    use constants, only: sp, dp
     use simulation_setup_module, only: fconfig, ndim_field
     use mpi_module
     implicit none
@@ -30,9 +30,9 @@ module mhd_data_parallel
     integer, parameter :: ngrads=24
 
     !< 80 variables in total if there are two time frames
-    real(fp), allocatable, dimension(:, :, :, :) :: farray1, farray2 ! Current,next
-    real(fp), allocatable, dimension(:, :, :, :) :: deltab2_1, deltab2_2 ! Current,next
-    real(fp), allocatable, dimension(:, :, :, :) :: lcorr1, lcorr2 ! Current,next
+    real(sp), allocatable, dimension(:, :, :, :) :: farray1, farray2 ! Current,next
+    real(sp), allocatable, dimension(:, :, :, :) :: deltab2_1, deltab2_2 ! Current,next
+    real(sp), allocatable, dimension(:, :, :, :) :: lcorr1, lcorr2 ! Current,next
     !dir$ attributes align:128 :: farray1
     !dir$ attributes align:128 :: farray2
     !dir$ attributes align:16 :: deltab2_1

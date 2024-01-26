@@ -2,7 +2,7 @@
 !< Module of diagnostics
 !*******************************************************************************
 module diagnostics
-    use constants, only: fp, dp
+    use constants, only: i1, i4, i8, sp, dp
     use mhd_config_module, only: mhd_config
     use simulation_setup_module, only: ndim_field
     use mhd_data_parallel, only: nfields, ngrads
@@ -74,7 +74,8 @@ module diagnostics
 
     interface write_ptl_element
         module procedure &
-            write_integer_element, write_double_element
+            write_integer1_element, write_integer4_element, &
+            write_integer8_element, write_double_element
     end interface write_ptl_element
 
     contains
@@ -94,7 +95,7 @@ module diagnostics
         integer, parameter :: nvar = 6
         real(dp) :: pdt_min, pdt_max, pdt_min_g, pdt_max_g
         real(dp), dimension(nvar) :: var_local, var_global
-        integer :: i
+        integer(i8) :: i
         logical :: dir_e
 
         var_local = 0.0_dp
@@ -422,7 +423,8 @@ module diagnostics
         use simulation_setup_module, only: fconfig
         implicit none
         logical, intent(in) :: local_dist
-        integer :: iptl, ip, imu
+        integer(i8) :: iptl
+        integer :: ip, imu
         integer :: ix1, iy1, iz1, ip1, imu1
         integer :: ix2, iy2, iz2, ip2, imu2
         integer :: ix3, iy3, iz3, ip3, imu3
@@ -840,7 +842,7 @@ module diagnostics
     !<  local_dist: whether to accumulate local particle distribution
     !---------------------------------------------------------------------------
     subroutine distributions_diagnostics(iframe, file_path, local_dist)
-        use constants, only: fp, dp
+        use constants, only: sp, dp
         implicit none
         integer, intent(in) :: iframe
         logical, intent(in) :: local_dist
@@ -873,7 +875,7 @@ module diagnostics
         logical, intent(in) :: if_create_file
         character(*), intent(in) :: file_path
         real(dp) :: pmax_local, pmax_global
-        integer :: i
+        integer(i8) :: i
         logical :: dir_e
 
         pmax_local = 0.0_dp
@@ -919,16 +921,37 @@ module diagnostics
     end subroutine write_double_element
 
     !---------------------------------------------------------------------------
-    !< Write one integer element of the particle data
+    !< Write one char-length integer element of the particle data
     !---------------------------------------------------------------------------
-    subroutine write_integer_element(file_id, dcount, doffset, dset_dims, &
+    subroutine write_integer1_element(file_id, dcount, doffset, dset_dims, &
             dset_name, fdata)
         use hdf5_io, only: write_data_h5
         implicit none
         integer(hid_t), intent(in) :: file_id
         integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
         character(*), intent(in) :: dset_name
-        integer, dimension(:), intent(in) :: fdata
+        integer(i1), dimension(:), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(1, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_STD_I8LE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer1_element
+
+    !---------------------------------------------------------------------------
+    !< Write one default-length integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer4_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i4), dimension(:), intent(in) :: fdata
         integer(hid_t) :: dset_id, filespace
         integer :: error
         call h5screate_simple_f(1, dset_dims, filespace, error)
@@ -937,7 +960,28 @@ module diagnostics
         call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
         call h5dclose_f(dset_id, error)
         call h5sclose_f(filespace, error)
-    end subroutine write_integer_element
+    end subroutine write_integer4_element
+
+    !---------------------------------------------------------------------------
+    !< Write one long-length integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer8_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i8), dimension(:), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(1, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_STD_I64LE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer8_element
 
     !---------------------------------------------------------------------------
     !< dump all the particles
