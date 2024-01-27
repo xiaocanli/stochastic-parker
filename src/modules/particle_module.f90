@@ -37,6 +37,7 @@ module particle_module
         integer(i1)  :: split_times     !< Particle splitting times
         integer(i1)  :: count_flag      !< Only count particle when it is 1
         integer(i8)  :: tag             !< Particle tag
+        integer(i8)  :: parent          !< parent particle tag when splitting
         integer(i8)  :: nsteps_tracking !< Total particle tracking steps
     end type particle_type
 
@@ -152,10 +153,11 @@ module particle_module
         ptls%split_times = 0
         ptls%count_flag = COUNT_FLAG_OTHERS
         ptls%tag = 0
+        ptls%parent = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0     ! No particle initially
         nptl_split = 0
-        tag_max = 0
+        tag_max = mpi_rank * nptl_max * 100  ! Shift for each MPI rank
 
         !< Particles crossing domain boundaries
         allocate(senders(nptl_max / 10, ndim_field*2))
@@ -174,6 +176,7 @@ module particle_module
         senders%split_times = 0
         senders%count_flag = COUNT_FLAG_OTHERS
         senders%tag = 0
+        senders%parent = 0
         senders%nsteps_tracking = 0
 
         recvers%x = 0.0
@@ -188,6 +191,7 @@ module particle_module
         recvers%split_times = 0
         recvers%count_flag = COUNT_FLAG_OTHERS
         recvers%tag = 0
+        recvers%parent = 0
         recvers%nsteps_tracking = 0
 
         nsenders = 0
@@ -308,11 +312,11 @@ module particle_module
         offsets(1) = blockcounts(0) * extent
         oldtypes(1) = MPI_INTEGER1
         blockcounts(1) = 2
-        ! Setup description of the 2 MPI_INTEGER8 fields.
+        ! Setup description of the 3 MPI_INTEGER8 fields.
         call MPI_TYPE_EXTENT(MPI_INTEGER1, extent, ierr)
         offsets(2) = blockcounts(1) * extent + offsets(1)
         oldtypes(2) = MPI_INTEGER8
-        blockcounts(2) = 2
+        blockcounts(2) = 3
         ! Define structured type and commit it.
         call MPI_TYPE_STRUCT(3, blockcounts, offsets, oldtypes, &
             particle_datatype_mpi, ierr)
@@ -382,6 +386,7 @@ module particle_module
         ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
         tag_max = tag_max + 1
         ptls(nptl_current)%tag = tag_max
+        ptls(nptl_current)%parent = 0  ! In default, no parent
         ptls(nptl_current)%nsteps_tracking = 0
     end subroutine inject_one_particle
 
@@ -406,7 +411,7 @@ module particle_module
         integer, intent(in) :: dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
-        integer(i8) :: i 
+        integer(i8) :: i
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xmax_box, ymax_box, zmax_box
@@ -541,6 +546,7 @@ module particle_module
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
             tag_max = tag_max + 1
             ptls(nptl_current)%tag = tag_max
+            ptls(nptl_current)%parent = 0  ! In default, no parent
             ptls(nptl_current)%nsteps_tracking = 0
         enddo
         if (mpi_rank == master) then
@@ -4266,6 +4272,7 @@ module particle_module
         escaped_ptls%split_times = 0
         escaped_ptls%count_flag = COUNT_FLAG_OTHERS
         escaped_ptls%tag = 0
+        escaped_ptls%parent = 0
         escaped_ptls%nsteps_tracking = 0
         escaped_ptls(:nptl_escaped) = escaped_ptls_tmp(:nptl_escaped)
         deallocate(escaped_ptls_tmp)
@@ -4362,6 +4369,7 @@ module particle_module
                 ptls(nptl_current) = ptl
                 tag_max = tag_max + 1
                 ptls(nptl_current)%tag = tag_max
+                ptls(nptl_current)%parent = ptl%tag
                 ptls(i) = ptl
             endif
         enddo
@@ -4467,6 +4475,7 @@ module particle_module
         ptls%split_times = 0
         ptls%count_flag = 0
         ptls%tag = 0
+        ptls%parent = 0
         ptls%nsteps_tracking = 0
         nptl_current = 0
         tag_max = 0
@@ -4493,6 +4502,7 @@ module particle_module
         ptl_traj_points%split_times = 0
         ptl_traj_points%count_flag = 0
         ptl_traj_points%tag = 0
+        ptl_traj_points%parent = 0
         ptl_traj_points%nsteps_tracking = 0
     end subroutine init_tracked_particle_points
 

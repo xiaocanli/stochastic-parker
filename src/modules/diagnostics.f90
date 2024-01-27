@@ -1035,6 +1035,8 @@ module diagnostics
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
             "tag", ptls%tag)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "parent", ptls%parent)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
             "nsteps_tracking", ptls%nsteps_tracking)
 
         call close_file_h5(file_id)
@@ -1093,6 +1095,8 @@ module diagnostics
                 "count_flag", escaped_ptls%count_flag)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
                 "tag", escaped_ptls%tag)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "parent", escaped_ptls%parent)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
                 "nsteps_tracking", escaped_ptls%nsteps_tracking)
 
@@ -1366,6 +1370,7 @@ module diagnostics
         escaped_ptls%split_times = 0
         escaped_ptls%count_flag = COUNT_FLAG_OTHERS
         escaped_ptls%tag = 0
+        escaped_ptls%parent = 0
         escaped_ptls%nsteps_tracking = 0
         nptl_escaped = 0
     end subroutine reset_escaped_particles
