@@ -6,10 +6,9 @@ import math
 import os
 
 import matplotlib as mpl
-import matplotlib.pylab as plt
 import numpy as np
 from matplotlib import rc
-from scipy.constants import physical_constants
+from scipy.optimize import curve_fit
 
 mpl.rcParams['contour.negative_linestyle'] = 'solid'
 rc('font', **{'family': 'serif', 'serif': ['Palatino']})
@@ -19,6 +18,7 @@ mpl.rcParams["text.latex.preamble"] = \
          r"\DeclareMathAlphabet{\mathsfit}{\encodingdefault}{\sfdefault}{m}{sl}" +
          r"\SetMathAlphabet{\mathsfit}{bold}{\encodingdefault}{\sfdefault}{bx}{sl}" +
          r"\newcommand{\tensorsym}[1]{\bm{\mathsfit{#1}}}")
+
 
 def mkdir_p(path):
     """Create directory recursively
@@ -49,12 +49,12 @@ def load_mhd_config(run_dir):
                       ('xmin', float), ('ymin', float), ('zmin', float),
                       ('xmax', float), ('ymax', float), ('zmax', float),
                       ('lx', float), ('ly', float), ('lz', float),
-                      ('dt_out', float),
-                      ('nx', np.int32), ('ny', np.int32), ('nz', np.int32),
-                      ('nxs', np.int32), ('nys', np.int32), ('nzs', np.int32),
-                      ('topox', np.int32), ('topoy', np.int32), ('topoz', np.int32),
-                      ('nvar', np.int32),
-                      ('bcx', np.int32), ('bcy', np.int32), ('bcz', np.int32)])
+                      ('dt_out', float), ('nx', np.int32), ('ny', np.int32),
+                      ('nz', np.int32), ('nxs', np.int32), ('nys', np.int32),
+                      ('nzs', np.int32), ('topox', np.int32),
+                      ('topoy', np.int32), ('topoz', np.int32),
+                      ('nvar', np.int32), ('bcx', np.int32), ('bcy', np.int32),
+                      ('bcz', np.int32)])
     mhd_config = np.fromfile(fname, dtype=mtype)
     return mhd_config
 
@@ -90,7 +90,7 @@ def get_mhd_info(mhd_run_dir, config_name):
 def find_nearest(array, value):
     """Find nearest value in an array
     """
-    idx = (np.abs(array-value)).argmin()
+    idx = (np.abs(array - value)).argmin()
     return (idx, array[idx])
 
 
@@ -118,78 +118,10 @@ def calc_va_cgs(ni, b0):
     return va
 
 
-def read_momentum_dist(run_name, tframe=0):
-    """read momentum distribution
-
-    Arguments:
-        run_name (string): SDE run name
-        tframe (integer, optional): time frame
-
-    Returns:
-        pbins (1D numpy array): momentum bins
-        pbins_edge (1D numpy array): momentum bins edges
-        fp (1D numpy array): momentum distribution
+def func_power(xvar, pindex, const):
+    """Function for fitting with power-law expression.
     """
-    fname = '../data/' + run_name + '/fp-' + str(tframe).zfill(4) + '_sum.dat'
-    data = np.fromfile(fname, dtype=np.float64)
-    dsz, = data.shape
-    nbins = dsz // 2
-    pbins_edge = data[:nbins]
-    pbins = 0.5 * (pbins_edge[1:] + pbins_edge[:-1])
-    fp = data[nbins:-1] / np.diff(pbins_edge)
-    fp /= pbins**2
-    return (pbins, pbins_edge, fp)
-
-
-def get_energy_spectrum(sde_run_config, tframe=0):
-    """get energy spectrum from momentum distribution
-
-    Arguments:
-        sde_run_config (dict): SDE run configuration
-        tframe (integer, optional): time frame
-
-    Returns:
-        ebins_kev (1D numpy array): energy bins
-        fe (1D numpy array): energy distribution
-    """
-    run_name = sde_run_config["run_name"]
-    pbins, pbins_edge, fp = read_momentum_dist(run_name, tframe)
-    dnptl_bins = fp * pbins**2
-    dpbins = np.diff(pbins_edge)  # the bins sizes
-    dnptl_bins *= dpbins  # number of particles in each bin
-    ebins_kev, debins_kev = get_ebins_kev(sde_run_config)
-    fe = dnptl_bins / debins_kev
-    return (ebins_kev, fe)
-
-
-def get_ebins_kev(sde_run_config):
-    """get energy bins in kev
-
-    Arguments:
-        sde_run_config (dict): SDE run configuration
-    """
-    if "species" in sde_run_config:
-        species = sde_run_config["species"]
-    else:
-        species = "electron"
-    mtext = species + " mass energy equivalent in MeV"
-    rest_ene_kev = physical_constants[mtext][0] * 1E3
-    e0_kev = sde_run_config["e0"]
-    gamma = e0_kev / rest_ene_kev + 1.0
-    p0_mc = math.sqrt(gamma**2 - 1)  # p0 in terms of mc
-    tmin = sde_run_config["tmin"]
-    run_name = sde_run_config["run_name"]
-    pbins, pbins_edge, _ = read_momentum_dist(run_name, tmin)
-    pinit = 0.1  # commonly used values
-    pbins_mc = pbins * p0_mc / pinit
-    pbins_edge_mc = pbins_edge * p0_mc / pinit
-    gamma_bins = np.sqrt(pbins_mc**2 + 1)
-    gamma_bins_edge = np.sqrt(pbins_edge_mc**2 + 1)
-    ebins_kev = (gamma_bins - 1) * rest_ene_kev
-    ebins_edge_kev = (gamma_bins_edge - 1) * rest_ene_kev
-    debins_kev = np.diff(ebins_edge_kev)
-
-    return (ebins_kev, debins_kev)
+    return const * np.power(xvar, pindex)
 
 
 def plot_energy_spectrum(elog, fene, ax, plot_config, **kwargs):
@@ -201,10 +133,7 @@ def plot_energy_spectrum(elog, fene, ax, plot_config, **kwargs):
         ax: plotting axis
         plot_config: plotting configuration
     """
-    if 'color' in kwargs:
-        color = kwargs['color']
-    else:
-        color = 'b'
+    color = kwargs.get("color", "b")
     fene[fene == 0.0] = np.nan
     ax.loglog(elog, fene, linewidth=1, color=color)
     ax.set_xlim(plot_config["xlim_e"])
@@ -214,7 +143,6 @@ def plot_energy_spectrum(elog, fene, ax, plot_config, **kwargs):
     ylim_log = np.log10(plot_config["ylim_e"])
     rangex = xlim_log[1] - xlim_log[0]
     rangey = ylim_log[1] - ylim_log[0]
-    nbin, = fene.shape
 
     if kwargs["plot_power"]:
         for i in range(npow):
