@@ -990,28 +990,49 @@ module diagnostics
     !<  file_path: save data files to this path
     !---------------------------------------------------------------------------
     subroutine dump_particles(iframe, file_path)
-        use hdf5_io, only: create_file_h5, close_file_h5
+        use hdf5_io, only: create_file_h5, open_file_h5, close_file_h5, write_data_h5
         implicit none
         integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
-        real(dp) :: nptl_local, nptl_global, nptl_offset
+        integer(i8) :: nptl_local, nptl_global, nptl_offset
+        integer(i8), allocatable, dimension(:) :: nptls_local
         character(len=128) :: fname
         character(len=4) :: ctime
-        integer(hid_t) :: file_id
+        integer(hid_t) :: file_id, dset_id, filespace
         integer :: error
         logical :: dir_e
 
-        CALL h5open_f(error)
+        call h5open_f(error)
 
+        ! Write the local number of particles
         write (ctime,'(i4.4)') iframe
         fname = trim(file_path)//'particles_'//ctime//'.h5'
-        call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .true., MPI_COMM_WORLD)
+        allocate(nptls_local(mpi_size))
+        call MPI_GATHER(nptl_current, 1, MPI_INTEGER8, nptls_local(mpi_rank+1), &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        if (mpi_rank == master) then
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., MPI_COMM_WORLD)
+            dcount(1) = mpi_size
+            doffset(1) = 0
+            dset_dims(1) = mpi_size
+            call h5screate_simple_f(1, dset_dims, filespace, error)
+            call h5dcreate_f(file_id, "nptl_local", H5T_STD_I64LE, &
+                filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, &
+                nptls_local, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            call close_file_h5(file_id)
+        endif
+        deallocate(nptls_local)
 
+        ! Write the particle data
+        call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., MPI_COMM_WORLD)
         nptl_local = nptl_current
-        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
+        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
-        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_DOUBLE_PRECISION, &
+        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
         nptl_offset = nptl_offset - nptl_local
 
@@ -1040,7 +1061,7 @@ module diagnostics
             "nsteps_tracking", ptls%nsteps_tracking)
 
         call close_file_h5(file_id)
-        CALL h5close_f(error)
+        call h5close_f(error)
     end subroutine dump_particles
 
     !---------------------------------------------------------------------------
@@ -1055,7 +1076,7 @@ module diagnostics
         integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
-        real(dp) :: nptl_local, nptl_global, nptl_offset
+        integer(i8) :: nptl_local, nptl_global, nptl_offset
         character(len=128) :: fname
         character(len=4) :: ctime
         integer(hid_t) :: file_id
@@ -1063,9 +1084,9 @@ module diagnostics
         logical :: dir_e
 
         nptl_local = nptl_escaped
-        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_DOUBLE_PRECISION, &
+        call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
-        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_DOUBLE_PRECISION, &
+        call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
         nptl_offset = nptl_offset - nptl_local
 
