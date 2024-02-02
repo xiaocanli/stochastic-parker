@@ -17,6 +17,7 @@ If you're beginning to use GPAT or have any questions, feel free to drop by the 
    section#install,
    section#usage,
    section#theory,
+   section#development,
    section#epilogue {
        display:none;
    }
@@ -51,6 +52,15 @@ Theory
    theory/introduction
    theory/parker_transport
    theory/focused_transport
+
+Development
+------------
+.. toctree::
+   :caption: DEVELOPMENT
+   :maxdepth: 1
+   :hidden:
+
+   development/implementation
 
 Epilogue
 ------------
