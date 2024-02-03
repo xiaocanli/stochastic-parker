@@ -24,7 +24,12 @@ diffusion.sh
 - ``split_ratio``: the momentum increase ratio for particle splitting. Assuming the particle's initial momentum is ``p0``, the particle will be splitted into two particles once the particle momentum reaches ``p0*split_ratio``.
 - ``pmin_split``: the minimum momentum (in ``p0``) to start splitting particles. Instead of starting from ``p0``, we can start from a higher momentum to avoid splitting too many particles at low momentum.
 - ``local_dist``: whether to diagnose local particle distribution.
-- ``dump_escaped``: whether to dump escaped particles. If ``.false.``, the escaped particles will be removed.
+- ``dump_escaped_dist``: whether to dump the escaped particle distributions, either ``.true`` or ``.false``. If ``.false.``, the particles will be removed once they escape from the boundaries. Otherwise, the escaped particles will be accumulated in one MHD data interval. The distributions of the escaped particles are stored in files ``escaped_dist_*.h5``. They have the same grid sizes as the local particle distributions but with one dimension less. For example, if we have a 3D simulation, the escaped particle distributions will be 2D for the low-x, high-x, low-y, high-y, low-z, and high-z boundaries.
+
+.. warning::
+    The escaped particle distributions are only dumped when ``local_dist=.true.``. When ``local_dist=.false.``, the escaped particle distributions will not be dumped event if ``dump_escaped_dist=.true.``.
+
+- ``dump_escaped``: whether to dump the escaped particles. ``dump_escaped_dist`` has to be ``.true.`` for this to work. If ``dump_escaped_dist=.false.``, the raw data of the escaped particles will be dumped. Otherwise, only the distributions of the escaped particles will be dumped. Note that the raw data of the escaped particles can be large. It is not recommended to dump the raw data of the escaped particles unless you want to analyze the raw data in detail.
 - ``track_particle_flag``: whether to track particles. ``0`` is the default, which means no tracking. ``1`` means tracking. When tracking particles, we will select ``nptl_selected`` particles with the highest energy, rerun the simulation, and output the trajectories of these particles.
 - ``nptl_selected``: the number of selected particles to track.
 - ``nsteps_interval``: the steps interval to track particles. If it is ``1``, we will track particles at every time step. If it is ``10``, we will track particles at every 10 steps.
