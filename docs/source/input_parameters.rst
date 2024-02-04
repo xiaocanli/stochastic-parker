@@ -16,6 +16,7 @@ diffusion.sh
 - ``nptl``: the total number of particles for one MPI process.
 - ``ts``: the start time step.
 - ``te``: the end time step.
+- ``tmax_mhd``: the maximum time frame for the MHD fields. Typically, ``tmax_mhd`` is larger than ``te``, so the transport modeling will have enough MHD fields to use. When ``tmax_mhd`` is smaller than ``te``, there are two cases: 1) when ``single_time_frame=1`` (discussed below), the code will keep running until ``te``; 2) when ``single_time_frame=0``, the code will stop reading MHD fields after ``tmax_mhd`` and use the last MHD fields for the rest of the simulation.
 - ``single_time_frame``: whether to use only one-time frame. ``0`` is the default, which means using multiple time frames (from ``ts`` to ``te``). ``1`` means using only one time frame (``ts``). Then, the simulation will run ``te-ts+1`` time steps using the same MHD fields.
 - ``time_interp``: whether to interpolate in-between time frames. ``1`` is the default, which means interpolation. ``0`` means no interpolation.
 - ``dist_flag``: the initial particle distribution. ``0`` is the default, which means Maxwellian. ``1`` means delta function. ``2`` means power-law.
@@ -36,6 +37,7 @@ diffusion.sh
 - ``nptl_max``: the maximum number of particles for one MPI process. If the number of particles exceeds ``nptl_max``, we will stop injecting more particles or splitting particles. Typically, we can choose up to 10 million.
 - ``inject_new_ptl``: whether to inject new particles at every step. ``1`` is the default, which means injecting new particles. ``0`` means only injecting particles at the beginning of the simulation.
 - ``inject_same_nptl``: whether to inject the same number of particles every step. ``1`` is the default, which means injecting the same number of particles. ``0`` means injecting a different number of particles every step. Then, the number of injected particles depends on how particles are injected (see below).
+- ``tmax_to_inject``: the maximum time frame to inject particles. It is used to stop injecting particles after some time. It is useful, for example, when we want to run simulations for a long time but only inject particles at the beginning. Note that ``tmax_to_inject`` should be larger than ``ts``. Note that it only works when ``inject_new_ptl=1``.
 - ``inject_part_box``: whether to inject particles in part of the simulation box. ``0`` is the default, which means injecting particles in the whole box. ``1`` means injecting particles in part of the box.
 - ``ptl_xmin``: the minimum x coordinate for particle injection. It is the absolute coordinate.
 - ``ptl_xmax``: the maximum x coordinate for particle injection.
