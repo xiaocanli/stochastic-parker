@@ -100,6 +100,7 @@ program stochastic
     logical :: is_intersection    ! Intersection or Union of the two surfaces
     logical :: varying_dt_mhd     ! Whether the time interval for MHD fields is varying
     logical :: focused_transport  ! Whether to the Focused Transport equation
+    logical :: dump_escaped_dist  ! Whether to dump the distributions of the escaped particles
     logical :: dump_escaped       ! Whether to dump escaped particles
 
     call MPI_INIT(ierr)
@@ -192,10 +193,10 @@ program stochastic
     endif
 
     call init_particles(nptl_max)
-    if (dump_escaped) then
+    if (dump_escaped_dist) then
         call init_escaped_particles
     endif
-    call init_particle_distributions(local_dist)
+    call init_particle_distributions(local_dist, dump_escaped_dist)
     call set_particle_datatype_mpi
 
     call solve_transport_equation(.false.)
@@ -221,9 +222,9 @@ program stochastic
     endif
 
     call free_particle_datatype_mpi
-    call free_particle_distributions(local_dist)
+    call free_particle_distributions(local_dist, dump_escaped_dist)
     call free_particles
-    if (dump_escaped) then
+    if (dump_escaped_dist) then
         call free_escaped_particles
     endif
     if (acc_by_surface == 1) then
@@ -411,7 +412,8 @@ program stochastic
 
             ! Initial diagnostics if we are not tracking particles
             if (tf == t_start + 1 .and. (.not. track_particles)) then
-                call distributions_diagnostics(t_start, diagnostics_directory, local_dist)
+                call distributions_diagnostics(t_start, diagnostics_directory, &
+                    local_dist, dump_escaped_dist)
                 if (particle_data_dump == 1) then
                     call dump_particles(t_start, diagnostics_directory)
                 endif
@@ -424,10 +426,10 @@ program stochastic
                 call negative_particle_tags(nptl_selected)
                 call record_tracked_particle_init(nptl_selected)
                 call particle_mover(focused_transport, 1, nptl_selected, &
-                    nsteps_interval, tf-t_start, 1, dump_escaped)
+                    nsteps_interval, tf-t_start, 1, dump_escaped_dist)
             else
                 call particle_mover(focused_transport, 0, nptl_selected, &
-                    nsteps_interval, tf-t_start, num_fine_steps, dump_escaped)
+                    nsteps_interval, tf-t_start, num_fine_steps, dump_escaped_dist)
             endif
 
             if (mpi_rank == master) then
@@ -439,14 +441,15 @@ program stochastic
             if (.not. track_particles) then
                 call quick_check(tf, .false., diagnostics_directory)
                 call get_pmax_global(tf, .false., diagnostics_directory)
-                call distributions_diagnostics(tf, diagnostics_directory, local_dist)
+                call distributions_diagnostics(tf, diagnostics_directory, &
+                    local_dist, dump_escaped_dist)
                 if (mpi_rank == master) then
                     write(*, "(A)") " Finishing distribution diagnostics "
                 endif
                 if (particle_data_dump == 1) then
                     call dump_particles(tf, diagnostics_directory)
                 endif
-                if (dump_escaped) then
+                if (dump_escaped_dist) then
                     call dump_escaped_particles(tf, diagnostics_directory)
                     call reset_escaped_particles
                 endif
@@ -789,6 +792,10 @@ program stochastic
             help='pitch-angle diffusion for particles with p0', &
             required=.false., def='1E1', act='store', error=error)
         if (error/=0) stop
+        call cli%add(switch='--dump_escaped_dist', switch_ab='-ded', &
+            help='whether to dump the distributions of the escaped particles', &
+            required=.false., act='store', def='.false.', error=error)
+        if (error/=0) stop
         call cli%add(switch='--dump_escaped', switch_ab='-de', &
             help='whether to dump escaped particles', &
             required=.false., act='store', def='.false.', error=error)
@@ -927,6 +934,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-du', val=duu0, error=error)
         if (error/=0) stop
+        call cli%get(switch='-ded', val=dump_escaped_dist, error=error)
+        if (error/=0) stop
         call cli%get(switch='-de', val=dump_escaped, error=error)
         if (error/=0) stop
 
@@ -1049,8 +1058,11 @@ program stochastic
             if (local_dist) then
                 print '(A)', 'Simulation will diagnose local particle distribution'
             endif
-            if (dump_escaped) then
-                print '(A)', 'Simulation will dump escaped particles for open BC'
+            if (dump_escaped_dist) then
+                print '(A)', 'Simulation will dump the distribution of the escaped particles for open BC'
+                if (dump_escaped) then
+                    print '(A)', 'Simulation will dump escaped particles for open BC'
+                endif
             endif
             if (deltab_flag == 1) then
                 print '(A)', 'Including spatially dependent magnetic fluctuation'

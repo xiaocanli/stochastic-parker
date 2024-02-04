@@ -28,7 +28,11 @@ module particle_module
     public particle_type, ptls, escaped_ptls, &
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
         spherical_coord_flag, leak, leak_negp, nptl_split, &
-        pmin, pmax, COUNT_FLAG_INBOX, COUNT_FLAG_OTHERS
+        pmin, pmax
+    public COUNT_FLAG_INBOX, COUNT_FLAG_OTHERS, &
+        COUNT_FLAG_ESCAPE_LX, COUNT_FLAG_ESCAPE_HX, &
+        COUNT_FLAG_ESCAPE_LY, COUNT_FLAG_ESCAPE_HY, &
+        COUNT_FLAG_ESCAPE_LZ, COUNT_FLAG_ESCAPE_HZ
 
     type particle_type
         real(dp) :: x, y, z, p      !< Position and momentum
@@ -45,7 +49,12 @@ module particle_module
     real(dp) :: pmax  !< Maximum particle momentum
 
     integer, parameter :: COUNT_FLAG_INBOX  = 1  !< For in-box particles
-    integer, parameter :: COUNT_FLAG_ESCAPE = -1 !< For escaped particles
+    integer, parameter :: COUNT_FLAG_ESCAPE_LX = -1 !< Escaped from low-x boundary
+    integer, parameter :: COUNT_FLAG_ESCAPE_HX = -2 !< Escaped from high-x boundary
+    integer, parameter :: COUNT_FLAG_ESCAPE_LY = -3 !< Escaped from low-y boundary
+    integer, parameter :: COUNT_FLAG_ESCAPE_HY = -4 !< Escaped from high-y boundary
+    integer, parameter :: COUNT_FLAG_ESCAPE_LZ = -5 !< Escaped from low-z boundary
+    integer, parameter :: COUNT_FLAG_ESCAPE_HZ = -6 !< Escaped from high-z boundary
     integer, parameter :: COUNT_FLAG_OTHERS = 0  !< For other particles
 
     integer :: particle_datatype_mpi
@@ -1386,18 +1395,18 @@ module particle_module
     !<  nsteps_interval: save particle points every nsteps_interval
     !<  mhd_tframe: MHD time frame, starting from 1
     !<  num_fine_steps: number of fine time steps
-    !<  dump_escaped: whether to dump escaped particles
+    !<  dump_escaped_dist: whether to dump distributions of the escaped particles
     !---------------------------------------------------------------------------
     subroutine particle_mover(focused_transport, track_particle_flag, &
             nptl_selected, nsteps_interval, mhd_tframe, num_fine_steps, &
-            dump_escaped)
+            dump_escaped_dist)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config, tstamps_mhd
         implicit none
         logical, intent(in) :: focused_transport
         integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
-        logical, intent(in) :: dump_escaped
+        logical, intent(in) :: dump_escaped_dist
         integer(i8) :: i
         integer :: local_flag, global_flag, ncycle
         logical :: all_particles_in_box
@@ -1423,7 +1432,7 @@ module particle_module
                     nptl_selected, nsteps_interval, num_fine_steps, &
                     focused_transport)
             endif
-            call remove_particles(dump_escaped)
+            call remove_particles(dump_escaped_dist)
             call send_recv_particles
             call add_neighbor_particles  ! Also update nptl_old, nptl_current
             if (sum(nrecvers) > 0) then
@@ -1466,7 +1475,7 @@ module particle_module
             endif
             ptls(i) = ptl
         enddo
-        call remove_particles(dump_escaped)
+        call remove_particles(dump_escaped_dist)
         call send_recv_particles
         call add_neighbor_particles
     end subroutine particle_mover
@@ -1491,7 +1500,7 @@ module particle_module
             if (neighbors(1) < 0) then
                 !$OMP ATOMIC UPDATE
                 leak = leak + ptl%weight
-                ptl%count_flag = COUNT_FLAG_ESCAPE
+                ptl%count_flag = COUNT_FLAG_ESCAPE_LX
             else if (neighbors(1) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmin + xmax
             else if (neighbors(1) == mpi_sub_rank + mpi_sizex - 1) then
@@ -1512,7 +1521,7 @@ module particle_module
             if (neighbors(2) < 0) then
                 !$OMP ATOMIC UPDATE
                 leak = leak + ptl%weight
-                ptl%count_flag = COUNT_FLAG_ESCAPE
+                ptl%count_flag = COUNT_FLAG_ESCAPE_HX
             else if (neighbors(2) == mpi_sub_rank) then
                 ptl%x = ptl%x - xmax + xmin
             else if (neighbors(2) == mpi_sub_rank - mpi_sizex + 1) then !< simulation boundary
@@ -1538,7 +1547,7 @@ module particle_module
                 if (neighbors(3) < 0) then
                     !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
-                    ptl%count_flag = COUNT_FLAG_ESCAPE
+                    ptl%count_flag = COUNT_FLAG_ESCAPE_LY
                 else if (neighbors(3) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymin + ymax
                 else if (neighbors(3) == mpi_sub_rank + (mpi_sizey - 1) * mpi_sizex) then
@@ -1559,7 +1568,7 @@ module particle_module
                 if (neighbors(4) < 0) then
                     !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
-                    ptl%count_flag = COUNT_FLAG_ESCAPE
+                    ptl%count_flag = COUNT_FLAG_ESCAPE_HY
                 else if (neighbors(4) == mpi_sub_rank) then
                     ptl%y = ptl%y - ymax + ymin
                 else if (neighbors(4) == mpi_sub_rank - (mpi_sizey - 1) * mpi_sizex) then
@@ -1584,7 +1593,7 @@ module particle_module
                 if (neighbors(5) < 0) then
                     !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
-                    ptl%count_flag = COUNT_FLAG_ESCAPE
+                    ptl%count_flag = COUNT_FLAG_ESCAPE_LZ
                 else if (neighbors(5) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmin + zmax
                 else if (neighbors(5) == mpi_sub_rank + (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
@@ -1605,7 +1614,7 @@ module particle_module
                 if (neighbors(6) < 0) then
                     !$OMP ATOMIC UPDATE
                     leak = leak + ptl%weight
-                    ptl%count_flag = COUNT_FLAG_ESCAPE
+                    ptl%count_flag = COUNT_FLAG_ESCAPE_HZ
                 else if (neighbors(6) == mpi_sub_rank) then
                     ptl%z = ptl%z - zmax + zmin
                 else if (neighbors(6) == mpi_sub_rank - (mpi_sizez - 1) * mpi_sizey * mpi_sizex) then
@@ -4281,16 +4290,16 @@ module particle_module
     !---------------------------------------------------------------------------
     !< Remove particles from simulation if their count_flags are 0.
     !< Args:
-    !<  dump_escaped: whether to dump escaped particles
+    !<  dump_escaped_dist: whether to dump the distributions of the escaped particles
     !---------------------------------------------------------------------------
-    subroutine remove_particles(dump_escaped)
+    subroutine remove_particles(dump_escaped_dist)
         implicit none
-        logical, intent(in) :: dump_escaped
+        logical, intent(in) :: dump_escaped_dist
         integer(i8) :: i, nremoved
         type(particle_type) :: ptl1
 
         ! Resize the escaped particle data array if necessary
-        if (dump_escaped) then
+        if (dump_escaped_dist) then
             if ((nptl_escaped + nptl_current) > nptl_escaped_max) then
                 call resize_escaped_particles
             endif
@@ -4306,10 +4315,10 @@ module particle_module
                 if (ptls(i)%count_flag == COUNT_FLAG_INBOX) then
                     i = i + 1
                 else
-                    if (ptls(i)%count_flag == COUNT_FLAG_ESCAPE) then
+                    if (ptls(i)%count_flag < 0) then
                         ! Copy escaped particles
                         nptl_escaped = nptl_escaped + 1
-                        if (dump_escaped) then
+                        if (dump_escaped_dist) then
                             escaped_ptls(nptl_escaped) = ptls(i)
                         endif
                     endif
