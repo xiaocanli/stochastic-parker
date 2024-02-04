@@ -69,6 +69,7 @@ program stochastic
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
+    integer :: tmax_mhd           ! Maximum time frame for the MHD fields
     integer :: time_interp_flag
     integer :: track_particle_flag, nptl_selected, nsteps_interval
     integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
@@ -79,6 +80,7 @@ program stochastic
     integer :: inject_large_db2   ! Whether to inject where db2 is large
     integer :: inject_large_divv  ! Whether to inject where divv is negatively large
     integer :: inject_same_nptl   ! Whether to inject same of number particles every step
+    integer :: tmax_to_inject     ! Maximum time frame to inject particles
     integer :: inject_part_box    ! Whether to inject in part of the box
     integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
     integer :: dpp_shear          ! Whether to include momentum diffusion due to flow shear
@@ -340,7 +342,8 @@ program stochastic
             if (mpi_rank == master) then
                 write(*, "(A,I0)") " Starting step ", tf
             endif
-            if (single_time_frame == 0) then  ! two frames of fields data for time interpolation
+            if (single_time_frame == 0 .and. tf <= tmax_mhd) then
+                ! Read the second frame of fields data for time interpolation
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
                 write(mhd_fname2, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tf
                 call read_field_data_parallel(mhd_fname2, var_flag=time_interp_flag)
@@ -391,21 +394,23 @@ program stochastic
                     particle_v0, tf-t_start, power_index)
             else
                 if (tf == t_start+1 .or. inject_new_ptl == 1) then
-                    if (inject_large_jz == 1) then
-                        call inject_particles_at_large_jz(nptl, dt, dist_flag, &
-                            particle_v0, tf-t_start, inject_same_nptl, jz_min, &
-                            ncells_large_jz_norm, part_box, power_index)
-                    else if (inject_large_db2 == 1) then
-                        call inject_particles_at_large_db2(nptl, dt, dist_flag, &
-                            particle_v0, tf-t_start, inject_same_nptl, db2_min, &
-                            ncells_large_db2_norm, part_box, power_index)
-                    else if (inject_large_divv == 1) then
-                        call inject_particles_at_large_divv(nptl, dt, dist_flag, &
-                            particle_v0, tf-t_start, inject_same_nptl, divv_min, &
-                            ncells_large_divv_norm, part_box, power_index)
-                    else
-                        call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
-                            particle_v0, tf-t_start, part_box, power_index)
+                    if (tf <= tmax_to_inject) then
+                        if (inject_large_jz == 1) then
+                            call inject_particles_at_large_jz(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, inject_same_nptl, jz_min, &
+                                ncells_large_jz_norm, part_box, power_index)
+                        else if (inject_large_db2 == 1) then
+                            call inject_particles_at_large_db2(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, inject_same_nptl, db2_min, &
+                                ncells_large_db2_norm, part_box, power_index)
+                        else if (inject_large_divv == 1) then
+                            call inject_particles_at_large_divv(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, inject_same_nptl, divv_min, &
+                                ncells_large_divv_norm, part_box, power_index)
+                        else
+                            call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, part_box, power_index)
+                        endif
                     endif
                 endif
             endif
@@ -499,13 +504,16 @@ program stochastic
                         '-dm dir_mhd_data -mc mhd_config_filename '//&
                         '-nm nptl_max -np nptl '//&
                         '-ti time_interp_flag -dt dt -ts t_start -te t_end '//&
+                        '-tm tmax_mhd '//&
                         '-st single_time_frame -df dist_flag -pi power_index '//&
                         '-sf split_flag -sr split_ratio -ps pmin_split '//&
                         '-tf track_particle_flag '//&
                         '-ns nptl_selected -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_large_jz '//&
-                        '-sn inject_same_nptl -ip inject_part_box -jz jz_min '//&
+                        '-sn inject_same_nptl '//&
+                        '-tti tmax_to_inject '//&
+                        '-ip inject_part_box -jz jz_min '//&
                         '-nn ncells_large_jz_norm -ib inject_large_db2 '//&
                         '-db2 db2_min -nb ncells_large_db2_norm '//&
                         '-iv inject_large_divv -dv divv_min '//&
@@ -523,7 +531,8 @@ program stochastic
                         '-s2e surface2_existed -ii is_intersection '//&
                         '-sf1 surface_filename1 -sn1 surface_norm1 '//&
                         '-sf2 surface_filename2 -sn2 surface_norm2 '//&
-                        '-vdt varying_dt_mhd -du duu0'])
+                        '-vdt varying_dt_mhd -du duu0 '//&
+                        '-ded dump_escaped_dist -de dump_escaped'])
         call cli%add(switch='--focused_transport', switch_ab='-ft', &
             help='whether to solve the Focused Transport Equation', &
             required=.false., act='store', def='.false.', error=error)
@@ -567,6 +576,10 @@ program stochastic
         call cli%add(switch='--tend', switch_ab='-te', &
             help='The last time frame', required=.false., &
             act='store', def='200', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--tmax_mhd', switch_ab='-tm', &
+            help='The maximum time frame for the MHD fields', required=.false., &
+            act='store', def='100000', error=error)
         if (error/=0) stop
         call cli%add(switch='--single_time_frame', switch_ab='-st', &
             help='Whether to use a single time frame of fields', required=.false., &
@@ -623,6 +636,10 @@ program stochastic
         call cli%add(switch='--inject_same_nptl', switch_ab='-sn', &
             help='whether to inject the same number of particles every step', &
             required=.false., act='store', def='1', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--tmax_to_inject', switch_ab='-tti', &
+            help='The maximum time frame to inject particles', required=.false., &
+            act='store', def='100000', error=error)
         if (error/=0) stop
         call cli%add(switch='--inject_part_box', switch_ab='-ip', &
             help='whether to inject in a part of the box', required=.false., &
@@ -822,6 +839,8 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-te', val=t_end, error=error)
         if (error/=0) stop
+        call cli%get(switch='-tm', val=tmax_mhd, error=error)
+        if (error/=0) stop
         call cli%get(switch='-st', val=single_time_frame, error=error)
         if (error/=0) stop
         call cli%get(switch='-df', val=dist_flag, error=error)
@@ -849,6 +868,8 @@ program stochastic
         call cli%get(switch='-ij', val=inject_large_jz, error=error)
         if (error/=0) stop
         call cli%get(switch='-sn', val=inject_same_nptl, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-tti', val=tmax_to_inject, error=error)
         if (error/=0) stop
         call cli%get(switch='-ip', val=inject_part_box, error=error)
         if (error/=0) stop
@@ -966,6 +987,7 @@ program stochastic
             print '(A,E14.7)', 'Time interval to push particles: ', dt
             print '(A,I10.3)', 'Starting time frame: ', t_start
             print '(A,I10.3)', 'The last time frame: ', t_end
+            print '(A,I10.3)', 'The maximum time frame for the MHD fields: ', tmax_mhd
             if (single_time_frame == 1) then
                 print '(A)', 'Use only one time of frame of fields data'
                 print '(A,I10.3)', 'We will use the data from starting time frame: ', t_start
@@ -975,6 +997,9 @@ program stochastic
                     print '(A)', 'Interpolate the fields data inbetween time frames'
                 else
                     print '(A)', 'Do not interpolate the fields data inbetween time frames'
+                endif
+                if (tmax_mhd < t_end) then
+                    print '(A)', 'Since tmax_mhd < t_end, the simulation will use the last MHD frame after t_end.'
                 endif
             endif
 
@@ -998,6 +1023,10 @@ program stochastic
             endif
             if (inject_new_ptl == 1) then
                 print '(A)', 'Inject new particles at every MHD time step'
+                if (tmax_to_inject < t_end) then
+                    print '(A, I0)', 'The simulation will stop injecting particles after frame', &
+                        tmax_to_inject
+                endif
             endif
             if (inject_part_box == 1) then
                 print '(A)', 'Inject new particles in part of the simulation box'
