@@ -20,7 +20,7 @@ program stochastic
         set_dpp_params, set_duu_params, set_flags_params, &
         set_drift_parameters, set_flag_check_drift_2d, &
         record_tracked_particle_init, inject_particles_at_large_db2, &
-        inject_particles_at_large_divv
+        inject_particles_at_large_divv, read_particles
     use diagnostics, only: distributions_diagnostics, quick_check, &
         init_particle_distributions, free_particle_distributions, &
         get_pmax_global, dump_particles, &
@@ -71,6 +71,7 @@ program stochastic
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
+    integer :: tmin  ! tmin = t_start typically. When restarting, tmin > t_start
     integer :: tmax_mhd           ! Maximum time frame for the MHD fields
     integer :: time_interp_flag
     integer :: track_particle_flag, nptl_selected, nsteps_interval
@@ -107,6 +108,7 @@ program stochastic
     logical :: focused_transport  ! Whether to the Focused Transport equation
     logical :: dump_escaped_dist  ! Whether to dump the distributions of the escaped particles
     logical :: dump_escaped       ! Whether to dump escaped particles
+    logical :: reached_quota      ! Whether the simulation reach the quota time
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -204,9 +206,47 @@ program stochastic
     call init_particle_distributions(local_dist, dump_escaped_dist)
     call set_particle_datatype_mpi
 
+    reached_quota = .false.  ! might be updated in solve_transport_equation
+
+    if (restart_flag) then
+        ! Read the time frame before previous restart
+        if (mpi_rank == master) then
+            open(unit=20,file=trim(diagnostics_directory)//"restart/latest_restart",&
+                access='stream',status='unknown',form='unformatted',action='read')
+            read(20, pos=1) tmin
+            close(20)
+        endif
+        call MPI_BCAST(tmin, 1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        !< Read particles
+        call read_particles(tmin, trim(diagnostics_directory)//"restart/")
+    else
+        tmin = t_start
+    endif
     call solve_transport_equation(.false.)
 
-    if (track_particle_flag == 1) then
+    ! dump files for restart if necessary
+    if (.not. reached_quota) then
+        tf =  tf - 1  ! when finished time loop, tf is one over t_end
+        if (mpi_rank == master) then
+            print '(A)', 'Dumping restart files at the end of the simulation'
+        endif
+    else
+        if (mpi_rank == master) then
+            print '(A)', 'Reached quota time. Dumping restart files.'
+        endif
+    endif
+    call save_prng(mpi_rank, nthreads, diagnostics_directory)
+    call dump_particles(t_end, trim(diagnostics_directory)//"restart/")
+    if (mpi_rank == master) then
+        ! Write the finished time frame
+        open(unit=20,file=trim(diagnostics_directory)//"restart/latest_restart",&
+            access='stream',status='unknown',form='unformatted',action='write')
+        write(20, pos=1) tf
+        close(20)
+    endif
+
+    if (.not. reached_quota .and. track_particle_flag == 1) then
         !< We need to reset the random number generator
         call delete_prng
         call init_prng(mpi_rank, nthreads, restart_flag, diagnostics_directory)
@@ -268,16 +308,16 @@ program stochastic
         character(len=256) :: acc_surface_fname21, acc_surface_fname22
 
         ! Read the MHD fields
-        write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', t_start
+        write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'mhd_data_', tmin
         call read_field_data_parallel(mhd_fname1, 0)
 
         ! Read the surface data to separate the regions
         if (acc_by_surface == 1) then
             write(acc_surface_fname11, "(A,I4.4,A)") &
-                trim(dir_mhd_data)//trim(surface_filename1)//'_', t_start, ".dat"
+                trim(dir_mhd_data)//trim(surface_filename1)//'_', tmin, ".dat"
             if (surface2_existed) then
                 write(acc_surface_fname21, "(A,I4.4,A)") &
-                    trim(dir_mhd_data)//trim(surface_filename2)//'_', t_start, ".dat"
+                    trim(dir_mhd_data)//trim(surface_filename2)//'_', tmin, ".dat"
                 call read_acc_surface(0, acc_surface_fname11, acc_surface_fname21)
             else
                 call read_acc_surface(0, acc_surface_fname11)
@@ -286,13 +326,13 @@ program stochastic
 
         ! Read the turbulent fluctuations if needed
         if (deltab_flag == 1) then
-            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', t_start
+            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'deltab_', tmin
             call read_magnetic_fluctuation(mhd_fname1, 0)
         endif
 
         ! Read the turbulent correlation length if needed
         if (correlation_flag == 1) then
-            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', t_start
+            write(mhd_fname1, "(A,I4.4)") trim(dir_mhd_data)//'lc_', tmin
             call read_correlation_length(mhd_fname1, 0)
         endif
 
@@ -341,7 +381,7 @@ program stochastic
         step1 = MPI_Wtime()
 
         !< Time loop
-        do tf = t_start+1, t_end
+        do tf = tmin+1, t_end
             if (mpi_rank == master) then
                 write(*, "(A,I0)") " Starting step ", tf
             endif
@@ -488,10 +528,9 @@ program stochastic
 
             ! Check whether to dump restart files
             uptime = step2 - start
-            if (uptime > (quota_hour * 3600 - 600)) then
-                !< 10 mins before the quota exceeds
-                call save_prng(mpi_rank, nthreads, diagnostics_directory)
-                call dump_particles(t_end, diagnostics_directory)
+            if (uptime > (quota_hour - 0.5) * 3600) then
+                !< 30 mins before the quota time limit
+                reached_quota = .true.
                 return
             endif
         enddo  ! Time loop

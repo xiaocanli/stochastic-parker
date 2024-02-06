@@ -1766,7 +1766,7 @@ module diagnostics
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
         integer(i8) :: nptl_local, nptl_global, nptl_offset
         integer(i8), allocatable, dimension(:) :: nptls_local
-        character(len=128) :: fname
+        character(len=256) :: fname
         character(len=4) :: ctime
         integer(hid_t) :: file_id, dset_id, filespace
         integer :: error

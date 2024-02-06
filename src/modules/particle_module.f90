@@ -23,7 +23,7 @@ module particle_module
         inject_particles_at_large_db2, inject_particles_at_large_divv, &
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
         set_flag_check_drift_2d, get_interp_paramters, &
-        get_interp_paramters_spherical
+        get_interp_paramters_spherical, read_particles
 
     public particle_type, ptls, escaped_ptls, &
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
@@ -137,6 +137,12 @@ module particle_module
     integer(i8), allocatable, dimension(:) :: tags_selected_ptls
     type(particle_type), allocatable, dimension(:) :: ptl_traj_points
     integer(i8) :: nsteps_tracked_tot   !< Total tracking steps for all tracked particles
+
+    interface read_ptl_element
+        module procedure &
+            read_integer1_element, read_integer4_element, &
+            read_integer8_element, read_double_element
+    end interface read_ptl_element
 
     contains
 
@@ -4598,4 +4604,152 @@ module particle_module
         dt_min = dt_min_rel * dtf
         dt_max = dt_max_rel * dtf
     end subroutine set_dt_min_max
+
+    !---------------------------------------------------------------------------
+    !< Read one double element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine read_double_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: read_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        real(dp), dimension(:), intent(out) :: fdata
+        integer(hid_t) :: dset_id
+        integer :: error
+        call h5dopen_f(file_id, trim(dset_name), dset_id, error)
+        call read_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+    end subroutine read_double_element
+
+    !---------------------------------------------------------------------------
+    !< Read one char-length integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine read_integer1_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: read_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i1), dimension(:), intent(out) :: fdata
+        integer(hid_t) :: dset_id
+        integer :: error
+        call h5dopen_f(file_id, trim(dset_name), dset_id, error)
+        call read_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+    end subroutine read_integer1_element
+
+    !---------------------------------------------------------------------------
+    !< Read one default-length integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine read_integer4_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: read_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i4), dimension(:), intent(out) :: fdata
+        integer(hid_t) :: dset_id
+        integer :: error
+        call h5dopen_f(file_id, trim(dset_name), dset_id, error)
+        call read_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+    end subroutine read_integer4_element
+
+    !---------------------------------------------------------------------------
+    !< Read one long-length integer element of the particle data
+    !---------------------------------------------------------------------------
+    subroutine read_integer8_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: read_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(1), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i8), dimension(:), intent(out) :: fdata
+        integer(hid_t) :: dset_id
+        integer :: error
+        call h5dopen_f(file_id, trim(dset_name), dset_id, error)
+        call read_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .true., .true.)
+        call h5dclose_f(dset_id, error)
+    end subroutine read_integer8_element
+
+    !---------------------------------------------------------------------------
+    !< Read all the particles from file
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine read_particles(iframe, file_path)
+        use hdf5_io, only: open_file_h5, close_file_h5, read_data_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
+        integer(i8) :: nptl_local, nptl_global, nptl_offset
+        integer(i8), allocatable, dimension(:) :: nptls_local
+        character(len=128) :: fname
+        character(len=4) :: ctime
+        integer(hid_t) :: file_id, dset_id, filespace
+        integer :: error, i
+        logical :: dir_e
+
+        call h5open_f(error)
+
+        ! Read the local number of particles
+        write (ctime,'(i4.4)') iframe
+        fname = trim(file_path)//'particles_'//ctime//'.h5'
+        allocate(nptls_local(mpi_size))
+        if (mpi_rank == master) then
+            call open_file_h5(fname, H5F_ACC_RDONLY_F, file_id, .false., MPI_COMM_WORLD)
+            call h5dopen_f(file_id, "nptl_local", dset_id, error)
+            dcount(1) = mpi_size
+            doffset(1) = 0
+            dset_dims(1) = mpi_size
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, &
+                nptls_local, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call close_file_h5(file_id)
+        endif
+        call MPI_BCAST(nptls_local, mpi_size, MPI_INTEGER8, master, &
+            MPI_COMM_WORLD, ierr)
+        nptl_current = nptls_local(mpi_rank+1)
+
+        nptl_global = sum(nptls_local)
+        nptl_offset = sum(nptls_local(:mpi_rank+1)) - nptl_current
+        deallocate(nptls_local)
+
+        ! Read the particle data
+        dcount(1) = nptl_current
+        doffset(1) = nptl_offset
+        dset_dims(1) = nptl_global
+
+        call open_file_h5(fname, H5F_ACC_RDONLY_F, file_id, .true., MPI_COMM_WORLD)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "x", ptls%x)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "y", ptls%y)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "z", ptls%z)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "p", ptls%p)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "v", ptls%v)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "mu", ptls%mu)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "weight", ptls%weight)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "t", ptls%t)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, "dt", ptls%dt)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "split_times", ptls%split_times)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "count_flag", ptls%count_flag)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag", ptls%tag)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "parent", ptls%parent)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "nsteps_tracking", ptls%nsteps_tracking)
+
+        call close_file_h5(file_id)
+        call h5close_f(error)
+    end subroutine read_particles
+
 end module particle_module
