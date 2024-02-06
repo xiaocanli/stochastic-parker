@@ -41,4 +41,3 @@ The code is organized into several modules to improve modularity and maintainabi
 - ``random_number_generator``: This module contains the methods to generate random numbers using the Mersenne Twister algorithm.
 - ``read_confg``: This module contains the methods to read the simulation configuration file.
 - ``acc_region_surface``: This module contains the methods for the surface to separate the acceleration region and the non-acceleration region. It is useful when we want to isolate certain particle acceleration regions, for example, near the shock front.
-- ``mhd_data_sli``: This module contains the methods to read the MHD simulation data from Shengtai Li's MHD code. NOTE: This module is not used in the current version of the code and will be removed in the future.
