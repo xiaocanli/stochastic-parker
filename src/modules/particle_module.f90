@@ -780,6 +780,7 @@ module particle_module
         if (inject_same_nptl == 1) then
             call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            ! The global sum may be a little different from nptl
             nptl_inject = int(nptl * mpi_sub_size * &
                 (dble(ncells_large_jz) / dble(ncells_large_jz_g)))
         else
@@ -824,6 +825,7 @@ module particle_module
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
+        print*, mpi_rank, nptl_current
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles where jz is large"
         endif
@@ -906,6 +908,7 @@ module particle_module
         if (inject_same_nptl == 1) then
             call MPI_ALLREDUCE(ncells_large_db2, ncells_large_db2_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            ! The global sum may be a little different from nptl
             nptl_inject = int(nptl * mpi_sub_size * &
                 (dble(ncells_large_db2) / dble(ncells_large_db2_g)))
         else
@@ -1027,6 +1030,7 @@ module particle_module
         if (inject_same_nptl == 1) then
             call MPI_ALLREDUCE(ncells_large_divv, ncells_large_divv_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            ! The global sum may be a little different from nptl
             nptl_inject = int(nptl * mpi_sub_size * &
                 (dble(ncells_large_divv) / dble(ncells_large_divv_g)))
         else
