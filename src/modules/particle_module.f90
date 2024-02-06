@@ -23,7 +23,8 @@ module particle_module
         inject_particles_at_large_db2, inject_particles_at_large_divv, &
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
         set_flag_check_drift_2d, get_interp_paramters, &
-        get_interp_paramters_spherical, read_particles
+        get_interp_paramters_spherical, read_particles, &
+        save_particle_module_state, read_particle_module_state
 
     public particle_type, ptls, escaped_ptls, &
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
@@ -64,11 +65,11 @@ module particle_module
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:128 :: ptls
 
-    integer(i8) :: nptl_current         !< Number of particles currently in the box
-    integer(i8) :: nptl_old             !< Number of particles without receivers
-    integer(i8) :: nptl_max             !< Maximum number of particles allowed
-    integer(i8) :: nptl_split           !< Number of particles from splitting
-    integer(i8) :: nptl_inject          !< Number of injected particles
+    integer(i8) :: nptl_current     !< Number of particles currently in the box
+    integer(i8) :: nptl_old         !< Number of particles without receivers
+    integer(i8) :: nptl_max         !< Maximum number of particles allowed
+    integer(i8) :: nptl_split       !< Number of particles from splitting
+    integer(i8) :: nptl_inject      !< Number of injected particles
     integer(i8) :: tag_max          !< Maximum particle tag
     real(dp) :: leak                !< Leaking particles from boundary considering weight
     real(dp) :: leak_negp           !< Leaking particles with negative momentum
@@ -825,7 +826,6 @@ module particle_module
             call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
                 dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
         enddo
-        print*, mpi_rank, nptl_current
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles where jz is large"
         endif
@@ -4608,6 +4608,140 @@ module particle_module
         dt_min = dt_min_rel * dtf
         dt_max = dt_max_rel * dtf
     end subroutine set_dt_min_max
+
+    !---------------------------------------------------------------------------
+    !< Save particle module state for restart
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine save_particle_module_state(iframe, file_path)
+        use hdf5_io, only: create_file_h5, write_data_h5, close_file_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(i8), allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
+        integer(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
+        integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
+        integer(hid_t) :: file_id, dset_id, filespace
+        character(len=4) :: ctime
+        character(len=256) :: fname
+        integer :: error
+
+        allocate(nptls_current(mpi_size))
+        allocate(nptls_split(mpi_size))
+        allocate(tags_max(mpi_size))
+        allocate(nptl_leak(mpi_size))
+        allocate(nptl_leak_negp(mpi_size))
+
+        write (ctime,'(i4.4)') iframe
+        call MPI_GATHER(nptl_current, 1, MPI_INTEGER8, nptls_current(mpi_rank+1), &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(nptl_split, 1, MPI_INTEGER8, nptls_split(mpi_rank+1), &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(tag_max, 1, MPI_INTEGER8, tags_max(mpi_rank+1), &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(leak, 1, MPI_DOUBLE_PRECISION, nptl_leak(mpi_rank+1), &
+            1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(leak_negp, 1, MPI_DOUBLE_PRECISION, nptl_leak_negp(mpi_rank+1), &
+            1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        if (mpi_rank == master) then
+            call h5open_f(error)
+            fname = trim(file_path)//'particle_module_state_'//ctime//'.h5'
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., MPI_COMM_WORLD)
+            dcount(1) = mpi_size
+            doffset(1) = 0
+            dset_dims(1) = mpi_size
+            call h5screate_simple_f(1, dset_dims, filespace, error)
+            call h5dcreate_f(file_id, "nptls_current", H5T_STD_I64LE, filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, nptls_current, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dcreate_f(file_id, "nptls_split", H5T_STD_I64LE, filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, nptls_split, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dcreate_f(file_id, "tags_max", H5T_STD_I64LE, filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, tags_max, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dcreate_f(file_id, "nptl_leak", H5T_NATIVE_DOUBLE, filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, nptl_leak, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dcreate_f(file_id, "nptl_leak_negp", H5T_NATIVE_DOUBLE, filespace, dset_id, error)
+            call write_data_h5(dset_id, dcount, doffset, dset_dims, nptl_leak_negp, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5sclose_f(filespace, error)
+            call close_file_h5(file_id)
+            call h5close_f(error)
+        endif
+
+        deallocate(nptls_current, nptls_split, tags_max)
+        deallocate(nptl_leak, nptl_leak_negp)
+    end subroutine save_particle_module_state
+
+    !---------------------------------------------------------------------------
+    !< Read particle module state for restart
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: read data files to this path
+    !---------------------------------------------------------------------------
+    subroutine read_particle_module_state(iframe, file_path)
+        use hdf5_io, only: open_file_h5, read_data_h5, close_file_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(i8), allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
+        integer(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
+        integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
+        integer(hid_t) :: file_id, dset_id, filespace
+        character(len=4) :: ctime
+        character(len=256) :: fname
+        integer :: error
+
+        allocate(nptls_current(mpi_size))
+        allocate(nptls_split(mpi_size))
+        allocate(tags_max(mpi_size))
+        allocate(nptl_leak(mpi_size))
+        allocate(nptl_leak_negp(mpi_size))
+
+        write (ctime,'(i4.4)') iframe
+        if (mpi_rank == master) then
+            call h5open_f(error)
+            fname = trim(file_path)//'particle_module_state_'//ctime//'.h5'
+            call open_file_h5(fname, H5F_ACC_RDONLY_F, file_id, .false., MPI_COMM_WORLD)
+            dcount(1) = mpi_size
+            doffset(1) = 0
+            dset_dims(1) = mpi_size
+            call h5dopen_f(file_id, "nptls_current", dset_id, error)
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, nptls_current, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dopen_f(file_id, "nptls_split", dset_id, error)
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, nptls_split, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dopen_f(file_id, "tags_max", dset_id, error)
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, tags_max, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dopen_f(file_id, "nptl_leak", dset_id, error)
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, nptl_leak, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call h5dopen_f(file_id, "nptl_leak_negp", dset_id, error)
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, nptl_leak_negp, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call close_file_h5(file_id)
+            call h5close_f(error)
+        endif
+        call MPI_SCATTER(nptls_current, 1, MPI_INTEGER8, nptl_current, &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(nptls_split, 1, MPI_INTEGER8, nptl_split, &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(tags_max, 1, MPI_INTEGER8, tag_max, &
+            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(nptl_leak, 1, MPI_DOUBLE_PRECISION, leak, &
+            1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(nptl_leak_negp, 1, MPI_DOUBLE_PRECISION, leak_negp, &
+            1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
+
+        deallocate(nptls_current, nptls_split, tags_max)
+        deallocate(nptl_leak, nptl_leak_negp)
+    end subroutine read_particle_module_state
 
     !---------------------------------------------------------------------------
     !< Read one double element of the particle data

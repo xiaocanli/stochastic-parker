@@ -20,7 +20,8 @@ program stochastic
         set_dpp_params, set_duu_params, set_flags_params, &
         set_drift_parameters, set_flag_check_drift_2d, &
         record_tracked_particle_init, inject_particles_at_large_db2, &
-        inject_particles_at_large_divv, read_particles
+        inject_particles_at_large_divv, read_particles, &
+        save_particle_module_state, read_particle_module_state
     use diagnostics, only: distributions_diagnostics, quick_check, &
         init_particle_distributions, free_particle_distributions, &
         get_pmax_global, dump_particles, &
@@ -220,6 +221,7 @@ program stochastic
 
         !< Read particles
         call read_particles(tmin, trim(diagnostics_directory)//"restart/")
+        call read_particle_module_state(tmin, trim(diagnostics_directory)//"restart/")
     else
         tmin = t_start
     endif
@@ -238,6 +240,7 @@ program stochastic
     endif
     call save_prng(mpi_rank, nthreads, diagnostics_directory)
     call dump_particles(t_end, trim(diagnostics_directory)//"restart/")
+    call save_particle_module_state(t_end, trim(diagnostics_directory)//"restart/")
     if (mpi_rank == master) then
         ! Write the finished time frame
         open(unit=20,file=trim(diagnostics_directory)//"restart/latest_restart",&
