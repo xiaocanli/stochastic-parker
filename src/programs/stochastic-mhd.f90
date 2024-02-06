@@ -498,7 +498,9 @@ program stochastic
                     call dump_particles(tf, diagnostics_directory)
                 endif
                 if (dump_escaped_dist) then
-                    call dump_escaped_particles(tf, diagnostics_directory)
+                    if (dump_escaped) then
+                        call dump_escaped_particles(tf, diagnostics_directory)
+                    endif
                     call reset_escaped_particles
                 endif
             endif
