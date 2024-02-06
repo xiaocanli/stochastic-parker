@@ -27,7 +27,8 @@ program stochastic
         init_escaped_particles, free_escaped_particles, &
         reset_escaped_particles, dump_escaped_particles, &
         read_diagnostics_params
-    use random_number_generator, only: init_prng, delete_prng
+    use random_number_generator, only: init_prng, delete_prng, &
+        save_prng
     use mhd_data_parallel, only: init_field_data, free_field_data, &
         read_field_data_parallel, calc_fields_gradients, &
         calc_fields_gradients_nonuniform, &
@@ -54,7 +55,7 @@ program stochastic
     character(len=64) :: surface_filename1, surface_filename2
     character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
     integer(i8) :: nptl_max, nptl
-    real(dp) :: start, finish, step1, step2, dt, jz_min, db2_min, divv_min
+    real(dp) :: start, finish, uptime, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
@@ -63,6 +64,7 @@ program stochastic
     real(dp) :: pmin_split  ! The minimum momentum (in terms in p0) to start splitting
     real(dp) :: particle_v0 ! Initial particle velocity in the normalized velocity
     real(dp) :: duu0        ! Pitch-angle diffusion for particles with a momentum of p0
+    real(dp) :: quota_hour  ! The maximum wall time in hours for the simulation
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
     integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
@@ -97,6 +99,7 @@ program stochastic
     integer :: single_time_frame  ! Whether to use a single time frame of fields
     integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
     integer :: acc_by_surface     ! Whether the acceleration region is separated by surfaces
+    logical :: restart_flag       ! Whether to restart a previous simulation
     logical :: local_dist         ! Whether to dump local particle distributions
     logical :: surface2_existed   ! Whether surface 2 is existed
     logical :: is_intersection    ! Intersection or Union of the two surfaces
@@ -143,7 +146,7 @@ program stochastic
 #endif
     !$OMP END MASTER
     !$OMP END PARALLEL
-    call init_prng(mpi_rank, nthreads)
+    call init_prng(mpi_rank, nthreads, restart_flag, diagnostics_directory)
 
     !< Configurations
     filename = trim(dir_mhd_data)//trim(mhd_config_filename)
@@ -206,7 +209,7 @@ program stochastic
     if (track_particle_flag == 1) then
         !< We need to reset the random number generator
         call delete_prng
-        call init_prng(mpi_rank, nthreads)
+        call init_prng(mpi_rank, nthreads, restart_flag, diagnostics_directory)
 
         call init_particle_tracking(nptl_selected)
         call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
@@ -482,6 +485,15 @@ program stochastic
                 print '("Step ", I0, " takes ", f9.4, " seconds.")', tf, step2 - step1
             endif
             step1 = step2
+
+            ! Check whether to dump restart files
+            uptime = step2 - start
+            if (uptime > (quota_hour * 3600 - 600)) then
+                !< 10 mins before the quota exceeds
+                call save_prng(mpi_rank, nthreads, diagnostics_directory)
+                call dump_particles(t_end, diagnostics_directory)
+                return
+            endif
         enddo  ! Time loop
     end subroutine solve_transport_equation
 
@@ -499,6 +511,7 @@ program stochastic
             description = "Solving Parker's transport equation "// &
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec '// &
+                        '-qh quota_hour -rf restart_flag '//&
                         '-ft focused_transport -pv particle_v0 '//&
                         '-sm size_mpi_sub '//&
                         '-dm dir_mhd_data -mc mhd_config_filename '//&
@@ -533,6 +546,14 @@ program stochastic
                         '-sf2 surface_filename2 -sn2 surface_norm2 '//&
                         '-vdt varying_dt_mhd -du duu0 '//&
                         '-ded dump_escaped_dist -de dump_escaped'])
+        call cli%add(switch='--quota_hour', switch_ab='-qh', &
+            help='The maximum wall time for the simulation', &
+            required=.false., act='store', def='48.0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--restart_flag', switch_ab='-rf', &
+            help='whether to restart a previous simulation', &
+            required=.false., act='store', def='.false.', error=error)
+        if (error/=0) stop
         call cli%add(switch='--focused_transport', switch_ab='-ft', &
             help='whether to solve the Focused Transport Equation', &
             required=.false., act='store', def='.false.', error=error)
@@ -817,6 +838,10 @@ program stochastic
             help='whether to dump escaped particles', &
             required=.false., act='store', def='.false.', error=error)
         if (error/=0) stop
+        call cli%get(switch='-qh', val=quota_hour, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-rf', val=restart_flag, error=error)
+        if (error/=0) stop
         call cli%get(switch='-ft', val=focused_transport, error=error)
         if (error/=0) stop
         call cli%get(switch='-pv', val=particle_v0, error=error)
@@ -962,6 +987,10 @@ program stochastic
 
         if (mpi_rank == master) then
             print '(A)', '---------------Commandline Arguments:---------------'
+            if (restart_flag) then
+                print '(A)', 'This is a restart of a previous simulation'
+            endif
+            print '(A,E14.7)', ' The maximum wall time: ', quota_hour
             if (focused_transport) then
                 print '(A)', 'Solving the Focused Transport Equation'
                 print '(A,E14.7)', ' Initial particle velocity in the normalized velocity: ', &

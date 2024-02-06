@@ -9,7 +9,8 @@ module random_number_generator
     use mt_stream
     implicit none
     private
-    public init_prng, delete_prng, unif_01, two_normals
+    save
+    public init_prng, delete_prng, save_prng, unif_01, two_normals
     type(mt_state) :: mts
     type(mt_state), allocatable, dimension(:) :: mtss
     integer :: iseeda(4) = (/ int(Z'123'), int(Z'234'), int(Z'345'), int(Z'456') /)
@@ -21,23 +22,34 @@ module random_number_generator
     !< Args:
     !<  mpi_rank: MPI rank
     !<  nthreads: number of threads on current rank
+    !<  restart_flag: whether to restart a previous simulation
+    !<  file_path: the file path for the restart files
     !---------------------------------------------------------------------------
-    subroutine init_prng(mpi_rank, nthreads)
+    subroutine init_prng(mpi_rank, nthreads, restart_flag, file_path)
         implicit none
         integer, intent(in) :: mpi_rank, nthreads
-        integer :: i, offset
+        logical, intent(in) :: restart_flag
+        character(*), intent(in) :: file_path
+        integer :: i, offset, fh
+        character(len=256) :: filename
         call set_mt19937
         call new(mts)
     !    call init(mts,iseed)  ! init by scalar
         call init(mts,iseeda)  ! init by array
-        ! if (mpi_rank == master) call print(mts)
 
+        fh = 101
         allocate(mtss(nthreads))
         do i = 1, nthreads
             offset = mpi_rank * nthreads + i - 1
             call create_stream(mts, mtss(i), offset)
+            if (restart_flag) then
+                write(filename,"(A,A,I0,A,I0)") trim(file_path), &
+                    "restart/mtss.", mpi_rank, ".", i-1
+                open(unit=fh,file=trim(filename),form='unformatted',action='read')
+                call read(mtss(i), fh)
+                close(fh)
+            endif
         enddo
-        ! if (mpi_rank == master) call print(mts1)
     end subroutine init_prng
 
     !---------------------------------------------------------------------------
@@ -47,12 +59,35 @@ module random_number_generator
         implicit none
         integer :: i, nthreads
         call delete(mts)
-        nthreads = ubound(mtss, 1) 
+        nthreads = ubound(mtss, 1)
         do i = 1, nthreads
             call delete(mtss(i))
         enddo
         deallocate(mtss)
     end subroutine delete_prng
+
+    !---------------------------------------------------------------------------
+    !< Save pseudo random number generator
+    !< Args:
+    !<  mpi_rank: MPI rank
+    !<  nthreads: number of threads on current rank
+    !<  file_path: the file path for the restart files
+    !---------------------------------------------------------------------------
+    subroutine save_prng(mpi_rank, nthreads, file_path)
+        implicit none
+        integer, intent(in) :: mpi_rank, nthreads
+        character(*), intent(in) :: file_path
+        integer :: i, fh
+        character(len=256) :: filename
+        fh = 101
+        do i = 1, nthreads
+            write(filename,"(A,A,I0,A,I0)") trim(file_path), &
+                "restart/mtss.", mpi_rank, ".", i-1
+            open(unit=fh,file=trim(filename),form='unformatted',action='write')
+            call save(mtss(i), fh)
+            close(fh)
+        enddo
+    end subroutine save_prng
 
     !---------------------------------------------------------------------------
     !< Uniform number in [0, 1] with double precision

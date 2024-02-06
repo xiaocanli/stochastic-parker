@@ -7,6 +7,8 @@ diffusion.sh
 ------------
 
 - ``MACHINE``: either ``Frontera`` or ``Perlmutter``. ``Perlmutter`` is the default.
+- ``quota_hour``: the maximum wall time in hours. The code dump restart files if the simulation is not finished when the wall time is reached (10 mins before that in the code). The restart files are saved in the ``restart`` sub-directory under the diagnostic directory. These are data files ``particles_*.h5`` for particle data and ``mtss.mpi_rank.thread_id`` for the state of the random number generators.
+- ``restart_flag``: whether the simulation is a restart from previous simulations. ``.false.`` is the default, which means it is not a restart. ``.true.`` means it is a restart. When it is a restart, the code will read the particle data and ``random_number_generater`` from the previous simulation and continue the simulation from the last time step.
 - ``conf``: the name of the configuration file. ``conf.dat`` is the default.
 - ``mhd_config_filename``: the name of the MHD configuration file. ``mhd_config.dat`` is the default.
 - ``focused_transport``: whether to solve the focused transport equation. ``.false.`` is the default, which means solving the Parker transport equation.
