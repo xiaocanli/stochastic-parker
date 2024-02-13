@@ -3,7 +3,7 @@
 !*******************************************************************************
 
 program stochastic
-    use constants, only: i8, dp
+    use constants, only: dp
     use mpi_module
     use omp_lib
     use mhd_config_module, only: load_mhd_config, mhd_config, &
@@ -12,14 +12,12 @@ program stochastic
     use particle_module, only: init_particles, free_particles, &
         inject_particles_spatial_uniform, read_particle_params, &
         particle_mover, split_particle, set_particle_datatype_mpi, &
-        free_particle_datatype_mpi, select_particles_tracking, &
-        init_particle_tracking, free_particle_tracking, &
-        init_tracked_particle_points, free_tracked_particle_points, &
-        negative_particle_tags, save_tracked_particle_points, &
+        free_particle_datatype_mpi, init_particle_tracking, &
+        free_particle_tracking, dump_tracked_particles, &
         inject_particles_at_shock, inject_particles_at_large_jz, &
         set_dpp_params, set_duu_params, set_flags_params, &
         set_drift_parameters, set_flag_check_drift_2d, &
-        record_tracked_particle_init, inject_particles_at_large_db2, &
+        inject_particles_at_large_db2, &
         inject_particles_at_large_divv, read_particles, &
         save_particle_module_state, read_particle_module_state
     use diagnostics, only: distributions_diagnostics, quick_check, &
@@ -52,10 +50,11 @@ program stochastic
     implicit none
     character(len=256) :: dir_mhd_data, filename
     character(len=128) :: diagnostics_directory
+    character(len=128) :: particle_tags_file
     character(len=64) :: conf_file, mhd_config_filename
     character(len=64) :: surface_filename1, surface_filename2
     character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
-    integer(i8) :: nptl_max, nptl
+    integer :: nptl_max, nptl
     real(dp) :: start, finish, uptime, step1, step2, dt, jz_min, db2_min, divv_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
@@ -74,8 +73,8 @@ program stochastic
     integer :: t_start, t_end, tf, split_flag
     integer :: tmin  ! tmin = t_start typically. When restarting, tmin > t_start
     integer :: tmax_mhd           ! Maximum time frame for the MHD fields
-    integer :: time_interp_flag
-    integer :: track_particle_flag, nptl_selected, nsteps_interval
+    integer :: time_interp_flag   ! Whether to interpolate between two MHD frames
+    integer :: nsteps_interval    ! Steps interval to track particles
     integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
     integer :: inject_at_shock    ! Inject particles at shock location
     integer :: num_fine_steps     ! Number of the fine steps for diagnostics
@@ -110,6 +109,7 @@ program stochastic
     logical :: dump_escaped_dist  ! Whether to dump the distributions of the escaped particles
     logical :: dump_escaped       ! Whether to dump escaped particles
     logical :: reached_quota      ! Whether the simulation reach the quota time
+    logical :: track_particle_flag! Whether to track particles
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -225,7 +225,17 @@ program stochastic
     else
         tmin = t_start
     endif
-    call solve_transport_equation(.false.)
+
+    if (track_particle_flag) then
+        filename = trim(diagnostics_directory)//"particle_tracking/"//trim(particle_tags_file)
+        call init_particle_tracking(trim(filename), nsteps_interval)
+    endif
+
+    call solve_transport_equation(track_particle_flag)
+
+    if (track_particle_flag) then
+        call free_particle_tracking
+    endif
 
     ! dump files for restart if necessary
     if (.not. reached_quota) then
@@ -247,22 +257,6 @@ program stochastic
             access='stream',status='unknown',form='unformatted',action='write')
         write(20, pos=1) tf
         close(20)
-    endif
-
-    if (.not. reached_quota .and. track_particle_flag == 1) then
-        !< We need to reset the random number generator
-        call delete_prng
-        call init_prng(mpi_rank, nthreads, restart_flag, diagnostics_directory)
-
-        call init_particle_tracking(nptl_selected)
-        call select_particles_tracking(nptl, nptl_selected, nsteps_interval)
-        call init_tracked_particle_points(nptl_selected)
-
-        call solve_transport_equation(.true.)
-
-        call save_tracked_particle_points(nptl_selected, diagnostics_directory)
-        call free_tracked_particle_points
-        call free_particle_tracking
     endif
 
     if (inject_at_shock == 1) then
@@ -474,20 +468,23 @@ program stochastic
 
             ! Move particles
             if (track_particles) then
-                call negative_particle_tags(nptl_selected)
-                call record_tracked_particle_init(nptl_selected)
-                call particle_mover(focused_transport, 1, nptl_selected, &
-                    nsteps_interval, tf-t_start, 1, dump_escaped_dist)
+                call particle_mover(focused_transport, nsteps_interval, &
+                    tf-t_start, 1, dump_escaped_dist)
             else
-                call particle_mover(focused_transport, 0, nptl_selected, &
-                    nsteps_interval, tf-t_start, num_fine_steps, dump_escaped_dist)
+                call particle_mover(focused_transport, nsteps_interval, &
+                    tf-t_start, num_fine_steps, dump_escaped_dist)
             endif
 
             if (mpi_rank == master) then
                 write(*, "(A)") " Finishing moving particles "
             endif
+
+            if (track_particles) then
+                call dump_tracked_particles(tf, trim(diagnostics_directory)//"particle_tracking/")
+            endif
+
             if (split_flag == 1) then
-                call split_particle(split_ratio, pmin_split)
+                call split_particle(split_ratio, pmin_split, nsteps_interval)
             endif
             if (.not. track_particles) then
                 call quick_check(tf, .false., diagnostics_directory)
@@ -565,7 +562,7 @@ program stochastic
                         '-st single_time_frame -df dist_flag -pi power_index '//&
                         '-sf split_flag -sr split_ratio -ps pmin_split '//&
                         '-tf track_particle_flag '//&
-                        '-ns nptl_selected -ni nsteps_interval '//&
+                        '-ptf particle_tags_file -ni nsteps_interval '//&
                         '-dd diagnostics_directory -is inject_at_shock '//&
                         '-in inject_new_ptl -ij inject_large_jz '//&
                         '-sn inject_same_nptl '//&
@@ -671,12 +668,12 @@ program stochastic
             required=.false., act='store', def='2.0', error=error)
         if (error/=0) stop
         call cli%add(switch='--track_particle_flag', switch_ab='-tf', &
-            help='Flag to track some particles', required=.false., &
-            act='store', def='0', error=error)
+            help='Whether to track some particles', required=.false., &
+            act='store', def='.false.', error=error)
         if (error/=0) stop
-        call cli%add(switch='--nptl_selected', switch_ab='-ns', &
-            help='Number of selected particles to track', required=.false., &
-            act='store', def='100', error=error)
+        call cli%add(switch='--particle_tags_file', switch_ab='-ptf', &
+            help='File containing the selected particle tags', required=.false., &
+            act='store', def='tags_selected_01.h5', error=error)
         if (error/=0) stop
         call cli%add(switch='--nsteps_interval', switch_ab='-ni', &
             help='Steps interval to track particles', required=.false., &
@@ -924,7 +921,7 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-tf', val=track_particle_flag, error=error)
         if (error/=0) stop
-        call cli%get(switch='-ns', val=nptl_selected, error=error)
+        call cli%get(switch='-ptf', val=particle_tags_file, error=error)
         if (error/=0) stop
         call cli%get(switch='-ni', val=nsteps_interval, error=error)
         if (error/=0) stop
@@ -1084,9 +1081,9 @@ program stochastic
                     ' The minimum momentum (in terms in p0) to start splitting particles: ', &
                     pmin_split
             endif
-            if (track_particle_flag == 1) then
+            if (track_particle_flag) then
                 print '(A)', 'The program will tracking high-energy particles'
-                print '(A,I10.3)', ' * Number of particles to track: ', nptl_selected
+                print '(A,A)', ' * File containing the selected particle tags: ', particle_tags_file
                 print '(A,I10.3)', ' * Steps interval to track particles: ', nsteps_interval
             endif
             print '(A,A)', 'Diagnostic file directory is: ', trim(diagnostics_directory)

@@ -61,6 +61,7 @@ Development
    :hidden:
 
    development/implementation
+   development/particle_module
 
 Epilogue
 ------------

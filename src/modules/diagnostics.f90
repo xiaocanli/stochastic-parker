@@ -119,7 +119,7 @@ module diagnostics
         integer, parameter :: nvar = 6
         real(dp) :: pdt_min, pdt_max, pdt_min_g, pdt_max_g
         real(dp), dimension(nvar) :: var_local, var_global
-        integer(i8) :: i
+        integer :: i
         logical :: dir_e
 
         var_local = 0.0_dp
@@ -737,7 +737,7 @@ module diagnostics
         use simulation_setup_module, only: fconfig
         implicit none
         logical, intent(in) :: local_dist
-        integer(i8) :: iptl
+        integer :: iptl
         integer :: ip, imu
         integer :: ix1, iy1, iz1, ip1, imu1
         integer :: ix2, iy2, iz2, ip2, imu2
@@ -888,7 +888,7 @@ module diagnostics
         use simulation_setup_module, only: fconfig
         implicit none
         logical, intent(in) :: local_dist
-        integer(i8) :: iptl
+        integer :: iptl
         integer :: ip, imu
         integer :: ix1, iy1, iz1, ip1, imu1
         integer :: ix2, iy2, iz2, ip2, imu2
@@ -1644,7 +1644,7 @@ module diagnostics
         logical, intent(in) :: if_create_file
         character(*), intent(in) :: file_path
         real(dp) :: pmax_local, pmax_global
-        integer(i8) :: i
+        integer :: i
         logical :: dir_e
 
         pmax_local = 0.0_dp
@@ -1765,7 +1765,7 @@ module diagnostics
         character(*), intent(in) :: file_path
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
         integer(i8) :: nptl_local, nptl_global, nptl_offset
-        integer(i8), allocatable, dimension(:) :: nptls_local
+        integer, allocatable, dimension(:) :: nptls_local
         character(len=256) :: fname
         character(len=4) :: ctime
         integer(hid_t) :: file_id, dset_id, filespace
@@ -1778,15 +1778,15 @@ module diagnostics
         write (ctime,'(i4.4)') iframe
         fname = trim(file_path)//'particles_'//ctime//'.h5'
         allocate(nptls_local(mpi_size))
-        call MPI_GATHER(nptl_current, 1, MPI_INTEGER8, nptls_local(mpi_rank+1), &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(nptl_current, 1, MPI_INTEGER, nptls_local, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         if (mpi_rank == master) then
             call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., MPI_COMM_WORLD)
             dcount(1) = mpi_size
             doffset(1) = 0
             dset_dims(1) = mpi_size
             call h5screate_simple_f(1, dset_dims, filespace, error)
-            call h5dcreate_f(file_id, "nptl_local", H5T_STD_I64LE, &
+            call h5dcreate_f(file_id, "nptl_local", H5T_NATIVE_INTEGER, &
                 filespace, dset_id, error)
             call write_data_h5(dset_id, dcount, doffset, dset_dims, &
                 nptls_local, .false., .false.)
@@ -1798,7 +1798,7 @@ module diagnostics
 
         ! Write the particle data
         call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., MPI_COMM_WORLD)
-        nptl_local = nptl_current
+        nptl_local = nptl_current + 0_i8
         call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
         call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_INTEGER8, &
@@ -1809,25 +1809,29 @@ module diagnostics
         doffset(1) = nptl_offset
         dset_dims(1) = nptl_global
 
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", ptls%x)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", ptls%y)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", ptls%z)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", ptls%p)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", ptls%v)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", ptls%mu)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", ptls%weight)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", ptls%t)
-        call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", ptls%dt)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", ptls(:nptl_current)%x)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", ptls(:nptl_current)%y)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", ptls(:nptl_current)%z)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", ptls(:nptl_current)%p)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", ptls(:nptl_current)%v)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", ptls(:nptl_current)%mu)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", ptls(:nptl_current)%weight)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", ptls(:nptl_current)%t)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", ptls(:nptl_current)%dt)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "split_times", ptls%split_times)
+            "split_times", ptls(:nptl_current)%split_times)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "count_flag", ptls%count_flag)
+            "count_flag", ptls(:nptl_current)%count_flag)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "tag", ptls%tag)
+            "origin", ptls(:nptl_current)%origin)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "parent", ptls%parent)
+            "nsteps_tracked", ptls(:nptl_current)%nsteps_tracked)
         call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "nsteps_tracking", ptls%nsteps_tracking)
+            "nsteps_pushed", ptls(:nptl_current)%nsteps_pushed)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag_injected", ptls(:nptl_current)%tag_injected)
+        call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag_splitted", ptls(:nptl_current)%tag_splitted)
 
         call close_file_h5(file_id)
         call h5close_f(error)
@@ -1846,14 +1850,14 @@ module diagnostics
         character(*), intent(in) :: file_path
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
         integer(i8) :: nptl_local, nptl_global, nptl_offset
-        integer(i8), allocatable, dimension(:) :: nptls_local
+        integer, allocatable, dimension(:) :: nptls_local
         character(len=128) :: fname
         character(len=4) :: ctime
         integer(hid_t) :: file_id, dset_id, filespace
         integer :: error
         logical :: dir_e
 
-        nptl_local = nptl_escaped
+        nptl_local = nptl_escaped + 0_i8
         call MPI_ALLREDUCE(nptl_local, nptl_global, 1, MPI_INTEGER8, &
             MPI_SUM, MPI_COMM_WORLD, ierr)
         call MPI_SCAN(nptl_local, nptl_offset, 1, MPI_INTEGER8, &
@@ -1867,15 +1871,15 @@ module diagnostics
             write (ctime,'(i4.4)') iframe
             fname = trim(file_path)//'escaped_particles_'//ctime//'.h5'
             allocate(nptls_local(mpi_size))
-            call MPI_GATHER(nptl_current, 1, MPI_INTEGER8, nptls_local(mpi_rank+1), &
-                1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+            call MPI_GATHER(nptl_escaped, 1, MPI_INTEGER, nptls_local, &
+                1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
             if (mpi_rank == master) then
                 call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., MPI_COMM_WORLD)
                 dcount(1) = mpi_size
                 doffset(1) = 0
                 dset_dims(1) = mpi_size
                 call h5screate_simple_f(1, dset_dims, filespace, error)
-                call h5dcreate_f(file_id, "nptl_local", H5T_STD_I64LE, &
+                call h5dcreate_f(file_id, "nptl_local", H5T_NATIVE_INTEGER, &
                     filespace, dset_id, error)
                 call write_data_h5(dset_id, dcount, doffset, dset_dims, &
                     nptls_local, .false., .false.)
@@ -1890,25 +1894,29 @@ module diagnostics
             dset_dims(1) = nptl_global
 
             call open_file_h5(fname, H5F_ACC_RDWR_F, file_id, .true., MPI_COMM_WORLD)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", escaped_ptls%x)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", escaped_ptls%y)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", escaped_ptls%z)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", escaped_ptls%p)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", escaped_ptls%v)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", escaped_ptls%mu)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", escaped_ptls%weight)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", escaped_ptls%t)
-            call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", escaped_ptls%dt)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "x", escaped_ptls(:nptl_escaped)%x)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "y", escaped_ptls(:nptl_escaped)%y)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "z", escaped_ptls(:nptl_escaped)%z)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "p", escaped_ptls(:nptl_escaped)%p)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "v", escaped_ptls(:nptl_escaped)%v)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "mu", escaped_ptls(:nptl_escaped)%mu)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "weight", escaped_ptls(:nptl_escaped)%weight)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "t", escaped_ptls(:nptl_escaped)%t)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, "dt", escaped_ptls(:nptl_escaped)%dt)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-                "split_times", escaped_ptls%split_times)
+                "split_times", escaped_ptls(:nptl_escaped)%split_times)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-                "count_flag", escaped_ptls%count_flag)
+                "count_flag", escaped_ptls(:nptl_escaped)%count_flag)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-                "tag", escaped_ptls%tag)
+                "origin", escaped_ptls(:nptl_escaped)%origin)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-                "parent", escaped_ptls%parent)
+                "nsteps_tracked", escaped_ptls(:nptl_escaped)%nsteps_tracked)
             call write_ptl_element(file_id, dcount, doffset, dset_dims, &
-                "nsteps_tracking", escaped_ptls%nsteps_tracking)
+                "nsteps_pushed", escaped_ptls(:nptl_escaped)%nsteps_pushed)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "tag_injected", escaped_ptls(:nptl_escaped)%tag_injected)
+            call write_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "tag_splitted", escaped_ptls(:nptl_escaped)%tag_splitted)
 
             call close_file_h5(file_id)
             CALL h5close_f(error)
@@ -2179,9 +2187,11 @@ module diagnostics
         escaped_ptls%dt = 0.0
         escaped_ptls%split_times = 0
         escaped_ptls%count_flag = COUNT_FLAG_OTHERS
-        escaped_ptls%tag = 0
-        escaped_ptls%parent = 0
-        escaped_ptls%nsteps_tracking = 0
+        escaped_ptls%origin = 0
+        escaped_ptls%nsteps_tracked = 0
+        escaped_ptls%nsteps_pushed = 0
+        escaped_ptls%tag_injected = 0
+        escaped_ptls%tag_splitted = 0
         nptl_escaped = 0
     end subroutine reset_escaped_particles
 

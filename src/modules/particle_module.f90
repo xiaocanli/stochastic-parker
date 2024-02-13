@@ -15,10 +15,7 @@ module particle_module
     public init_particles, free_particles, inject_particles_spatial_uniform, &
         read_particle_params, particle_mover, split_particle, &
         set_particle_datatype_mpi, free_particle_datatype_mpi, &
-        select_particles_tracking, init_particle_tracking, &
-        free_particle_tracking, init_tracked_particle_points, &
-        free_tracked_particle_points, negative_particle_tags, &
-        save_tracked_particle_points, record_tracked_particle_init, &
+        init_particle_tracking, free_particle_tracking, dump_tracked_particles, &
         inject_particles_at_shock, inject_particles_at_large_jz, &
         inject_particles_at_large_db2, inject_particles_at_large_divv, &
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
@@ -36,14 +33,16 @@ module particle_module
         COUNT_FLAG_ESCAPE_LZ, COUNT_FLAG_ESCAPE_HZ
 
     type particle_type
-        real(dp) :: x, y, z, p      !< Position and momentum
-        real(dp) :: v, mu           !< Velocity and cosine of pitch-angle
-        real(dp) :: weight, t, dt   !< Particle weight, time and time step
         integer(i1)  :: split_times     !< Particle splitting times
         integer(i1)  :: count_flag      !< Only count particle when it is 1
-        integer(i8)  :: tag             !< Particle tag
-        integer(i8)  :: parent          !< parent particle tag when splitting
-        integer(i8)  :: nsteps_tracking !< Total particle tracking steps
+        integer(i4)  :: origin          !< The origin MPI rank of the particle
+        integer(i4)  :: nsteps_tracked  !< # of tracked steps in MHD data interval
+        integer(i4)  :: nsteps_pushed   !< # of steps have been pushed
+        integer(i4)  :: tag_injected    !< Particle tag 1 when injected
+        integer(i4)  :: tag_splitted    !< Particle tag 2 after splitting
+        real(dp) :: x, y, z, p          !< Position and momentum
+        real(dp) :: v, mu               !< Velocity and cosine of pitch-angle
+        real(dp) :: weight, t, dt       !< Particle weight, time and time step
     end type particle_type
 
     real(dp) :: pmin  !< Minimum particle momentum
@@ -65,14 +64,16 @@ module particle_module
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:128 :: ptls
 
-    integer(i8) :: nptl_current     !< Number of particles currently in the box
-    integer(i8) :: nptl_old         !< Number of particles without receivers
-    integer(i8) :: nptl_max         !< Maximum number of particles allowed
-    integer(i8) :: nptl_split       !< Number of particles from splitting
-    integer(i8) :: nptl_inject      !< Number of injected particles
-    integer(i8) :: tag_max          !< Maximum particle tag
-    real(dp) :: leak                !< Leaking particles from boundary considering weight
-    real(dp) :: leak_negp           !< Leaking particles with negative momentum
+    integer :: nptl_current     !< Number of particles currently in the box
+    integer :: nptl_old         !< Number of particles without receivers
+    integer :: nptl_max         !< Maximum number of particles allowed
+    integer :: nptl_split       !< Number of particles from splitting
+    integer :: nptl_inject      !< Number of injected particles
+    real(dp) :: leak            !< Leaking particles from boundary considering weight
+    real(dp) :: leak_negp       !< Leaking particles with negative momentum
+
+    ! tagging
+    integer(i4) :: tag_max          !< Maximum particle tag
 
     real(dp) :: kpara0              !< kpara for particles with momentum p0
     real(dp) :: kret                !< The ratio of kpara to kperp
@@ -134,16 +135,24 @@ module particle_module
     logical :: acc_by_surface_flag
 
     !< Particle tracking
-    integer(i8), allocatable, dimension(:) :: nsteps_tracked_ptls, noffsets_tracked_ptls
-    integer(i8), allocatable, dimension(:) :: tags_selected_ptls
-    type(particle_type), allocatable, dimension(:) :: ptl_traj_points
-    integer(i8) :: nsteps_tracked_tot   !< Total tracking steps for all tracked particles
+    logical :: track_particle_flag = .false. ! if init_particle_tracking is called, it will be .true.
+    integer :: nptl_tracking   ! Number of particles to track
+    integer :: split_times_max ! Maximum number of split times among these particles
+    integer :: nsteps_tracking_max  ! Maximum number tracking steps backed dt_min_rel
+    integer(i4), allocatable, dimension(:, :) :: tags_tracking
+    type(particle_type), allocatable, dimension(:, :) :: particles_tracked
 
     interface read_ptl_element
         module procedure &
             read_integer1_element, read_integer4_element, &
             read_integer8_element, read_double_element
     end interface read_ptl_element
+
+    interface write_tracked_ptl_element
+        module procedure &
+            write_integer1_tracked_element, write_integer4_tracked_element, &
+            write_integer8_tracked_element, write_double_tracked_element
+    end interface write_tracked_ptl_element
 
     contains
 
@@ -154,7 +163,7 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine init_particles(nptl_max_allowed)
         implicit none
-        integer(i8), intent(in) :: nptl_max_allowed
+        integer, intent(in) :: nptl_max_allowed
         nptl_max = nptl_max_allowed
         allocate(ptls(nptl_max))
         ptls%x = 0.0
@@ -168,12 +177,14 @@ module particle_module
         ptls%dt = 0.0
         ptls%split_times = 0
         ptls%count_flag = COUNT_FLAG_OTHERS
-        ptls%tag = 0
-        ptls%parent = 0
-        ptls%nsteps_tracking = 0
+        ptls%origin = 0
+        ptls%nsteps_tracked = 0
+        ptls%nsteps_pushed = 0
+        ptls%tag_injected = 0
+        ptls%tag_splitted = 0
         nptl_current = 0     ! No particle initially
         nptl_split = 0
-        tag_max = mpi_rank * nptl_max * 100  ! Shift for each MPI rank
+        tag_max = 0
 
         !< Particles crossing domain boundaries
         allocate(senders(nptl_max / 10, ndim_field*2))
@@ -191,9 +202,11 @@ module particle_module
         senders%dt = 0.0
         senders%split_times = 0
         senders%count_flag = COUNT_FLAG_OTHERS
-        senders%tag = 0
-        senders%parent = 0
-        senders%nsteps_tracking = 0
+        senders%origin = 0
+        senders%nsteps_tracked = 0
+        senders%nsteps_pushed = 0
+        senders%tag_injected = 0
+        senders%tag_splitted = 0
 
         recvers%x = 0.0
         recvers%y = 0.0
@@ -206,9 +219,11 @@ module particle_module
         recvers%dt = 0.0
         recvers%split_times = 0
         recvers%count_flag = COUNT_FLAG_OTHERS
-        recvers%tag = 0
-        recvers%parent = 0
-        recvers%nsteps_tracking = 0
+        recvers%origin = 0
+        recvers%nsteps_tracked = 0
+        recvers%nsteps_pushed = 0
+        recvers%tag_injected = 0
+        recvers%tag_splitted = 0
 
         nsenders = 0
         nrecvers = 0
@@ -318,23 +333,24 @@ module particle_module
     subroutine set_particle_datatype_mpi
         implicit none
         integer :: oldtypes(0:2), blockcounts(0:2)
-        integer :: offsets(0:2), extent
-        ! Setup description of the 9 MPI_DOUBLE fields.
-        offsets(0) = 0
-        oldtypes(0) = MPI_DOUBLE_PRECISION
-        blockcounts(0) = 9
+        integer(KIND=MPI_ADDRESS_KIND) :: offsets(0:2)
+        integer :: extent
         ! Setup description of the 2 MPI_INTEGER1 fields.
-        call MPI_TYPE_EXTENT(MPI_DOUBLE_PRECISION, extent, ierr)
-        offsets(1) = blockcounts(0) * extent
-        oldtypes(1) = MPI_INTEGER1
-        blockcounts(1) = 2
-        ! Setup description of the 3 MPI_INTEGER8 fields.
+        offsets(0) = 0
+        oldtypes(0) = MPI_INTEGER1
+        blockcounts(0) = 2
+        ! Setup description of the 5 MPI_INTEGER4 fields.
         call MPI_TYPE_EXTENT(MPI_INTEGER1, extent, ierr)
+        offsets(1) = blockcounts(0) * extent + offsets(0)
+        oldtypes(1) = MPI_INTEGER4
+        blockcounts(1) = 5
+        ! Setup description of the 9 MPI_DOUBLE_PRECISION fields.
+        call MPI_TYPE_EXTENT(MPI_INTEGER4, extent, ierr)
         offsets(2) = blockcounts(1) * extent + offsets(1)
-        oldtypes(2) = MPI_INTEGER8
-        blockcounts(2) = 3
+        oldtypes(2) = MPI_DOUBLE_PRECISION
+        blockcounts(2) = 9
         ! Define structured type and commit it.
-        call MPI_TYPE_STRUCT(3, blockcounts, offsets, oldtypes, &
+        call MPI_TYPE_CREATE_STRUCT(3, blockcounts, offsets, oldtypes, &
             particle_datatype_mpi, ierr)
         call MPI_TYPE_COMMIT(particle_datatype_mpi, ierr)
     end subroutine set_particle_datatype_mpi
@@ -366,9 +382,10 @@ module particle_module
         implicit none
         real(dp), intent(in) :: xpos, ypos, zpos, dt, power_index
         real(dp), intent(in) :: particle_v0, mu
-        integer(i8), intent(in) :: nptl_current
+        integer, intent(in) :: nptl_current
         integer, intent(in) :: dist_flag, ct_mhd
         real(dp) :: r01, norm, fxp, ptmp, ftest
+        integer :: iptl_lo, iptl_hi
         ptls(nptl_current)%x = xpos
         ptls(nptl_current)%y = ypos
         ptls(nptl_current)%z = zpos
@@ -400,10 +417,19 @@ module particle_module
         ptls(nptl_current)%dt = dt
         ptls(nptl_current)%split_times = 0
         ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
+        ptls(nptl_current)%origin = mpi_rank
+        ptls(nptl_current)%nsteps_tracked = 0
+        ptls(nptl_current)%nsteps_pushed = 0
+        ptls(nptl_current)%tag_injected = tag_max
         tag_max = tag_max + 1
-        ptls(nptl_current)%tag = tag_max
-        ptls(nptl_current)%parent = 0  ! In default, no parent
-        ptls(nptl_current)%nsteps_tracking = 0
+        ptls(nptl_current)%tag_splitted = 1
+        if (track_particle_flag .and. &
+            is_particle_selected(ptls(nptl_current), iptl_lo, iptl_hi)) then
+            ptls(nptl_current)%nsteps_tracked = 1
+            ptls(nptl_current)%tag_injected = -ptls(nptl_current)%tag_injected
+            ptls(nptl_current)%tag_splitted = -1
+            particles_tracked(1, iptl_lo:iptl_hi) = ptls(nptl_current)
+        endif
     end subroutine inject_one_particle
 
     !---------------------------------------------------------------------------
@@ -423,11 +449,11 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01
         implicit none
-        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
-        integer(i8) :: i
+        integer :: i
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
         real(dp) :: xmin_box, ymin_box, zmin_box
         real(dp) :: xmax_box, ymax_box, zmax_box
@@ -494,14 +520,15 @@ module particle_module
         use mhd_data_parallel, only: interp_shock_location
         use random_number_generator, only: unif_01, two_normals
         implicit none
-        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
         real(dp), intent(in) :: dt, power_index, particle_v0
-        integer(i8) :: i
+        integer :: i
         integer :: iy, iz
         real(dp) :: xmin, ymin, xmax, ymax, zmin, zmax
         real(dp) :: ry, rz, dpy, dpz, shock_xpos
         real(dp) :: r01, norm, fxp, ptmp, ftest
+        integer :: iptl_lo, iptl_hi
         integer, dimension(2) :: pos
         real(dp), dimension(4) :: weights
 
@@ -560,10 +587,19 @@ module particle_module
             ptls(nptl_current)%dt = dt
             ptls(nptl_current)%split_times = 0
             ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
+            ptls(nptl_current)%origin = mpi_rank
+            ptls(nptl_current)%nsteps_tracked = 0
+            ptls(nptl_current)%nsteps_pushed = 0
+            ptls(nptl_current)%tag_injected = tag_max
             tag_max = tag_max + 1
-            ptls(nptl_current)%tag = tag_max
-            ptls(nptl_current)%parent = 0  ! In default, no parent
-            ptls(nptl_current)%nsteps_tracking = 0
+            ptls(nptl_current)%tag_splitted = 1
+            if (track_particle_flag .and. &
+                is_particle_selected(ptls(nptl_current), iptl_lo, iptl_hi)) then
+                ptls(nptl_current)%nsteps_tracked = 1
+                ptls(nptl_current)%tag_injected = -ptls(nptl_current)%tag_injected
+                ptls(nptl_current)%tag_splitted = -1
+                particles_tracked(1, iptl_lo:iptl_hi) = ptls(nptl_current)
+            endif
         enddo
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles at the shock"
@@ -730,7 +766,7 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_jz
         use random_number_generator, only: unif_01
         implicit none
-        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
         real(dp), intent(in) :: dt, jz_min, power_index, particle_v0
@@ -746,7 +782,7 @@ module particle_module
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer(i8) :: i
+        integer :: i
         integer :: ncells_large_jz, ncells_large_jz_g
         !dir$ attributes align:256 :: fields
 
@@ -857,7 +893,7 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_db2
         use random_number_generator, only: unif_01
         implicit none
-        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_db2_norm
         real(dp), intent(in) :: dt, db2_min, power_index, particle_v0
@@ -873,7 +909,7 @@ module particle_module
         real(dp), dimension(4) :: db2_array
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer(i8) :: i
+        integer :: i
         integer :: ncells_large_db2, ncells_large_db2_g
         !dir$ attributes align:32 :: db2_array
 
@@ -978,7 +1014,7 @@ module particle_module
         use mhd_data_parallel, only: get_ncells_large_divv
         use random_number_generator, only: unif_01
         implicit none
-        integer(i8), intent(in) :: nptl
+        integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
         integer, intent(in) :: inject_same_nptl, ncells_large_divv_norm
         real(dp), intent(in) :: dt, divv_min, power_index, particle_v0
@@ -995,7 +1031,7 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: ctheta, istheta
-        integer(i8) :: i
+        integer :: i
         integer :: ncells_large_divv, ncells_large_divv_g
         !dir$ attributes align:256 :: fields
 
@@ -1097,14 +1133,12 @@ module particle_module
     !< Args:
     !<  t0: the starting time
     !<  dtf: the time interval of the MHD fields
-    !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
-    !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
     !<  num_fine_steps: number of fine time steps
     !<  focused_transport: whether to the Focused Transport equation
     !---------------------------------------------------------------------------
-    subroutine particle_mover_one_cycle(t0, dtf, track_particle_flag, &
-            nptl_selected, nsteps_interval, num_fine_steps, focused_transport)
+    subroutine particle_mover_one_cycle(t0, dtf, nsteps_interval, &
+            num_fine_steps, focused_transport)
         use mhd_config_module, only: mhd_config
         use simulation_setup_module, only: fconfig
         use mhd_data_parallel, only: interp_fields, interp_magnetic_fluctuation, &
@@ -1112,7 +1146,6 @@ module particle_module
         use acc_region_surface, only: interp_acc_surface
         implicit none
         real(dp), intent(in) :: t0, dtf
-        integer, intent(in) :: track_particle_flag, nptl_selected
         integer, intent(in) :: nsteps_interval, num_fine_steps
         logical, intent(in) :: focused_transport
         real(dp) :: dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
@@ -1122,8 +1155,9 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: px, py, pz, rt
-        integer(i8) :: i, tracking_step, offset
+        integer :: i
         integer :: step, thread_id
+        integer :: iptl_lo, iptl_hi
         type(particle_type) :: ptl
         type(kappa_type) :: kappa
         real(dp) :: surface_height1, surface_height2
@@ -1154,7 +1188,7 @@ module particle_module
         !$OMP& fields, db2, lc, surface_height1, surface_height2, &
         !$OMP& deltax, deltay, deltaz, deltap, deltav, deltamu, &
         !$OMP& dt_target, pos, weights, px, py, pz, rt, &
-        !$OMP& tracking_step, offset, step, thread_id)
+        !$OMP& step, thread_id, iptl_lo, iptl_hi)
         thread_id = 0
 #if (defined USE_OPENMP)
         thread_id = OMP_GET_THREAD_NUM()
@@ -1278,16 +1312,15 @@ module particle_module
                         endif
                     endif
 
-                    ! Number of particle tracking steps
-                    ptl%nsteps_tracking = ptl%nsteps_tracking + 1
+                    ! Number of steps the particle has been pushed
+                    ptl%nsteps_pushed = mod(ptl%nsteps_pushed + 1, nsteps_interval)
 
                     ! Track particles
-                    if (track_particle_flag == 1) then
-                        if (ptl%tag < 0 .and. &
-                            mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
-                            tracking_step = ptl%nsteps_tracking / nsteps_interval
-                            offset = noffsets_tracked_ptls(-ptl%tag)
-                            ptl_traj_points(offset + tracking_step + 1) = ptl
+                    if (track_particle_flag) then
+                        if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
+                            call locate_particle(ptl, iptl_lo, iptl_hi)
+                            ptl%nsteps_tracked = ptl%nsteps_tracked + 1
+                            particles_tracked(ptl%nsteps_tracked, iptl_lo:iptl_hi) = ptl
                         endif
                     endif
                 enddo ! while loop inside a fine time step
@@ -1303,7 +1336,13 @@ module particle_module
                     ptl%t = ptl%t - ptl%dt
                     ptl%dt = t0 + dt_target - ptl%t
                     if (ptl%dt > 0) then
-                        ptl%nsteps_tracking = ptl%nsteps_tracking - 1
+                        if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
+                            ! back one step if necessary
+                            ptl%nsteps_tracked = ptl%nsteps_tracked - 1
+                            ptl%nsteps_pushed = nsteps_interval - 2
+                        else
+                            ptl%nsteps_pushed = ptl%nsteps_pushed - 1
+                        endif
 
                         px = (ptl%x-xmin) / dxm
                         py = (ptl%y-ymin) / dym
@@ -1367,15 +1406,14 @@ module particle_module
                                     ptl, fields, db2, lc, kappa, .true., deltax, deltay, deltaz, deltap)
                             endif
                         endif
-                        ptl%nsteps_tracking = ptl%nsteps_tracking + 1
+                        ptl%nsteps_pushed = mod(ptl%nsteps_pushed + 1, nsteps_interval)
 
                         ! Track particles
-                        if (track_particle_flag == 1) then
-                            if (ptl%tag < 0 .and. &
-                                mod(ptl%nsteps_tracking, nsteps_interval) == 0) then
-                                tracking_step = ptl%nsteps_tracking / nsteps_interval
-                                offset = noffsets_tracked_ptls(-ptl%tag)
-                                ptl_traj_points(offset + tracking_step + 1) = ptl
+                        if (track_particle_flag) then
+                            if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
+                                call locate_particle(ptl, iptl_lo, iptl_hi)
+                                ptl%nsteps_tracked = ptl%nsteps_tracked + 1
+                                particles_tracked(ptl%nsteps_tracked, iptl_lo:iptl_hi) = ptl
                             endif
                         endif
                     endif
@@ -1400,28 +1438,27 @@ module particle_module
     !< Move particles using the MHD simulation data as background fields
     !< Args:
     !<  focused_transport: whether to the Focused Transport equation
-    !<  track_particle_flag: whether to track particles, 0 for no, 1 for yes
-    !<  nptl_selected: number of selected particles
     !<  nsteps_interval: save particle points every nsteps_interval
     !<  mhd_tframe: MHD time frame, starting from 1
     !<  num_fine_steps: number of fine time steps
     !<  dump_escaped_dist: whether to dump distributions of the escaped particles
     !---------------------------------------------------------------------------
-    subroutine particle_mover(focused_transport, track_particle_flag, &
-            nptl_selected, nsteps_interval, mhd_tframe, num_fine_steps, &
-            dump_escaped_dist)
+    subroutine particle_mover(focused_transport, nsteps_interval, mhd_tframe, &
+            num_fine_steps, dump_escaped_dist)
         use simulation_setup_module, only: fconfig
         use mhd_config_module, only: mhd_config, tstamps_mhd
         implicit none
         logical, intent(in) :: focused_transport
-        integer, intent(in) :: track_particle_flag, nptl_selected, nsteps_interval
+        integer, intent(in) :: nsteps_interval
         integer, intent(in) :: mhd_tframe, num_fine_steps
         logical, intent(in) :: dump_escaped_dist
-        integer(i8) :: i
-        integer :: local_flag, global_flag, ncycle
+        real(dp) :: dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: xmin1, xmax1, ymin1, ymax1, zmin1, zmax1
+        integer :: local_flag, global_flag, ncycle, iptl
         logical :: all_particles_in_box
-        real(dp) :: t0, dtf, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: t0, dtf
         type(particle_type) :: ptl
+
         all_particles_in_box = .false.
         nptl_old = 0
 
@@ -1429,18 +1466,47 @@ module particle_module
         dtf = tstamps_mhd(mhd_tframe+1) - t0
         call set_dt_min_max(dtf)
 
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+        dzm = mhd_config%dz
+        xmin = fconfig%xmin
+        xmax = fconfig%xmax
+        ymin = fconfig%ymin
+        ymax = fconfig%ymax
+        zmin = fconfig%zmin
+        zmax = fconfig%zmax
+        xmin1 = xmin - dxm * 0.5
+        xmax1 = xmax + dxm * 0.5
+        ymin1 = ymin - dym * 0.5
+        ymax1 = ymax + dym * 0.5
+        zmin1 = zmin - dzm * 0.5
+        zmax1 = zmax + dzm * 0.5
+
         ncycle = 0
         local_flag = 0
         global_flag = 0
+
+        ! Reset nsteps_tracked to 0 at the start of the MHD interval
+        ptls(:nptl_current)%nsteps_tracked = 0
 
         do while (.not. all_particles_in_box)
             ncycle = ncycle + 1
             nsenders = 0
             nrecvers = 0
             if (nptl_old < nptl_current) then
-                call particle_mover_one_cycle(t0, dtf, track_particle_flag, &
-                    nptl_selected, nsteps_interval, num_fine_steps, &
-                    focused_transport)
+                call particle_mover_one_cycle(t0, dtf, nsteps_interval, &
+                    num_fine_steps, focused_transport)
+            else
+                do iptl = 1, nptl_current
+                    ptl = ptls(iptl)
+                    if (ptl%p < 0.0 .and. ptl%count_flag /= COUNT_FLAG_INBOX) then
+                        ptl%count_flag = COUNT_FLAG_OTHERS
+                        leak_negp = leak_negp + ptl%weight
+                    else
+                        call particle_boundary_condition(ptl, xmin1, xmax1, &
+                            ymin1, ymax1, zmin1, zmax1)
+                    endif
+                enddo
             endif
             call remove_particles(dump_escaped_dist)
             call send_recv_particles
@@ -1467,23 +1533,17 @@ module particle_module
         !< We do not need to push particles after they are sent to neighbors.
         !< To do this, we can reduce number of particles crossing local domain
         !< domain boundaries in the next step.
-        xmin = fconfig%xmin
-        xmax = fconfig%xmax
-        ymin = fconfig%ymin
-        ymax = fconfig%ymax
-        zmin = fconfig%zmin
-        zmax = fconfig%zmax
         nsenders = 0
         nrecvers = 0
-        do i = 1, nptl_current
-            ptl = ptls(i)
-            if (ptl%p < 0.0) then
+        do iptl = 1, nptl_current
+            ptl = ptls(iptl)
+            if (ptl%p < 0.0 .and. ptl%count_flag /= COUNT_FLAG_INBOX) then
                 ptl%count_flag = COUNT_FLAG_OTHERS
                 leak_negp = leak_negp + ptl%weight
             else
                 call particle_boundary_condition(ptl, xmin, xmax, ymin, ymax, zmin, zmax)
             endif
-            ptls(i) = ptl
+            ptls(iptl) = ptl
         enddo
         call remove_particles(dump_escaped_dist)
         call send_recv_particles
@@ -4271,7 +4331,7 @@ module particle_module
     subroutine resize_escaped_particles
         implicit none
         type(particle_type), allocatable, dimension(:) :: escaped_ptls_tmp
-        integer(i8) :: nmax
+        integer :: nmax
         allocate(escaped_ptls_tmp(nptl_escaped_max))
         escaped_ptls_tmp = escaped_ptls
         ! Reallocate the escaped particle data array
@@ -4290,9 +4350,11 @@ module particle_module
         escaped_ptls%dt = 0.0
         escaped_ptls%split_times = 0
         escaped_ptls%count_flag = COUNT_FLAG_OTHERS
-        escaped_ptls%tag = 0
-        escaped_ptls%parent = 0
-        escaped_ptls%nsteps_tracking = 0
+        escaped_ptls%origin = 0
+        escaped_ptls%nsteps_tracked = 0
+        escaped_ptls%nsteps_pushed = 0
+        escaped_ptls%tag_injected = 0
+        escaped_ptls%tag_splitted = 0
         escaped_ptls(:nptl_escaped) = escaped_ptls_tmp(:nptl_escaped)
         deallocate(escaped_ptls_tmp)
     end subroutine resize_escaped_particles
@@ -4305,7 +4367,7 @@ module particle_module
     subroutine remove_particles(dump_escaped_dist)
         implicit none
         logical, intent(in) :: dump_escaped_dist
-        integer(i8) :: i, nremoved
+        integer :: i, nremoved
         type(particle_type) :: ptl1
 
         ! Resize the escaped particle data array if necessary
@@ -4365,13 +4427,16 @@ module particle_module
     !<  split_ratio (> 1.0): momentum increase ratio for particle splitting
     !<  pmin_split (> 1.0): the minimum momentum (in terms in p0) to start
     !<                      splitting particles
+    !<  nsteps_interval: save tracked particle points every nsteps_interval
     !---------------------------------------------------------------------------
-    subroutine split_particle(split_ratio, pmin_split)
+    subroutine split_particle(split_ratio, pmin_split, nsteps_interval)
         implicit none
         real(dp), intent(in) :: split_ratio, pmin_split
-        integer(i8) :: i, nptl
+        integer, intent(in) :: nsteps_interval
+        integer :: i, nptl
+        integer :: iptl_lo, iptl_hi
         real(dp) :: p_threshold
-        type(particle_type) :: ptl, ptl_new
+        type(particle_type) :: ptl
         nptl = nptl_current
         do i = 1, nptl
             ptl = ptls(i)
@@ -4386,9 +4451,31 @@ module particle_module
                 ptl%weight = 0.5**(1.0 + ptl%split_times)
                 ptl%split_times = ptl%split_times + 1
                 ptls(nptl_current) = ptl
-                tag_max = tag_max + 1
-                ptls(nptl_current)%tag = tag_max
-                ptls(nptl_current)%parent = ptl%tag
+                if (ptl%tag_splitted < 0) then ! for tracking particles
+                    ptls(nptl_current)%tag_splitted = ptl%tag_splitted - 2**(ptl%split_times-1)
+                    ! check the splitted particle
+                    if (is_particle_selected(ptls(nptl_current), iptl_lo, iptl_hi)) then
+                        if (ptl%nsteps_pushed == 0) then
+                            ptls(nptl_current)%nsteps_tracked = ptls(nptl_current)%nsteps_tracked + 1
+                            particles_tracked(ptls(nptl_current)%nsteps_tracked, iptl_lo:iptl_hi) = &
+                                ptls(nptl_current)
+                        endif
+                    else
+                        ptls(nptl_current)%tag_splitted = -ptls(nptl_current)%tag_splitted
+                    endif
+
+                    ! check the original particle
+                    if (is_particle_selected(ptl, iptl_lo, iptl_hi)) then
+                        if (ptl%nsteps_pushed == 0) then
+                            ptl%nsteps_tracked = ptl%nsteps_tracked + 1
+                            particles_tracked(ptl%nsteps_tracked, iptl_lo:iptl_hi) = ptl
+                        endif
+                    else
+                        ptl%tag_splitted = -ptl%tag_splitted  ! stop tracking
+                    endif
+                else
+                    ptls(nptl_current)%tag_splitted = ptl%tag_splitted + 2**(ptl%split_times-1)
+                endif
                 ptls(i) = ptl
             endif
         enddo
@@ -4402,8 +4489,8 @@ module particle_module
         type(particle_type), dimension(:) :: ptls
         type(particle_type) :: ptl_tmp
         real(dp) :: p_pivot
-        integer(i8) :: first, last
-        integer(i8) :: i, j
+        integer :: first, last
+        integer :: i, j
 
         p_pivot = ptls((first+last) / 2)%p
         i = first
@@ -4425,177 +4512,6 @@ module particle_module
         if (first < i-1) call quicksort_particle(ptls, first, i-1)
         if (j+1 < last)  call quicksort_particle(ptls, j+1, last)
     end subroutine quicksort_particle
-
-    !---------------------------------------------------------------------------
-    !< Initialize particle tracking
-    !< Args:
-    !<  nptl_selected: number of selected particles
-    !---------------------------------------------------------------------------
-    subroutine init_particle_tracking(nptl_selected)
-        implicit none
-        integer, intent(in) :: nptl_selected
-        allocate(nsteps_tracked_ptls(nptl_selected))
-        allocate(noffsets_tracked_ptls(nptl_selected))
-        allocate(tags_selected_ptls(nptl_selected))
-        nsteps_tracked_ptls = 0
-        noffsets_tracked_ptls = 0
-        tags_selected_ptls = 0
-    end subroutine init_particle_tracking
-
-    !---------------------------------------------------------------------------
-    !< Free particle tracking
-    !---------------------------------------------------------------------------
-    subroutine free_particle_tracking
-        implicit none
-        deallocate(nsteps_tracked_ptls, noffsets_tracked_ptls)
-        deallocate(tags_selected_ptls)
-    end subroutine free_particle_tracking
-
-    !---------------------------------------------------------------------------
-    !< Select particles for particle tracking
-    !< Args:
-    !<  nptl: number of initial particles
-    !<  nptl_selected: number of selected particles
-    !<  nsteps_interval: save particle points every nsteps_interval
-    !---------------------------------------------------------------------------
-    subroutine select_particles_tracking(nptl, nptl_selected, nsteps_interval)
-        implicit none
-        integer(i8), intent(in) :: nptl
-        integer, intent(in) :: nptl_selected, nsteps_interval
-        integer(i8) :: iptl, i
-        call quicksort_particle(ptls, 1_i8, nptl_current)
-
-        !< Select high-energy particles
-        iptl = nptl_current-nptl_selected+1
-        tags_selected_ptls = ptls(iptl:nptl_current)%tag
-        nsteps_tracked_ptls = ptls(iptl:nptl_current)%nsteps_tracking
-
-        !< Only part of the trajectory points are saved
-        nsteps_tracked_ptls = (nsteps_tracked_ptls + nsteps_interval - 1) / nsteps_interval
-        nsteps_tracked_ptls = nsteps_tracked_ptls + 1  ! Include the initial point
-
-        do i = 2, nptl_selected
-            noffsets_tracked_ptls(i) = noffsets_tracked_ptls(i-1) + &
-                nsteps_tracked_ptls(i-1)
-        enddo
-        nsteps_tracked_tot = noffsets_tracked_ptls(nptl_selected) + &
-                             nsteps_tracked_ptls(nptl_selected)
-
-        !< Set particles to their initial values and set nptl_current to 0
-        ptls%x = 0.0
-        ptls%y = 0.0
-        ptls%z = 0.0
-        ptls%p = 0.0
-        ptls%v = 0.0
-        ptls%mu = 0.0
-        ptls%weight = 0.0
-        ptls%t = 0.0
-        ptls%dt = 0.0
-        ptls%split_times = 0
-        ptls%count_flag = 0
-        ptls%tag = 0
-        ptls%parent = 0
-        ptls%nsteps_tracking = 0
-        nptl_current = 0
-        tag_max = 0
-    end subroutine select_particles_tracking
-
-    !---------------------------------------------------------------------------
-    !< Initialize tracked particle points
-    !< Args:
-    !<  nptl_selected: number of selected particles
-    !---------------------------------------------------------------------------
-    subroutine init_tracked_particle_points(nptl_selected)
-        implicit none
-        integer, intent(in) :: nptl_selected
-        allocate(ptl_traj_points(nsteps_tracked_tot))
-        ptl_traj_points%x = 0.0
-        ptl_traj_points%y = 0.0
-        ptl_traj_points%z = 0.0
-        ptl_traj_points%p = 0.0
-        ptl_traj_points%v = 0.0
-        ptl_traj_points%mu = 0.0
-        ptl_traj_points%weight = 0.0
-        ptl_traj_points%t = 0.0
-        ptl_traj_points%dt = 0.0
-        ptl_traj_points%split_times = 0
-        ptl_traj_points%count_flag = 0
-        ptl_traj_points%tag = 0
-        ptl_traj_points%parent = 0
-        ptl_traj_points%nsteps_tracking = 0
-    end subroutine init_tracked_particle_points
-
-    !---------------------------------------------------------------------------
-    !< Make the flags of tracked particles negative, so they can be easily
-    !< identified.
-    !< Args:
-    !<  nptl_selected: number of selected particles
-    !---------------------------------------------------------------------------
-    subroutine negative_particle_tags(nptl_selected)
-        implicit none
-        integer, intent(in) :: nptl_selected
-        integer(i8) :: iptl
-        integer :: itag
-        do iptl = nptl_current - nptl_inject + 1, nptl_current
-            do itag = 1, nptl_selected
-                if (ptls(iptl)%tag == tags_selected_ptls(itag)) then
-                    ptls(iptl)%tag = -itag
-                endif
-            enddo
-        enddo
-    end subroutine negative_particle_tags
-
-    !---------------------------------------------------------------------------
-    !< Save the initial information of tracked particles
-    !< Args:
-    !<  nptl_selected: number of selected particles
-    !---------------------------------------------------------------------------
-    subroutine record_tracked_particle_init(nptl_selected)
-        implicit none
-        integer, intent(in) :: nptl_selected
-        integer(i8) :: iptl, offset
-        do iptl = nptl_current - nptl_inject + 1, nptl_current
-            if (ptls(iptl)%tag < 0) then
-                offset = noffsets_tracked_ptls(-ptls(iptl)%tag)
-                ptl_traj_points(offset + 1) = ptls(iptl)
-            endif
-        enddo
-    end subroutine record_tracked_particle_init
-
-    !---------------------------------------------------------------------------
-    !< Free tracked particle points
-    !---------------------------------------------------------------------------
-    subroutine free_tracked_particle_points
-        implicit none
-        deallocate(ptl_traj_points)
-    end subroutine free_tracked_particle_points
-
-    !---------------------------------------------------------------------------
-    !< Save tracked particle points
-    !< Args:
-    !<  nptl_selected: number of selected particles
-    !<  file_path: save data files to this path
-    !---------------------------------------------------------------------------
-    subroutine save_tracked_particle_points(nptl_selected, file_path)
-        implicit none
-        integer, intent(in) :: nptl_selected
-        character(*), intent(in) :: file_path
-        character(len=4) :: mrank
-        character(len=128) :: fname
-        integer :: fh, pos1
-        write (mrank,'(i4.4)') mpi_rank
-        fh = 41
-        fname = trim(file_path)//'tracked_particle_points_'//mrank//'.dat'
-        open(unit=fh, file=fname, access='stream', status='unknown', &
-            form='unformatted', action='write')
-        pos1 = 1
-        write(fh, pos=pos1) nptl_selected
-        pos1 = pos1 + sizeof(sp)
-        write(fh, pos=pos1) nsteps_tracked_ptls
-        pos1 = pos1 + nptl_selected * sizeof(sp)
-        write(fh, pos=pos1) ptl_traj_points
-        close(fh)
-    end subroutine save_tracked_particle_points
 
     !---------------------------------------------------------------------------
     !< set minimum and maximum particle step
@@ -4620,30 +4536,32 @@ module particle_module
         implicit none
         integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
-        integer(i8), allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
-        integer(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
+        integer, allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
+        real(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
         integer(hid_t) :: file_id, dset_id, filespace
         character(len=4) :: ctime
         character(len=256) :: fname
         integer :: error
 
-        allocate(nptls_current(mpi_size))
-        allocate(nptls_split(mpi_size))
-        allocate(tags_max(mpi_size))
-        allocate(nptl_leak(mpi_size))
-        allocate(nptl_leak_negp(mpi_size))
+        if (mpi_rank == master) then
+            allocate(nptls_current(mpi_size))
+            allocate(nptls_split(mpi_size))
+            allocate(tags_max(mpi_size))
+            allocate(nptl_leak(mpi_size))
+            allocate(nptl_leak_negp(mpi_size))
+        endif
 
         write (ctime,'(i4.4)') iframe
-        call MPI_GATHER(nptl_current, 1, MPI_INTEGER8, nptls_current(mpi_rank+1), &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
-        call MPI_GATHER(nptl_split, 1, MPI_INTEGER8, nptls_split(mpi_rank+1), &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
-        call MPI_GATHER(tag_max, 1, MPI_INTEGER8, tags_max(mpi_rank+1), &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
-        call MPI_GATHER(leak, 1, MPI_DOUBLE_PRECISION, nptl_leak(mpi_rank+1), &
+        call MPI_GATHER(nptl_current, 1, MPI_INTEGER, nptls_current, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(nptl_split, 1, MPI_INTEGER, nptls_split, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(tag_max, 1, MPI_INTEGER, tags_max, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_GATHER(leak, 1, MPI_DOUBLE_PRECISION, nptl_leak, &
             1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
-        call MPI_GATHER(leak_negp, 1, MPI_DOUBLE_PRECISION, nptl_leak_negp(mpi_rank+1), &
+        call MPI_GATHER(leak_negp, 1, MPI_DOUBLE_PRECISION, nptl_leak_negp, &
             1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         if (mpi_rank == master) then
             call h5open_f(error)
@@ -4653,13 +4571,13 @@ module particle_module
             doffset(1) = 0
             dset_dims(1) = mpi_size
             call h5screate_simple_f(1, dset_dims, filespace, error)
-            call h5dcreate_f(file_id, "nptls_current", H5T_STD_I64LE, filespace, dset_id, error)
+            call h5dcreate_f(file_id, "nptls_current", H5T_NATIVE_INTEGER, filespace, dset_id, error)
             call write_data_h5(dset_id, dcount, doffset, dset_dims, nptls_current, .false., .false.)
             call h5dclose_f(dset_id, error)
-            call h5dcreate_f(file_id, "nptls_split", H5T_STD_I64LE, filespace, dset_id, error)
+            call h5dcreate_f(file_id, "nptls_split", H5T_NATIVE_INTEGER, filespace, dset_id, error)
             call write_data_h5(dset_id, dcount, doffset, dset_dims, nptls_split, .false., .false.)
             call h5dclose_f(dset_id, error)
-            call h5dcreate_f(file_id, "tags_max", H5T_STD_I64LE, filespace, dset_id, error)
+            call h5dcreate_f(file_id, "tags_max", H5T_NATIVE_INTEGER, filespace, dset_id, error)
             call write_data_h5(dset_id, dcount, doffset, dset_dims, tags_max, .false., .false.)
             call h5dclose_f(dset_id, error)
             call h5dcreate_f(file_id, "nptl_leak", H5T_NATIVE_DOUBLE, filespace, dset_id, error)
@@ -4671,10 +4589,10 @@ module particle_module
             call h5sclose_f(filespace, error)
             call close_file_h5(file_id)
             call h5close_f(error)
-        endif
 
-        deallocate(nptls_current, nptls_split, tags_max)
-        deallocate(nptl_leak, nptl_leak_negp)
+            deallocate(nptls_current, nptls_split, tags_max)
+            deallocate(nptl_leak, nptl_leak_negp)
+        endif
     end subroutine save_particle_module_state
 
     !---------------------------------------------------------------------------
@@ -4688,19 +4606,21 @@ module particle_module
         implicit none
         integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
-        integer(i8), allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
-        integer(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
+        integer, allocatable, dimension(:) :: nptls_current, nptls_split, tags_max
+        real(dp), allocatable, dimension(:) :: nptl_leak, nptl_leak_negp
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
         integer(hid_t) :: file_id, dset_id, filespace
         character(len=4) :: ctime
         character(len=256) :: fname
         integer :: error
 
-        allocate(nptls_current(mpi_size))
-        allocate(nptls_split(mpi_size))
-        allocate(tags_max(mpi_size))
-        allocate(nptl_leak(mpi_size))
-        allocate(nptl_leak_negp(mpi_size))
+        if (mpi_rank == master) then
+            allocate(nptls_current(mpi_size))
+            allocate(nptls_split(mpi_size))
+            allocate(tags_max(mpi_size))
+            allocate(nptl_leak(mpi_size))
+            allocate(nptl_leak_negp(mpi_size))
+        endif
 
         write (ctime,'(i4.4)') iframe
         if (mpi_rank == master) then
@@ -4728,19 +4648,21 @@ module particle_module
             call close_file_h5(file_id)
             call h5close_f(error)
         endif
-        call MPI_SCATTER(nptls_current, 1, MPI_INTEGER8, nptl_current, &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
-        call MPI_SCATTER(nptls_split, 1, MPI_INTEGER8, nptl_split, &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
-        call MPI_SCATTER(tags_max, 1, MPI_INTEGER8, tag_max, &
-            1, MPI_INTEGER8, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(nptls_current, 1, MPI_INTEGER, nptl_current, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(nptls_split, 1, MPI_INTEGER, nptl_split, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+        call MPI_SCATTER(tags_max, 1, MPI_INTEGER, tag_max, &
+            1, MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
         call MPI_SCATTER(nptl_leak, 1, MPI_DOUBLE_PRECISION, leak, &
             1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_SCATTER(nptl_leak_negp, 1, MPI_DOUBLE_PRECISION, leak_negp, &
             1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
 
-        deallocate(nptls_current, nptls_split, tags_max)
-        deallocate(nptl_leak, nptl_leak_negp)
+        if (mpi_rank == master) then
+            deallocate(nptls_current, nptls_split, tags_max)
+            deallocate(nptl_leak, nptl_leak_negp)
+        endif
     end subroutine read_particle_module_state
 
     !---------------------------------------------------------------------------
@@ -4827,8 +4749,9 @@ module particle_module
         integer, intent(in) :: iframe
         character(*), intent(in) :: file_path
         integer(hsize_t), dimension(1) :: dcount, doffset, dset_dims
-        integer(i8) :: nptl_local, nptl_global, nptl_offset
-        integer(i8), allocatable, dimension(:) :: nptls_local
+        integer :: nptl_local
+        integer(i8) :: nptl_global, nptl_offset
+        integer, allocatable, dimension(:) :: nptls_local
         character(len=128) :: fname
         character(len=4) :: ctime
         integer(hid_t) :: file_id, dset_id, filespace
@@ -4852,12 +4775,12 @@ module particle_module
             call h5dclose_f(dset_id, error)
             call close_file_h5(file_id)
         endif
-        call MPI_BCAST(nptls_local, mpi_size, MPI_INTEGER8, master, &
+        call MPI_BCAST(nptls_local, mpi_size, MPI_INTEGER, master, &
             MPI_COMM_WORLD, ierr)
         nptl_current = nptls_local(mpi_rank+1)
 
-        nptl_global = sum(nptls_local)
-        nptl_offset = sum(nptls_local(:mpi_rank+1)) - nptl_current
+        nptl_global = sum(nptls_local + 0_i8)
+        nptl_offset = sum(nptls_local(:mpi_rank+1) + 0_i8) - nptl_current
         deallocate(nptls_local)
 
         ! Read the particle data
@@ -4880,14 +4803,500 @@ module particle_module
         call read_ptl_element(file_id, dcount, doffset, dset_dims, &
             "count_flag", ptls%count_flag)
         call read_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "tag", ptls%tag)
+            "origin", ptls%origin)
         call read_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "parent", ptls%parent)
+            "nsteps_tracked", ptls%nsteps_tracked)
         call read_ptl_element(file_id, dcount, doffset, dset_dims, &
-            "nsteps_tracking", ptls%nsteps_tracking)
+            "nsteps_pushed", ptls%nsteps_pushed)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag_injected", ptls%tag_injected)
+        call read_ptl_element(file_id, dcount, doffset, dset_dims, &
+            "tag_splitted", ptls%tag_splitted)
 
         call close_file_h5(file_id)
         call h5close_f(error)
     end subroutine read_particles
 
+    !---------------------------------------------------------------------------
+    !< Initialize particle tracking. This subroutine will read the information of
+    !< the selected particles from a file.
+    !< Args:
+    !<  particle_tags_file: the file containing the particle tags
+    !<  nsteps_interval: save particle points every nsteps_interval
+    !---------------------------------------------------------------------------
+    subroutine init_particle_tracking(particle_tags_file, nsteps_interval)
+        use hdf5_io, only: open_file_h5, close_file_h5, read_data_h5
+        implicit none
+        character(*), intent(in) :: particle_tags_file
+        integer, intent(in) :: nsteps_interval
+        integer(hid_t) :: file_id, dset_id, filespace
+        integer(hsize_t), dimension(2) :: dset_dims, dset_dims_max
+        integer(hsize_t), dimension(2) :: dcount, doffset
+        integer :: error
+
+        track_particle_flag = .true.
+
+        call h5open_f(error)
+
+        if (mpi_rank == master) then
+            call open_file_h5(particle_tags_file, H5F_ACC_RDONLY_F, &
+                file_id, .false., MPI_COMM_WORLD)
+            call h5dopen_f(file_id, "tags", dset_id, error)
+            call h5dget_space_f(dset_id, filespace, error)
+            call h5Sget_simple_extent_dims_f(filespace, dset_dims, dset_dims_max, error)
+            call h5sclose_f(filespace, error)
+            split_times_max = dset_dims(1) - 2 ! the first col is the origin info
+            nptl_tracking = dset_dims(2)
+        endif
+        call MPI_BCAST(nptl_tracking, 1, MPI_INTEGER, master, &
+            MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(split_times_max, 1, MPI_INTEGER, master, &
+            MPI_COMM_WORLD, ierr)
+
+        ! The first col is the origin info. The second col is tag_injected.
+        ! The rest are tag_splitted for every split.
+        allocate(tags_tracking(split_times_max+2, nptl_tracking))
+
+        if (mpi_rank == master) then
+            dcount(1) = split_times_max + 2
+            dcount(2) = nptl_tracking
+            doffset(1) = 0
+            doffset(2) = 0
+            call read_data_h5(dset_id, dcount, doffset, dset_dims, &
+                tags_tracking, .false., .false.)
+            call h5dclose_f(dset_id, error)
+            call close_file_h5(file_id)
+        endif
+
+        call h5close_f(error)
+
+        call MPI_BCAST(tags_tracking, nptl_tracking*(split_times_max+2), &
+            MPI_INTEGER, master, MPI_COMM_WORLD, ierr)
+
+        ! initialize the tracked particles
+        ! The worst case is that all the particles are on the same MPI rank
+        nsteps_tracking_max = ceiling((1.0 / dt_min_rel) / nsteps_interval) + 1
+        allocate(particles_tracked(nsteps_tracking_max, nptl_tracking))
+        call reset_tracked_particles
+    end subroutine init_particle_tracking
+
+    !---------------------------------------------------------------------------
+    !< Reset the tracked particles
+    !---------------------------------------------------------------------------
+    subroutine reset_tracked_particles
+        implicit none
+        particles_tracked%x = 0.0
+        particles_tracked%y = 0.0
+        particles_tracked%z = 0.0
+        particles_tracked%p = 0.0
+        particles_tracked%v = 0.0
+        particles_tracked%mu = 0.0
+        particles_tracked%weight = 0.0
+        particles_tracked%t = 0.0
+        particles_tracked%dt = 0.0
+        particles_tracked%split_times = 0
+        particles_tracked%count_flag = 0
+        particles_tracked%origin = 0
+        particles_tracked%nsteps_tracked = 0
+        particles_tracked%nsteps_pushed = 0
+        particles_tracked%tag_injected = 0
+        particles_tracked%tag_splitted = 0
+    end subroutine reset_tracked_particles
+
+    !---------------------------------------------------------------------------
+    !< Free particle tracking.
+    !---------------------------------------------------------------------------
+    subroutine free_particle_tracking
+        use hdf5_io, only: open_file_h5, close_file_h5, read_data_h5
+        implicit none
+        deallocate(tags_tracking)
+        deallocate(particles_tracked)
+    end subroutine free_particle_tracking
+
+    !---------------------------------------------------------------------------
+    !< Check if the particle is selected for tracking
+    !< Args:
+    !<  ptl: particle information
+    !<  iptl_lo: the lower index of the particle if tracked
+    !<  iptl_hi: the higher index of the particle if tracked
+    !---------------------------------------------------------------------------
+    function is_particle_selected(ptl, iptl_lo, iptl_hi) result(is_tagged)
+        implicit none
+        type(particle_type), intent(in) :: ptl
+        integer, intent(out) :: iptl_lo, iptl_hi
+        integer :: i1, i2, i3, i4, i5, i6
+        integer :: nsplit
+        logical :: is_tagged
+
+        is_tagged = .false.
+        iptl_lo = -1
+        iptl_hi = -1
+        nsplit = ptl%split_times
+        if (ptl%split_times < split_times_max) then
+            i1 = findloc(tags_tracking(1, :), ptl%origin, dim=1)
+            if (i1 > 0) then
+                i2 = findloc(tags_tracking(1, :), ptl%origin, dim=1, back=.true.)
+                i3 = findloc(tags_tracking(2, i1:i2), abs(ptl%tag_injected), dim=1)
+                if (i3 > 0) then
+                    i4 = findloc(tags_tracking(2, i1:i2), abs(ptl%tag_injected), dim=1, back=.true.)
+                    i3 = i3 + i1 - 1
+                    i4 = i4 + i1 - 1
+                    if (nsplit > 0) then
+                        i5 = findloc(tags_tracking(nsplit+2, i3:i4), abs(ptl%tag_splitted), dim=1)
+                        if (i5 > 0) then
+                            i6 = findloc(tags_tracking(nsplit+2, i3:i4), abs(ptl%tag_splitted), &
+                                dim=1, back=.true.)
+                            iptl_lo = i5 + i3 - 1
+                            iptl_hi = i6 + i3 - 1
+                            is_tagged = .true.
+                        endif
+                    else
+                        iptl_lo = i3
+                        iptl_hi = i4
+                        is_tagged = .true.
+                    endif
+                endif
+            endif
+        endif
+    end function is_particle_selected
+
+    !---------------------------------------------------------------------------
+    !< Locate the particle in tags_tracking. Since it is only called by tracked
+    !< particles, we don't need to check the arguments.
+    !< Args:
+    !<  ptl: particle information
+    !---------------------------------------------------------------------------
+    subroutine locate_particle(ptl, iptl_lo, iptl_hi)
+        implicit none
+        type(particle_type), intent(in) :: ptl
+        integer, intent(out) :: iptl_lo, iptl_hi
+        integer :: i1, i2, i3, i4, i5, i6
+        integer :: nsplit
+
+        i1 = findloc(tags_tracking(1, :), ptl%origin, dim=1)
+        i2 = findloc(tags_tracking(1, :), ptl%origin, dim=1, back=.true.)
+        i3 = findloc(tags_tracking(2, i1:i2), abs(ptl%tag_injected), dim=1)
+        i4 = findloc(tags_tracking(2, i1:i2), abs(ptl%tag_injected), dim=1, back=.true.)
+        i3 = i3 + i1 - 1
+        i4 = i4 + i1 - 1
+        nsplit = ptl%split_times
+        if (nsplit > 0) then
+            i5 = findloc(tags_tracking(nsplit+2, i3:i4), abs(ptl%tag_splitted), dim=1)
+            i6 = findloc(tags_tracking(nsplit+2, i3:i4), abs(ptl%tag_splitted), dim=1, back=.true.)
+            iptl_lo = i5 + i3 - 1
+            iptl_hi = i6 + i3 - 1
+        else
+            iptl_lo = i3
+            iptl_hi = i4
+        endif
+    end subroutine locate_particle
+
+    !---------------------------------------------------------------------------
+    !< Sync tracked particles across all MPI ranks
+    !---------------------------------------------------------------------------
+    subroutine sync_tracked_particles
+        implicit none
+        integer, allocatable, dimension(:) :: nsteps_tracked
+        integer, allocatable, dimension(:) :: nsteps_tracked_offset
+        integer :: iptl, i, j
+
+        allocate(nsteps_tracked(nptl_tracking))
+        allocate(nsteps_tracked_offset(nptl_tracking))
+
+        nsteps_tracked = count(particles_tracked%tag_splitted < 0, dim=1)
+
+        ! Shift all to the left
+        do iptl = 1, nptl_tracking
+            j = 1
+            do i = 1, nsteps_tracking_max
+                if (particles_tracked(i, iptl)%tag_splitted < 0) then
+                    particles_tracked(j, iptl) = particles_tracked(i, iptl)
+                    j = j + 1
+                endif
+            enddo
+            particles_tracked(j:, iptl)%x = 0.0
+            particles_tracked(j:, iptl)%y = 0.0
+            particles_tracked(j:, iptl)%z = 0.0
+            particles_tracked(j:, iptl)%p = 0.0
+            particles_tracked(j:, iptl)%v = 0.0
+            particles_tracked(j:, iptl)%mu = 0.0
+            particles_tracked(j:, iptl)%weight = 0.0
+            particles_tracked(j:, iptl)%t = 0.0
+            particles_tracked(j:, iptl)%dt = 0.0
+            particles_tracked(j:, iptl)%split_times = 0
+            particles_tracked(j:, iptl)%count_flag = 0
+            particles_tracked(j:, iptl)%origin = 0
+            particles_tracked(j:, iptl)%nsteps_tracked = 0
+            particles_tracked(j:, iptl)%nsteps_pushed = 0
+            particles_tracked(j:, iptl)%tag_injected = 0
+            particles_tracked(j:, iptl)%tag_splitted = 0
+        enddo
+
+        call MPI_SCAN(nsteps_tracked, nsteps_tracked_offset, nptl_tracking, &
+            MPI_INTEGER4, MPI_SUM, MPI_COMM_WORLD, ierr)
+        nsteps_tracked_offset = nsteps_tracked_offset - nsteps_tracked
+
+        ! Shift the tracked particles to match the offset
+        particles_tracked = cshift(particles_tracked, &
+            SHIFT=-nsteps_tracked_offset, dim=1)
+
+        if (mpi_rank == master) then
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%x, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%y, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%z, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%p, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%v, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%mu, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%weight, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%t, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%dt, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%split_times, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER1, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%count_flag, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER1, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%origin, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%nsteps_tracked, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%nsteps_pushed, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%tag_injected, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(MPI_IN_PLACE, particles_tracked%tag_splitted, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+        else
+            call MPI_REDUCE(particles_tracked%x, particles_tracked%x, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%y, particles_tracked%y, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%z, particles_tracked%z, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%p, particles_tracked%p, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%v, particles_tracked%v, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%mu, particles_tracked%mu, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%weight, particles_tracked%weight, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%t, particles_tracked%t, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%dt, particles_tracked%dt, &
+                nsteps_tracking_max*nptl_tracking, MPI_DOUBLE_PRECISION, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%split_times, particles_tracked%split_times, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER1, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%count_flag, particles_tracked%count_flag, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER1, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%origin, particles_tracked%origin, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%nsteps_tracked, particles_tracked%nsteps_tracked, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%nsteps_pushed, particles_tracked%nsteps_pushed, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%tag_injected, particles_tracked%tag_injected, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            call MPI_REDUCE(particles_tracked%tag_splitted, particles_tracked%tag_splitted, &
+                nsteps_tracking_max*nptl_tracking, MPI_INTEGER, &
+                MPI_SUM, master, MPI_COMM_WORLD, ierr)
+            endif
+
+        deallocate(nsteps_tracked)
+        deallocate(nsteps_tracked_offset)
+    end subroutine sync_tracked_particles
+
+    !---------------------------------------------------------------------------
+    !< Write one double element of the tracked particle data
+    !---------------------------------------------------------------------------
+    subroutine write_double_tracked_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(2), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        real(dp), dimension(:, :), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(2, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_NATIVE_DOUBLE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .false., .false.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_double_tracked_element
+
+    !---------------------------------------------------------------------------
+    !< Write one char-length integer element of the tracked particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer1_tracked_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(2), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i1), dimension(:, :), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(2, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_STD_I8LE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .false., .false.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer1_tracked_element
+
+    !---------------------------------------------------------------------------
+    !< Write one default-length integer element of the tracked particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer4_tracked_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(2), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i4), dimension(:, :), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(2, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_NATIVE_INTEGER, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .false., .false.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer4_tracked_element
+
+    !---------------------------------------------------------------------------
+    !< Write one long-length integer element of the tracked particle data
+    !---------------------------------------------------------------------------
+    subroutine write_integer8_tracked_element(file_id, dcount, doffset, dset_dims, &
+            dset_name, fdata)
+        use hdf5_io, only: write_data_h5
+        implicit none
+        integer(hid_t), intent(in) :: file_id
+        integer(hsize_t), dimension(2), intent(in) :: dcount, doffset, dset_dims
+        character(*), intent(in) :: dset_name
+        integer(i8), dimension(:, :), intent(in) :: fdata
+        integer(hid_t) :: dset_id, filespace
+        integer :: error
+        call h5screate_simple_f(2, dset_dims, filespace, error)
+        call h5dcreate_f(file_id, trim(dset_name), H5T_STD_I64LE, &
+            filespace, dset_id, error)
+        call write_data_h5(dset_id, dcount, doffset, dset_dims, fdata, .false., .false.)
+        call h5dclose_f(dset_id, error)
+        call h5sclose_f(filespace, error)
+    end subroutine write_integer8_tracked_element
+
+    !---------------------------------------------------------------------------
+    !< Sync tracked particles across all MPI ranks
+    !< Args:
+    !<  iframe: time frame index
+    !<  file_path: save data files to this path
+    !---------------------------------------------------------------------------
+    subroutine dump_tracked_particles(iframe, file_path)
+        use hdf5_io, only: create_file_h5, open_file_h5, close_file_h5, write_data_h5
+        implicit none
+        integer, intent(in) :: iframe
+        character(*), intent(in) :: file_path
+        integer(hsize_t), dimension(2) :: dcount, doffset, dset_dims
+        character(len=256) :: fname
+        character(len=4) :: ctime
+        integer(hid_t) :: file_id
+        integer :: error
+        logical :: dir_e
+
+        call sync_tracked_particles
+
+        ! Write the local number of particles
+        write (ctime,'(i4.4)') iframe
+        fname = trim(file_path)//'particles_tracked_'//ctime//'.h5'
+        if (mpi_rank == master) then
+            call h5open_f(error)
+            call create_file_h5(fname, H5F_ACC_TRUNC_F, file_id, .false., MPI_COMM_WORLD)
+            dcount(1) = nsteps_tracking_max
+            dcount(2) = nptl_tracking
+            doffset(1) = 0
+            doffset(2) = 0
+            dset_dims(1) = nsteps_tracking_max
+            dset_dims(2) = nptl_tracking
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "x", particles_tracked%x)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "y", particles_tracked%y)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "z", particles_tracked%z)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "p", particles_tracked%p)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "v", particles_tracked%v)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "mu", particles_tracked%mu)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "weight", particles_tracked%weight)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "t", particles_tracked%t)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "dt", particles_tracked%dt)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "split_times", particles_tracked%split_times)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "count_flag", particles_tracked%count_flag)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "origin", particles_tracked%origin)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "nsteps_tracked", particles_tracked%nsteps_tracked)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "nsteps_pushed", particles_tracked%nsteps_pushed)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "tag_injected", particles_tracked%tag_injected)
+            call write_tracked_ptl_element(file_id, dcount, doffset, dset_dims, &
+                "tag_splitted", particles_tracked%tag_splitted)
+            call close_file_h5(file_id)
+            call h5close_f(error)
+        endif
+
+        ! after dumping the data, reset it
+        call reset_tracked_particles
+    end subroutine dump_tracked_particles
 end module particle_module
