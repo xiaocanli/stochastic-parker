@@ -18,7 +18,9 @@ program stochastic
         set_dpp_params, set_duu_params, set_flags_params, &
         set_drift_parameters, set_flag_check_drift_2d, &
         inject_particles_at_large_db2, &
-        inject_particles_at_large_divv, read_particles, &
+        inject_particles_at_large_divv, &
+        inject_particles_at_large_rho, &
+        read_particles, &
         save_particle_module_state, read_particle_module_state
     use diagnostics, only: distributions_diagnostics, quick_check, &
         init_particle_distributions, free_particle_distributions, &
@@ -55,7 +57,8 @@ program stochastic
     character(len=64) :: surface_filename1, surface_filename2
     character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
     integer :: nptl_max, nptl
-    real(dp) :: start, finish, uptime, step1, step2, dt, jz_min, db2_min, divv_min
+    real(dp) :: start, finish, uptime, step1, step2, dt
+    real(dp) :: jz_min, db2_min, divv_min, rho_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
@@ -69,6 +72,7 @@ program stochastic
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
     integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
+    integer :: ncells_large_rho_norm  ! Normalization for the number of cells with large rho
     integer :: nthreads, color
     integer :: t_start, t_end, tf, split_flag
     integer :: tmin  ! tmin = t_start typically. When restarting, tmin > t_start
@@ -82,6 +86,7 @@ program stochastic
     integer :: inject_large_jz    ! Whether to inject where jz is large
     integer :: inject_large_db2   ! Whether to inject where db2 is large
     integer :: inject_large_divv  ! Whether to inject where divv is negatively large
+    integer :: inject_large_rho   ! Whether to inject where rho is large
     integer :: inject_same_nptl   ! Whether to inject same of number particles every step
     integer :: tmax_to_inject     ! Maximum time frame to inject particles
     integer :: inject_part_box    ! Whether to inject in part of the box
@@ -447,6 +452,10 @@ program stochastic
                             call inject_particles_at_large_divv(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, inject_same_nptl, divv_min, &
                                 ncells_large_divv_norm, part_box, power_index)
+                        else if (inject_large_rho == 1) then
+                            call inject_particles_at_large_rho(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, inject_same_nptl, rho_min, &
+                                ncells_large_rho_norm, part_box, power_index)
                         else
                             call inject_particles_spatial_uniform(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, part_box, power_index)
@@ -571,7 +580,9 @@ program stochastic
                         '-nn ncells_large_jz_norm -ib inject_large_db2 '//&
                         '-db2 db2_min -nb ncells_large_db2_norm '//&
                         '-iv inject_large_divv -dv divv_min '//&
-                        '--nv ncells_large_divv_norm '//&
+                        '-nv ncells_large_divv_norm '//&
+                        '-ir inject_large_rho -rm rho_min '//&
+                        '-nr ncells_large_rho_norm '//&
                         '-xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps '//&
@@ -737,6 +748,18 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--ncells_large_divv_norm', switch_ab='-nv', &
             help='Normalization for the number of cells with large divv', &
+            required=.false., def='800', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--inject_large_rho', switch_ab='-ir', &
+            help='whether to inject where rho is large', required=.false., &
+            act='store', def='0', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--rho_min', switch_ab='-rm', &
+            help='Minimum rho in regions to inject new particles', &
+            required=.false., def='5.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ncells_large_rho_norm', switch_ab='-nr', &
+            help='Normalization for the number of cells with large rho', &
             required=.false., def='800', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--ptl_xmin', switch_ab='-xs', &
@@ -955,6 +978,12 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-nv', val=ncells_large_divv_norm, error=error)
         if (error/=0) stop
+        call cli%get(switch='-ir', val=inject_large_rho, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-rm', val=rho_min, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-nr', val=ncells_large_rho_norm, error=error)
+        if (error/=0) stop
         call cli%get(switch='-xs', val=ptl_xmin, error=error)
         if (error/=0) stop
         call cli%get(switch='-xe', val=ptl_xmax, error=error)
@@ -1140,6 +1169,18 @@ program stochastic
                         ncells_large_divv_norm
                 endif
                 print '(A,E14.7E2)', 'Minumum divv in regions to inject new particles', divv_min
+            endif
+            if (inject_large_rho == 1) then
+                print '(A)', 'Inject new particles where rho large'
+                if (inject_same_nptl == 1) then
+                    print '(A)', 'Inject the same number of particles every step'
+                else
+                    print '(A, A)', 'Inject different number of particles every step, ', &
+                        'depending on the number of cells with rho > rho_min'
+                    print '(A,I10.3)', 'Normalization for the number of cells with large rho: ', &
+                        ncells_large_rho_norm
+                endif
+                print '(A,E14.7E2)', 'Minumum rho in regions to inject new particles', rho_min
             endif
             if (dpp_wave == 1) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'

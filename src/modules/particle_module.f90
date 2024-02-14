@@ -18,6 +18,7 @@ module particle_module
         init_particle_tracking, free_particle_tracking, dump_tracked_particles, &
         inject_particles_at_shock, inject_particles_at_large_jz, &
         inject_particles_at_large_db2, inject_particles_at_large_divv, &
+        inject_particles_at_large_rho, &
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
         set_flag_check_drift_2d, get_interp_paramters, &
         get_interp_paramters_spherical, read_particles, &
@@ -988,7 +989,7 @@ module particle_module
     end subroutine inject_particles_at_large_db2
 
     !---------------------------------------------------------------------------
-    !< Inject particles where the turbulence variance is large
+    !< Inject particles where the compression is negatively large
     !< Note that this might not work if each MPI rank only handle part of the
     !< MHD simulation, because jz is always close to 0 in some part of the MHD
     !< simulations. Therefore, be smart on how to participate the simulation.
@@ -1127,6 +1128,127 @@ module particle_module
             write(*, "(A)") "Finished injecting particles where divv is negatively large"
         endif
     end subroutine inject_particles_at_large_divv
+
+    !---------------------------------------------------------------------------
+    !< Inject particles where plasma density rho is large
+    !< Note that this might not work if each MPI rank only handle part of the
+    !< MHD simulation, because jz is always close to 0 in some part of the MHD
+    !< simulations. Therefore, be smart on how to participate the simulation.
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
+    !<  particle_v0: particle velocity at p0 in the normalized velocity
+    !<  ct_mhd: MHD simulation time frame, starting from 1
+    !<  inject_same_nptl: whether to inject the same of particles every step
+    !<  rho_min: the minimum rho
+    !<  ncells_large_rho_norm ! Normalization for the number of cells with large rho
+    !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_large_rho(nptl, dt, dist_flag, particle_v0, &
+            ct_mhd, inject_same_nptl, rho_min, ncells_large_rho_norm, part_box, &
+            power_index)
+        use constants, only: pi
+        use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_fields
+        use mhd_data_parallel, only: get_ncells_large_rho
+        use random_number_generator, only: unif_01
+        implicit none
+        integer, intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
+        integer, intent(in) :: inject_same_nptl, ncells_large_rho_norm
+        real(dp), intent(in) :: dt, rho_min, power_index, particle_v0
+        real(dp), intent(in), dimension(6) :: part_box
+        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
+        real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
+        real(dp) :: xtmp, ytmp, ztmp, px, py, pz
+        real(dp) :: dxm, dym, dzm
+        real(dp) :: rt, rho, mu_tmp
+        real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
+        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
+        integer :: i
+        integer :: ncells_large_rho, ncells_large_rho_g
+        !dir$ attributes align:256 :: fields
+
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+        dzm = mhd_config%dz
+
+        xtmp = xmin_box
+        ytmp = ymin_box
+        ztmp = zmin_box
+        px = 0.0_dp
+        py = 0.0_dp
+        pz = 0.0_dp
+
+        !< When each MPI only reads part of the MHD data, the number of cells
+        !< with larger rho in the local domain will be different from mpi_rank
+        !< to mpi_rank. That's why we need to redistribute the number of particles
+        !< to inject.
+        ncells_large_rho = get_ncells_large_rho(rho_min, part_box)
+        if (inject_same_nptl == 1) then
+            call MPI_ALLREDUCE(ncells_large_rho, ncells_large_rho_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            ! The global sum may be a little different from nptl
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_rho) / dble(ncells_large_rho_g)))
+        else
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_rho) / dble(ncells_large_rho_norm)))
+        endif
+
+        do i = 1, nptl_inject
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            rho = 0.0_dp
+            do while (rho < rho_min)
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
+                if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
+                    ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
+                    ztmp >= zmin_box .and. ztmp <= zmax_box) then
+                    px = (xtmp - xmin) / dxm
+                    py = (ytmp - ymin) / dym
+                    pz = (ztmp - zmin) / dzm
+                    rt = 0.0_dp
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
+                    call interp_fields(pos, weights, rt, fields)
+                    rho = fields(4)
+                else ! not in part_box
+                    rho = 0.0_dp
+                endif
+            enddo
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles where rho is large"
+        endif
+    end subroutine inject_particles_at_large_rho
 
     !---------------------------------------------------------------------------
     !< Particle mover in one cycle

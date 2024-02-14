@@ -22,7 +22,8 @@ module mhd_data_parallel
            calc_grad_correl_length_nonuniform, &
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz, &
-           get_ncells_large_db2, get_ncells_large_divv
+           get_ncells_large_db2, get_ncells_large_divv, &
+           get_ncells_large_rho
     public xpos_local, ypos_local, zpos_local
     public nfields, ngrads
 
@@ -1808,4 +1809,47 @@ module mhd_data_parallel
         deallocate(ctheta)
         deallocate(istheta)
     end function get_ncells_large_divv
+
+    !---------------------------------------------------------------------------
+    !< Get the number of cells with compression rho >  rho_min
+    !< Args:
+    !<  rho_min: the minimum rho
+    !<  part_box: box to inject particles
+    !---------------------------------------------------------------------------
+    function get_ncells_large_rho(rho_min, part_box) result (ncells_large_rho)
+        use constants, only: pi
+        implicit none
+        real(dp), intent(in) :: rho_min
+        real(dp), intent(in), dimension(6) :: part_box
+        integer :: nx, ny, nz, ix, iy, iz, ncells_large_rho
+        logical :: inbox_x, inbox_y, inbox_z, inbox
+        real(dp) :: rho
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        ncells_large_rho = 0
+        do iz = 1, nz
+            if (ndim_field > 2) then
+                inbox_z = zpos_local(iz) > part_box(3) .and. zpos_local(iz) < part_box(6)
+            else
+                inbox_z = .true.
+            endif
+            do iy = 1, ny
+                if (ndim_field > 1) then
+                    inbox_y = ypos_local(iy) > part_box(2) .and. ypos_local(iy) < part_box(5)
+                else
+                    inbox_y = .true.
+                endif
+                do ix = 1, nx
+                    inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
+                    inbox = inbox_z .and. inbox_y .and. inbox_x
+                    if (inbox .and. farray1(4, ix, iy, iz) > rho_min) then
+                        ncells_large_rho = ncells_large_rho + 1
+                    endif
+                enddo
+            enddo
+        enddo
+    end function get_ncells_large_rho
 end module mhd_data_parallel
