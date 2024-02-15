@@ -2849,8 +2849,8 @@ module particle_module
                                  dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                 else
-                    ptl%dt = min(dxm/abs(dx_dt), &
-                                 dym/abs(dy_dt), &
+                    ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
+                                 dym/abs(dy_dt), (kappa%skpara/dy_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                 endif
             else
@@ -3437,8 +3437,8 @@ module particle_module
                                  dym/abs(dy_dt), (kappa%skperp/dy_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                  else
-                    ptl%dt = min(dxm/abs(dx_dt), &
-                                 dym/abs(dy_dt), &
+                    ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
+                                 dym/abs(dy_dt), (kappa%skpara/dy_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                  endif
             else
@@ -4029,9 +4029,9 @@ module particle_module
                                  dzm/abs(dz_dt), (kappa%skperp/dz_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                 else
-                    ptl%dt = min(dxm/abs(dx_dt), &
-                                 dym/abs(dy_dt), &
-                                 dzm/abs(dz_dt), &
+                    ptl%dt = min(dxm/abs(dx_dt), (kappa%skpara/dx_dt)**2, &
+                                 dym/abs(dy_dt), (kappa%skpara/dy_dt)**2, &
+                                 dzm/abs(dz_dt), (kappa%skpara/dz_dt)**2, &
                                  0.1*ptl%p/abs(dp_dt))
                 endif
             else
