@@ -961,13 +961,13 @@ module diagnostics
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HY) then
                             if (condx .and. condz) then
-                                fescaped1_z(imu1, ip1, ix1, iz1, 2) = &
-                                    fescaped1_z(imu1, ip1, ix1, iz1, 2) + weight
+                                fescaped1_y(imu1, ip1, ix1, iz1, 2) = &
+                                    fescaped1_y(imu1, ip1, ix1, iz1, 2) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_LZ) then
                             if (condx .and. condy) then
-                                fescaped1_y(imu1, ip1, ix1, iy1, 1) = &
-                                    fescaped1_y(imu1, ip1, ix1, iy1, 1) + weight
+                                fescaped1_z(imu1, ip1, ix1, iy1, 1) = &
+                                    fescaped1_z(imu1, ip1, ix1, iy1, 1) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HZ) then
                             if (condx .and. condy) then
@@ -1008,13 +1008,13 @@ module diagnostics
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HY) then
                             if (condx .and. condz) then
-                                fescaped2_z(imu2, ip2, ix2, iz2, 2) = &
-                                    fescaped2_z(imu2, ip2, ix2, iz2, 2) + weight
+                                fescaped2_y(imu2, ip2, ix2, iz2, 2) = &
+                                    fescaped2_y(imu2, ip2, ix2, iz2, 2) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_LZ) then
                             if (condx .and. condy) then
-                                fescaped2_y(imu2, ip2, ix2, iy2, 1) = &
-                                    fescaped2_y(imu2, ip2, ix2, iy2, 1) + weight
+                                fescaped2_z(imu2, ip2, ix2, iy2, 1) = &
+                                    fescaped2_z(imu2, ip2, ix2, iy2, 1) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HZ) then
                             if (condx .and. condy) then
@@ -1055,13 +1055,13 @@ module diagnostics
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HY) then
                             if (condx .and. condz) then
-                                fescaped3_z(imu3, ip3, ix3, iz3, 2) = &
-                                    fescaped3_z(imu3, ip3, ix3, iz3, 2) + weight
+                                fescaped3_y(imu3, ip3, ix3, iz3, 2) = &
+                                    fescaped3_y(imu3, ip3, ix3, iz3, 2) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_LZ) then
                             if (condx .and. condy) then
-                                fescaped3_y(imu3, ip3, ix3, iy3, 1) = &
-                                    fescaped3_y(imu3, ip3, ix3, iy3, 1) + weight
+                                fescaped3_z(imu3, ip3, ix3, iy3, 1) = &
+                                    fescaped3_z(imu3, ip3, ix3, iy3, 1) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HZ) then
                             if (condx .and. condy) then
@@ -1102,13 +1102,13 @@ module diagnostics
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HY) then
                             if (condx .and. condz) then
-                                fescaped4_z(imu4, ip4, ix4, iz4, 2) = &
-                                    fescaped4_z(imu4, ip4, ix4, iz4, 2) + weight
+                                fescaped4_y(imu4, ip4, ix4, iz4, 2) = &
+                                    fescaped4_y(imu4, ip4, ix4, iz4, 2) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_LZ) then
                             if (condx .and. condy) then
-                                fescaped4_y(imu4, ip4, ix4, iy4, 1) = &
-                                    fescaped4_y(imu4, ip4, ix4, iy4, 1) + weight
+                                fescaped4_z(imu4, ip4, ix4, iy4, 1) = &
+                                    fescaped4_z(imu4, ip4, ix4, iy4, 1) + weight
                             endif
                         else if (ptl%count_flag == COUNT_FLAG_ESCAPE_HZ) then
                             if (condx .and. condy) then
