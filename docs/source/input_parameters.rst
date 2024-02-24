@@ -111,6 +111,10 @@ conf.dat
 - ``kret``: the ratio of the perpendicular diffusion coefficient to the parallel diffusion coefficient. It is typically set to less than ``0.1``.
 - ``dt_min``: the minimum time step allowed to avoid infinite time step.
 - ``dt_min_rel``: the minimum relative time step w.r.t. one field time interval. ``dt_min`` is set to ``dt_min_rel`` times the time interval for MHD fields if the latter is larger than ``dt_min``.
+
+.. note::
+    The time step is adaptive. It is calculated based on the particle momentum, magnetic field, pitch angle, and diffusion coefficients. The rule of thumb for ``dt_min_rel`` is ``1E-6``. For MHD simulations with lower resolution, it can be up to ``1E-4``. For MHD simulations with very high resolutions, a large ``dt_min_rel`` might lead to wrong results in these high-resolution simulations, while a small ``dt_min_rel`` might lead to a long simulation time. We suggest doing a convergence test to get the optimal value. 
+
 - ``dt_max_rel``: the maximum relative time step w.r.t. one field time interval to avoid a time step too large, which could cause the particles to jump over multiple grid cells.
 - ``npp_global``: the number of momentum bins for the global particle spectrum.
 - ``nmu_global``: the number of pitch-angle bins for global particle distributions.

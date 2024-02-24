@@ -127,9 +127,9 @@ For a 1D problem, the particle moves a distance satisfying :math:`l_x^2=\text{ma
    \end{aligned}
 
 and :math:`l_x` should be much smaller than the spatial variation scale
-of the fields. In this code, we assume
+of the fields. In this code, we require
 :math:`\left<\Delta x\right>^2 < \left<\Delta x^2\right>` and choose
-:math:`\Delta t` so that :math:`l_x < 0.5\delta_x`, where :math:`\delta_x`
+:math:`\Delta t` so that :math:`l_x < \delta_x`, where :math:`\delta_x`
 is the grid size. For the 2D problems, we choose the following criteria
 to determine the time step:
 
