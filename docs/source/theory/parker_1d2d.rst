@@ -129,17 +129,16 @@ For a 1D problem, the particle moves a distance satisfying :math:`l_x^2=\text{ma
 and :math:`l_x` should be much smaller than the spatial variation scale
 of the fields. In this code, we assume
 :math:`\left<\Delta x\right>^2 < \left<\Delta x^2\right>` and choose
-:math:`\Delta t` so that :math:`l_x\ll\delta_x`, where :math:`\delta_x`
+:math:`\Delta t` so that :math:`l_x < 0.5\delta_x`, where :math:`\delta_x`
 is the grid size. For the 2D problems, we choose the following criteria
 to determine the time step:
 
 .. math::
 
    \begin{aligned}
-     \Delta t_x & = \text{min}\left[\frac{\delta x}{|V_x + \partial_x\kappa_{xx} + \partial_y\kappa_{xy}|},
+     \Delta t_x & = \text{min}\left[\frac{(0.5\delta x)^2}{2\kappa_\parallel},
      \frac{2\kappa_\perp} {(V_x + \partial_x\kappa_{xx} + \partial_y\kappa_{xy})^2}\right], \\
-     \Delta t_y & = \text{min}\left[\frac{\delta y}{|V_y + \partial_y\kappa_{yy} +
-     \partial_x\kappa_{xy}|},
+     \Delta t_y & = \text{min}\left[\frac{(0.5\delta y)^2}{2\kappa_\parallel},
      \frac{2\kappa_\perp}{(V_y + \partial_y\kappa_{yy} + \partial_x\kappa_{xy})^2}\right],\\
      \Delta t & = \text{min}(\Delta t_x, \Delta t_y).
    \end{aligned}
