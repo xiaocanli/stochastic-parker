@@ -20,6 +20,7 @@ program stochastic
         inject_particles_at_large_db2, &
         inject_particles_at_large_divv, &
         inject_particles_at_large_rho, &
+        inject_particles_at_large_absj, &
         read_particles, &
         save_particle_module_state, read_particle_module_state
     use diagnostics, only: distributions_diagnostics, quick_check, &
@@ -58,7 +59,7 @@ program stochastic
     character(len=2) :: surface_norm1, surface_norm2 ! The 1st character is the orientation
     integer :: nptl_max, nptl
     real(dp) :: start, finish, uptime, step1, step2, dt
-    real(dp) :: jz_min, db2_min, divv_min, rho_min
+    real(dp) :: jz_min, absj_min, db2_min, divv_min, rho_min
     real(dp) :: ptl_xmin, ptl_xmax, ptl_ymin, ptl_ymax, ptl_zmin, ptl_zmax
     real(dp) :: tau0_scattering ! Scattering time for initial particles
     real(dp) :: drift_param1, drift_param2 ! Drift parameter for 3D simulation
@@ -70,6 +71,7 @@ program stochastic
     real(dp) :: quota_hour  ! The maximum wall time in hours for the simulation
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
+    integer :: ncells_large_absj_norm ! Normalization for the number of cells with large absj
     integer :: ncells_large_db2_norm  ! Normalization for the number of cells with large db2
     integer :: ncells_large_divv_norm ! Normalization for the number of cells with large divv
     integer :: ncells_large_rho_norm  ! Normalization for the number of cells with large rho
@@ -80,16 +82,8 @@ program stochastic
     integer :: time_interp_flag   ! Whether to interpolate between two MHD frames
     integer :: nsteps_interval    ! Steps interval to track particles
     integer :: dist_flag          ! 0 for Maxwellian. 1 for delta function. 2 for power-law
-    integer :: inject_at_shock    ! Inject particles at shock location
     integer :: num_fine_steps     ! Number of the fine steps for diagnostics
-    integer :: inject_new_ptl     ! Whether to inject new particles every MHD step
-    integer :: inject_large_jz    ! Whether to inject where jz is large
-    integer :: inject_large_db2   ! Whether to inject where db2 is large
-    integer :: inject_large_divv  ! Whether to inject where divv is negatively large
-    integer :: inject_large_rho   ! Whether to inject where rho is large
-    integer :: inject_same_nptl   ! Whether to inject same of number particles every step
     integer :: tmax_to_inject     ! Maximum time frame to inject particles
-    integer :: inject_part_box    ! Whether to inject in part of the box
     integer :: dpp_wave           ! Whether to include momentum diffusion due to wave scattering
     integer :: dpp_shear          ! Whether to include momentum diffusion due to flow shear
     integer :: weak_scattering    ! Whether particle scattering is weak (tau*Omega >> 1)
@@ -105,6 +99,15 @@ program stochastic
     integer :: single_time_frame  ! Whether to use a single time frame of fields
     integer :: include_3rd_dim    ! Whether to include transport along the 3rd-dim in 2D runs
     integer :: acc_by_surface     ! Whether the acceleration region is separated by surfaces
+    logical :: inject_at_shock    ! Inject particles at shock location
+    logical :: inject_new_ptl     ! Whether to inject new particles every MHD step
+    logical :: inject_large_jz    ! Whether to inject where jz is large
+    logical :: inject_large_absj  ! Whether to inject where absj is large
+    logical :: inject_large_db2   ! Whether to inject where db2 is large
+    logical :: inject_large_divv  ! Whether to inject where divv is negatively large
+    logical :: inject_large_rho   ! Whether to inject where rho is large
+    logical :: inject_same_nptl   ! Whether to inject same of number particles every step
+    logical :: inject_part_box    ! Whether to inject in part of the box
     logical :: restart_flag       ! Whether to restart a previous simulation
     logical :: local_dist         ! Whether to dump local particle distributions
     logical :: surface2_existed   ! Whether surface 2 is existed
@@ -264,7 +267,7 @@ program stochastic
         close(20)
     endif
 
-    if (inject_at_shock == 1) then
+    if (inject_at_shock) then
         call free_shock_xpos
     endif
 
@@ -360,10 +363,10 @@ program stochastic
         endif
 
         ! Prepare for injecting particles
-        if (inject_at_shock == 1) then ! Whether it is a shock problem
+        if (inject_at_shock) then ! Whether it is a shock problem
             call init_shock_xpos
         else
-            if (inject_part_box == 1) then  ! only inject in part of the box
+            if (inject_part_box) then  ! only inject in part of the box
                 part_box(1) = ptl_xmin
                 part_box(2) = ptl_ymin
                 part_box(3) = ptl_zmin
@@ -433,26 +436,30 @@ program stochastic
             endif  ! if (single_time_frame == 0)
 
             ! Inject particles at the starting point of the this time interval
-            if (inject_at_shock == 1) then
+            if (inject_at_shock) then
                 call locate_shock_xpos
                 call inject_particles_at_shock(nptl, dt, dist_flag, &
                     particle_v0, tf-t_start, power_index)
             else
-                if (tf == t_start+1 .or. inject_new_ptl == 1) then
+                if (tf == t_start+1 .or. inject_new_ptl) then
                     if (tf <= tmax_to_inject) then
-                        if (inject_large_jz == 1) then
+                        if (inject_large_jz) then
                             call inject_particles_at_large_jz(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, inject_same_nptl, jz_min, &
                                 ncells_large_jz_norm, part_box, power_index)
-                        else if (inject_large_db2 == 1) then
+                        else if (inject_large_absj) then
+                            call inject_particles_at_large_absj(nptl, dt, dist_flag, &
+                                particle_v0, tf-t_start, inject_same_nptl, absj_min, &
+                                ncells_large_absj_norm, part_box, power_index)
+                        else if (inject_large_db2) then
                             call inject_particles_at_large_db2(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, inject_same_nptl, db2_min, &
                                 ncells_large_db2_norm, part_box, power_index)
-                        else if (inject_large_divv == 1) then
+                        else if (inject_large_divv) then
                             call inject_particles_at_large_divv(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, inject_same_nptl, divv_min, &
                                 ncells_large_divv_norm, part_box, power_index)
-                        else if (inject_large_rho == 1) then
+                        else if (inject_large_rho) then
                             call inject_particles_at_large_rho(nptl, dt, dist_flag, &
                                 particle_v0, tf-t_start, inject_same_nptl, rho_min, &
                                 ncells_large_rho_norm, part_box, power_index)
@@ -583,6 +590,8 @@ program stochastic
                         '-nv ncells_large_divv_norm '//&
                         '-ir inject_large_rho -rm rho_min '//&
                         '-nr ncells_large_rho_norm '//&
+                        '-iaj inject_large_absj -ajm absj_min '//&
+                        '-naj ncells_large_absj_norm '//&
                         '-xs ptl_xmin -xe ptl_xmax '//&
                         '-ys ptl_ymin -ye ptl_ymax -zs ptl_zmin -ze ptl_zmax '//&
                         '-cf conf_file -nf num_fine_steps '//&
@@ -696,19 +705,19 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--inject_at_shock', switch_ab='-is', &
             help='whether to inject particles at shock', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--inject_new_ptl', switch_ab='-in', &
             help='whether to inject new particles every MHD step', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--inject_large_jz', switch_ab='-ij', &
             help='whether to inject where jz is large', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--inject_same_nptl', switch_ab='-sn', &
             help='whether to inject the same number of particles every step', &
-            required=.false., act='store', def='1', error=error)
+            required=.false., act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--tmax_to_inject', switch_ab='-tti', &
             help='The maximum time frame to inject particles', required=.false., &
@@ -716,7 +725,7 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--inject_part_box', switch_ab='-ip', &
             help='whether to inject in a part of the box', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--jz_min', switch_ab='-jz', &
             help='Minimum jz in regions to inject new particles', &
@@ -728,7 +737,7 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--inject_large_db2', switch_ab='-ib', &
             help='whether to inject where db2 is large', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--db2_min', switch_ab='-db2', &
             help='Minimum db2 in regions to inject new particles', &
@@ -740,7 +749,7 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--inject_large_divv', switch_ab='-iv', &
             help='whether to inject where divv is large', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--divv_min', switch_ab='-dv', &
             help='Minimum divv in regions to inject new particles', &
@@ -752,7 +761,7 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--inject_large_rho', switch_ab='-ir', &
             help='whether to inject where rho is large', required=.false., &
-            act='store', def='0', error=error)
+            act='store', def='.false.', error=error)
         if (error/=0) stop
         call cli%add(switch='--rho_min', switch_ab='-rm', &
             help='Minimum rho in regions to inject new particles', &
@@ -760,6 +769,18 @@ program stochastic
         if (error/=0) stop
         call cli%add(switch='--ncells_large_rho_norm', switch_ab='-nr', &
             help='Normalization for the number of cells with large rho', &
+            required=.false., def='800', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--inject_large_absj', switch_ab='-iaj', &
+            help='whether to inject where absj is large', required=.false., &
+            act='store', def='.false.', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--absj_min', switch_ab='-ajm', &
+            help='Minimum absj in regions to inject new particles', &
+            required=.false., def='5.0', act='store', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--ncells_large_absj_norm', switch_ab='-naj', &
+            help='Normalization for the number of cells with large absj', &
             required=.false., def='800', act='store', error=error)
         if (error/=0) stop
         call cli%add(switch='--ptl_xmin', switch_ab='-xs', &
@@ -984,6 +1005,12 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-nr', val=ncells_large_rho_norm, error=error)
         if (error/=0) stop
+        call cli%get(switch='-iaj', val=inject_large_absj, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-ajm', val=absj_min, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-naj', val=ncells_large_absj_norm, error=error)
+        if (error/=0) stop
         call cli%get(switch='-xs', val=ptl_xmin, error=error)
         if (error/=0) stop
         call cli%get(switch='-xe', val=ptl_xmax, error=error)
@@ -1117,26 +1144,26 @@ program stochastic
             endif
             print '(A,A)', 'Diagnostic file directory is: ', trim(diagnostics_directory)
             print '(A,I10.3)', 'Number of fine steps: ', num_fine_steps
-            if (inject_at_shock == 1) then
+            if (inject_at_shock) then
                 print '(A)', 'Inject particles at shock location'
             endif
-            if (inject_new_ptl == 1) then
+            if (inject_new_ptl) then
                 print '(A)', 'Inject new particles at every MHD time step'
                 if (tmax_to_inject < t_end) then
                     print '(A, I0)', 'The simulation will stop injecting particles after frame', &
                         tmax_to_inject
                 endif
             endif
-            if (inject_part_box == 1) then
+            if (inject_part_box) then
                 print '(A)', 'Inject new particles in part of the simulation box'
-                print '(A)', 'The local region to injet new particles (in code unit):'
+                print '(A)', 'The local region to inject new particles (in code unit):'
                 print '(A,E14.7E2,E14.7E2)', ' Min and Max x: ', ptl_xmin, ptl_xmax
                 print '(A,E14.7E2,E14.7E2)', ' Min and Max y: ', ptl_ymin, ptl_ymax
                 print '(A,E14.7E2,E14.7E2)', ' Min and Max z: ', ptl_zmin, ptl_zmax
             endif
-            if (inject_large_jz == 1) then
+            if (inject_large_jz) then
                 print '(A)', 'Inject new particles where jz is large'
-                if (inject_same_nptl == 1) then
+                if (inject_same_nptl) then
                     print '(A)', 'Inject the same number of particles every step'
                 else
                     print '(A, A)', 'Inject different number of particles every step, ', &
@@ -1146,9 +1173,9 @@ program stochastic
                 endif
                 print '(A,E14.7E2)', 'Minumum jz in regions to inject new particles', jz_min
             endif
-            if (inject_large_db2 == 1) then
+            if (inject_large_db2) then
                 print '(A)', 'Inject new particles where db2 is large'
-                if (inject_same_nptl == 1) then
+                if (inject_same_nptl) then
                     print '(A)', 'Inject the same number of particles every step'
                 else
                     print '(A, A)', 'Inject different number of particles every step, ', &
@@ -1158,9 +1185,9 @@ program stochastic
                 endif
                 print '(A,E14.7E2)', 'Minumum db2 in regions to inject new particles', db2_min
             endif
-            if (inject_large_divv == 1) then
+            if (inject_large_divv) then
                 print '(A)', 'Inject new particles where divv is negatively large'
-                if (inject_same_nptl == 1) then
+                if (inject_same_nptl) then
                     print '(A)', 'Inject the same number of particles every step'
                 else
                     print '(A, A)', 'Inject different number of particles every step, ', &
@@ -1170,9 +1197,9 @@ program stochastic
                 endif
                 print '(A,E14.7E2)', 'Minumum divv in regions to inject new particles', divv_min
             endif
-            if (inject_large_rho == 1) then
+            if (inject_large_rho) then
                 print '(A)', 'Inject new particles where rho large'
-                if (inject_same_nptl == 1) then
+                if (inject_same_nptl) then
                     print '(A)', 'Inject the same number of particles every step'
                 else
                     print '(A, A)', 'Inject different number of particles every step, ', &
@@ -1181,6 +1208,18 @@ program stochastic
                         ncells_large_rho_norm
                 endif
                 print '(A,E14.7E2)', 'Minumum rho in regions to inject new particles', rho_min
+            endif
+            if (inject_large_absj) then
+                print '(A)', 'Inject new particles where absj large'
+                if (inject_same_nptl) then
+                    print '(A)', 'Inject the same number of particles every step'
+                else
+                    print '(A, A)', 'Inject different number of particles every step, ', &
+                        'depending on the number of cells with absj > absj_min'
+                    print '(A,I10.3)', 'Normalization for the number of cells with large absj: ', &
+                        ncells_large_absj_norm
+                endif
+                print '(A,E14.7E2)', 'Minumum absj in regions to inject new particles', absj_min
             endif
             if (dpp_wave == 1) then
                 print '(A)', 'Include momentum diffusion due to wave scattering'

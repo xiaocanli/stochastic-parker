@@ -6,8 +6,8 @@
         "e0"                : 1,
         "xlim_p"            : [1, 1E2],
         "ylim_p"            : [1E1, 1E7],
-        "xlim_e"            : [2E-1, 2E1],
-        "ylim_e"            : [1E-1, 1E8],
+        "xlim_e"            : [2E-1, 5E1],
+        "ylim_e"            : [1E-2, 1E8],
         "power_low"         : [55],
         "power_high"        : [60]
     }

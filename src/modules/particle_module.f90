@@ -17,8 +17,8 @@ module particle_module
         set_particle_datatype_mpi, free_particle_datatype_mpi, &
         init_particle_tracking, free_particle_tracking, dump_tracked_particles, &
         inject_particles_at_shock, inject_particles_at_large_jz, &
-        inject_particles_at_large_db2, inject_particles_at_large_divv, &
-        inject_particles_at_large_rho, &
+        inject_particles_at_large_absj, inject_particles_at_large_db2, &
+        inject_particles_at_large_divv, inject_particles_at_large_rho, &
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
         set_flag_check_drift_2d, get_interp_paramters, &
         get_interp_paramters_spherical, read_particles, &
@@ -769,7 +769,8 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
-        integer, intent(in) :: inject_same_nptl, ncells_large_jz_norm
+        integer, intent(in) :: ncells_large_jz_norm
+        logical, intent(in) :: inject_same_nptl
         real(dp), intent(in) :: dt, jz_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
@@ -815,7 +816,7 @@ module particle_module
         !< to mpi_rank. That's why we need to redistribute the number of particles
         !< to inject.
         ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
-        if (inject_same_nptl == 1) then
+        if (inject_same_nptl) then
             call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
             ! The global sum may be a little different from nptl
@@ -869,6 +870,150 @@ module particle_module
     end subroutine inject_particles_at_large_jz
 
     !---------------------------------------------------------------------------
+    !< Inject particles where current density absJ is large
+    !< Note that this might not work if each MPI rank only handle part of the
+    !< MHD simulation, because jz is always close to 0 in some part of the MHD
+    !< simulations. Therefore, be smart on how to participate the simulation.
+    !< Args:
+    !<  nptl: number of particles to be injected
+    !<  dt: the time interval
+    !<  dist_flag: 0 for Maxwellian. 1 for delta function. 2 for power-law
+    !<  particle_v0: particle velocity at p0 in the normalized velocity
+    !<  ct_mhd: MHD simulation time frame, starting from 1
+    !<  inject_same_nptl: whether to inject the same of particles every step
+    !<  absj_min: the minimum absj
+    !<  ncells_large_absj_norm ! Normalization for the number of cells with large absj
+    !<  part_box: box to inject particles
+    !<  power_index: power-law index if dist_flag==2
+    !---------------------------------------------------------------------------
+    subroutine inject_particles_at_large_absj(nptl, dt, dist_flag, particle_v0, &
+            ct_mhd, inject_same_nptl, absj_min, ncells_large_absj_norm, part_box, &
+            power_index)
+        use simulation_setup_module, only: fconfig
+        use mhd_config_module, only: mhd_config
+        use mhd_data_parallel, only: interp_fields
+        use mhd_data_parallel, only: get_ncells_large_absj
+        use random_number_generator, only: unif_01
+        implicit none
+        integer, intent(in) :: nptl
+        integer, intent(in) :: dist_flag, ct_mhd
+        integer, intent(in) :: ncells_large_absj_norm
+        logical, intent(in) :: inject_same_nptl
+        real(dp), intent(in) :: dt, absj_min, power_index, particle_v0
+        real(dp), intent(in), dimension(6) :: part_box
+        real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
+        real(dp) :: xmin_box, ymin_box, zmin_box
+        real(dp) :: xmax_box, ymax_box, zmax_box
+        real(dp) :: xtmp, ytmp, ztmp, px, py, pz
+        real(dp) :: dxm, dym, dzm
+        real(dp) :: dbx_dy, dbx_dz, dby_dx, dby_dz, dbz_dx, dbz_dy
+        real(dp) :: rt, absj, mu_tmp
+        real(dp) :: bx, by, bz
+        real(dp) :: ctheta, stheta, r
+        real(dp), dimension(2) :: rands
+        real(dp) :: r01, norm
+        real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
+        integer, dimension(3) :: pos
+        real(dp), dimension(8) :: weights
+        integer :: i
+        integer :: ncells_large_absj, ncells_large_absj_g
+        !dir$ attributes align:256 :: fields
+
+        xmin_box = part_box(1)
+        ymin_box = part_box(2)
+        zmin_box = part_box(3)
+        xmax_box = part_box(4)
+        ymax_box = part_box(5)
+        zmax_box = part_box(6)
+        xmin = fconfig%xmin
+        ymin = fconfig%ymin
+        zmin = fconfig%zmin
+        xmax = fconfig%xmax
+        ymax = fconfig%ymax
+        zmax = fconfig%zmax
+        dxm = mhd_config%dx
+        dym = mhd_config%dy
+        dzm = mhd_config%dz
+
+        xtmp = xmin_box
+        ytmp = ymin_box
+        ztmp = zmin_box
+        px = 0.0_dp
+        py = 0.0_dp
+        pz = 0.0_dp
+
+        !< When each MPI only reads part of the MHD data, the number of cells
+        !< with larger absj in the local domain will be different from mpi_rank
+        !< to mpi_rank. That's why we need to redistribute the number of particles
+        !< to inject.
+        ncells_large_absj = get_ncells_large_absj(absj_min, spherical_coord_flag, part_box)
+        if (inject_same_nptl) then
+            call MPI_ALLREDUCE(ncells_large_absj, ncells_large_absj_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            ! The global sum may be a little different from nptl
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_absj) / dble(ncells_large_absj_g)))
+        else
+            nptl_inject = int(nptl * mpi_sub_size * &
+                (dble(ncells_large_absj) / dble(ncells_large_absj_norm)))
+        endif
+
+        do i = 1, nptl_inject
+            nptl_current = nptl_current + 1
+            if (nptl_current > nptl_max) nptl_current = nptl_max
+            absj = -2.0_dp
+            do while (absj < absj_min)
+                xtmp = unif_01(0) * (xmax - xmin) + xmin
+                ytmp = unif_01(0) * (ymax - ymin) + ymin
+                ztmp = unif_01(0) * (zmax - zmin) + zmin
+                if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
+                    ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
+                    ztmp >= zmin_box .and. ztmp <= zmax_box) then
+                    px = (xtmp - xmin) / dxm
+                    py = (ytmp - ymin) / dym
+                    pz = (ztmp - zmin) / dzm
+                    rt = 0.0_dp
+                    if (spherical_coord_flag) then
+                        call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
+                    else
+                        call get_interp_paramters(px, py, pz, pos, weights)
+                    endif
+                    call interp_fields(pos, weights, rt, fields)
+                    dbx_dy = fields(nfields+14)
+                    dbx_dz = fields(nfields+15)
+                    dby_dx = fields(nfields+16)
+                    dby_dz = fields(nfields+18)
+                    dbz_dx = fields(nfields+19)
+                    dbz_dy = fields(nfields+20)
+                    if (spherical_coord_flag) then
+                        bx = fields(5) ! r
+                        by = fields(6) ! theta
+                        bz = fields(7) ! phi
+                        ctheta = cos(ytmp)
+                        stheta = sin(ytmp)
+                        r = xtmp
+                        absj = sqrt(((ctheta*bz + stheta*dbz_dy - dby_dz) / (r*stheta))**2 + &
+                                    ((dbx_dz/stheta - bz - r*dbz_dx) / r)**2 + &
+                                    ((by + r*dby_dx - dbx_dy) / r)**2)
+                    else
+                        absj = sqrt((dby_dz - dbz_dy)**2 + &
+                                    (dbz_dx - dbx_dz)**2 + &
+                                    (dbx_dy - dby_dx)**2)
+                    endif
+                else ! not in part_box
+                    absj = -3.0_dp
+                endif
+            enddo
+            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
+            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
+        enddo
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished injecting particles where absj is large"
+        endif
+    end subroutine inject_particles_at_large_absj
+
+    !---------------------------------------------------------------------------
     !< Inject particles where the turbulence variance is large
     !< Note that this might not work if each MPI rank only handle part of the
     !< MHD simulation, because jz is always close to 0 in some part of the MHD
@@ -896,7 +1041,8 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
-        integer, intent(in) :: inject_same_nptl, ncells_large_db2_norm
+        integer, intent(in) :: ncells_large_db2_norm
+        logical, intent(in) :: inject_same_nptl
         real(dp), intent(in) :: dt, db2_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
@@ -942,7 +1088,7 @@ module particle_module
         !< to mpi_rank. That's why we need to redistribute the number of particles
         !< to inject.
         ncells_large_db2 = get_ncells_large_db2(db2_min, spherical_coord_flag, part_box)
-        if (inject_same_nptl == 1) then
+        if (inject_same_nptl) then
             call MPI_ALLREDUCE(ncells_large_db2, ncells_large_db2_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
             ! The global sum may be a little different from nptl
@@ -1017,7 +1163,8 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
-        integer, intent(in) :: inject_same_nptl, ncells_large_divv_norm
+        integer, intent(in) :: ncells_large_divv_norm
+        logical, intent(in) :: inject_same_nptl
         real(dp), intent(in) :: dt, divv_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
@@ -1064,7 +1211,7 @@ module particle_module
         !< to mpi_rank. That's why we need to redistribute the number of particles
         !< to inject.
         ncells_large_divv = get_ncells_large_divv(divv_min, spherical_coord_flag, part_box)
-        if (inject_same_nptl == 1) then
+        if (inject_same_nptl) then
             call MPI_ALLREDUCE(ncells_large_divv, ncells_large_divv_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
             ! The global sum may be a little different from nptl
@@ -1158,7 +1305,8 @@ module particle_module
         implicit none
         integer, intent(in) :: nptl
         integer, intent(in) :: dist_flag, ct_mhd
-        integer, intent(in) :: inject_same_nptl, ncells_large_rho_norm
+        integer, intent(in) :: ncells_large_rho_norm
+        logical, intent(in) :: inject_same_nptl
         real(dp), intent(in) :: dt, rho_min, power_index, particle_v0
         real(dp), intent(in), dimension(6) :: part_box
         real(dp) :: xmin, ymin, zmin, xmax, ymax, zmax
@@ -1204,7 +1352,7 @@ module particle_module
         !< to mpi_rank. That's why we need to redistribute the number of particles
         !< to inject.
         ncells_large_rho = get_ncells_large_rho(rho_min, part_box)
-        if (inject_same_nptl == 1) then
+        if (inject_same_nptl) then
             call MPI_ALLREDUCE(ncells_large_rho, ncells_large_rho_g, 1, &
                 MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
             ! The global sum may be a little different from nptl

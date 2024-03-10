@@ -34,10 +34,10 @@ track_particle_flag=.false. # whether to track particles
 particle_tags_file=tags_selected_01.h5 # HDF5 file containing particle tags selected
 nsteps_interval=100           # steps interval to track particles
 
-inject_new_ptl=1 # whether to inject new particles at every step
-inject_same_nptl=1 # whether to inject the same number of particles every step
+inject_new_ptl=.true. # whether to inject new particles at every step
+inject_same_nptl=.true. # whether to inject the same number of particles every step
 tmax_to_inject=200  # the maximum time frame to inject particles
-inject_part_box=0 # inject in part of the box
+inject_part_box=.false. # inject in part of the box
 ptl_xmin=-0.25
 ptl_xmax=0.25
 ptl_ymin=0.00
@@ -45,17 +45,25 @@ ptl_ymax=1.00
 ptl_zmin=-0.25
 ptl_zmax=0.25
 
-inject_large_jz=0 # whether to inject particles where jz is large
+inject_large_jz=.false. # whether to inject particles where jz is large
 jz_min=500 # The minimum jz for injection
 ncells_large_jz_norm=20000 # Normalization for the number of cells with large jz
 
-inject_large_db2=0 # whether to inject particles where db2 is large
+inject_large_absj=.false. # whether to inject particles where rho is large
+absj_min=0.2 # The minimum absj for injection
+ncells_large_absj_norm=20000 # Normalization for the number of cells with large rho
+
+inject_large_db2=.false. # whether to inject particles where db2 is large
 db2_min=0.03 # The minimum db2 for injection
 ncells_large_db2_norm=2000 # Normalization for the number of cells with large db2
 
-inject_large_divv=0 # whether to inject particles where divv is negatively large
+inject_large_divv=.false. # whether to inject particles where divv is negatively large
 divv_min=10.0 # The minimum divv for injection
 ncells_large_divv_norm=2000 # Normalization for the number of cells with large divv
+
+inject_large_rho=.false. # whether to inject particles where rho is large
+rho_min=2.0 # The minimum rho for injection
+ncells_large_rho_norm=2000 # Normalization for the number of cells with large rho
 
 dpp_wave=0  # momentum diffusion due to wave scattering?
 dpp_shear=0 # momentum diffusion due to flow shear?
@@ -133,8 +141,10 @@ run_stochastic () {
         -sn $inject_same_nptl -tti $tmax_to_inject -ip $inject_part_box \
         -jz $jz_min -nn $ncells_large_jz_norm -ib $inject_large_db2 \
         -db2 $db2_min -nb $ncells_large_db2_norm \
-        -iv $inject_large_divv -dv $divv_min \
-        -nv $ncells_large_divv_norm -xs $ptl_xmin -xe $ptl_xmax \
+        -iv $inject_large_divv -dv $divv_min -nv $ncells_large_divv_norm \
+        -ir $inject_large_rho -rm $rho_min -nr $ncells_large_rho_norm \
+        -iaj $inject_large_absj -ajm $absj_min -naj $ncells_large_absj_norm \
+        -xs $ptl_xmin -xe $ptl_xmax \
         -ys $ptl_ymin -ye $ptl_ymax -zs $ptl_zmin -ze $ptl_zmax \
         -dw $dpp_wave -ds $dpp_shear -t0 $tau0_scattering \
         -ws $weak_scattering -db $deltab_flag -co $correlation_flag \

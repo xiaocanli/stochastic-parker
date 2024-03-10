@@ -23,7 +23,7 @@ module mhd_data_parallel
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz, &
            get_ncells_large_db2, get_ncells_large_divv, &
-           get_ncells_large_rho
+           get_ncells_large_rho, get_ncells_large_absj
     public xpos_local, ypos_local, zpos_local
     public nfields, ngrads
 
@@ -1689,6 +1689,80 @@ module mhd_data_parallel
         enddo
         deallocate(abs_jz)
     end function get_ncells_large_jz
+
+    !---------------------------------------------------------------------------
+    !< Get the number of cells with current density absj > absj_min
+    !< Args:
+    !<  absj_min: the minimum absj
+    !<  part_box: box to inject particles
+    !---------------------------------------------------------------------------
+    function get_ncells_large_absj(absj_min, spherical_coord_flag, part_box) result (ncells_large_absj)
+        implicit none
+        real(dp), intent(in) :: absj_min
+        logical, intent(in) :: spherical_coord_flag
+        real(dp), intent(in), dimension(6) :: part_box
+        integer :: nx, ny, nz, ix, iy, iz, ncells_large_absj
+        real(dp), allocatable, dimension(:, :, :) :: absj
+        real(dp) :: stheta, ctheta
+        logical :: inbox_x, inbox_y, inbox_z, inbox
+
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
+
+        ncells_large_absj = 0
+        allocate(absj(nx, ny, nz))
+        if (spherical_coord_flag) then
+            do iz = 1, nz
+                do iy = 1, ny
+                    stheta = sin(ypos_local(iy))
+                    ctheta = cos(ypos_local(iy))
+                    absj(:, iy, iz) = &
+                        sqrt(((ctheta*farray1(7, 1:nx, iy, iz) + &
+                               stheta*farray1(nfields+20, 1:nx, iy, iz) - &
+                               farray1(nfields+18, 1:nx, iy, iz)) / &
+                              (xpos_local(1:nx)*stheta))**2 + &
+                             ((farray1(nfields+15, 1:nx, iy, iz)/stheta - &
+                               farray1(7, 1:nx, iy, iz) - &
+                               xpos_local(1:nx)*farray1(nfields+19, 1:nx, iy, iz)) / &
+                              xpos_local(1:nx))**2 + &
+                             ((farray1(6, 1:nx, iy, iz) - &
+                               xpos_local(1:nx)*farray1(nfields+16, 1:nx, iy, iz) - &
+                               farray1(nfields+14, 1:nx, iy, iz)) / &
+                              xpos_local(1:nx))**2)
+                enddo
+            enddo
+        else
+            absj = sqrt((farray1(nfields+18, 1:nx, 1:ny, 1:nz) - &
+                         farray1(nfields+20, 1:nx, 1:ny, 1:nz))**2 + &
+                        (farray1(nfields+19, 1:nx, 1:ny, 1:nz) - &
+                         farray1(nfields+15, 1:nx, 1:ny, 1:nz))**2 + &
+                        (farray1(nfields+14, 1:nx, 1:ny, 1:nz) - &
+                         farray1(nfields+16, 1:nx, 1:ny, 1:nz))**2)
+        endif
+        do iz = 1, nz
+            if (ndim_field > 2) then
+                inbox_z = zpos_local(iz) > part_box(3) .and. zpos_local(iz) < part_box(6)
+            else
+                inbox_z = .true.
+            endif
+            do iy = 1, ny
+                if (ndim_field > 1) then
+                    inbox_y = ypos_local(iy) > part_box(2) .and. ypos_local(iy) < part_box(5)
+                else
+                    inbox_y = .true.
+                endif
+                do ix = 1, nx
+                    inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
+                    inbox = inbox_z .and. inbox_y .and. inbox_x
+                    if (inbox .and. absj(ix, iy, iz) > absj_min) then
+                        ncells_large_absj = ncells_large_absj + 1
+                    endif
+                enddo
+            enddo
+        enddo
+        deallocate(absj)
+    end function get_ncells_large_absj
 
     !---------------------------------------------------------------------------
     !< Get the number of cells with current density db2 > db2_min
