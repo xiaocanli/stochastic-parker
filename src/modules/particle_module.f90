@@ -4635,7 +4635,7 @@ module particle_module
                 byn*kappa%skperp*ibxyn*ran2)*sdt
             deltay = dy_dt * ptl%dt + (-byn*bzn*kappa%skperp*ibxyn*ran1 + &
                 bxn*kappa%skperp*ibxyn*ran2)*sdt
-            deltaz = dy_dt * ptl%dt + bxyn*kappa%skperp*ran1*sdt
+            deltaz = dz_dt * ptl%dt + bxyn*kappa%skperp*ran1*sdt
         endif
         ran1 = (2.0_dp*unif_01(thread_id) - 1.0_dp) * sqrt3
         deltap = dp_dt * ptl%dt + ran1*dsqrt(2*dpp)*sdt
