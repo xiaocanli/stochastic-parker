@@ -168,7 +168,7 @@ program stochastic
     ! The time stamps for the MHD fields
     call init_tstamps_mhd(t_start, t_end)
     if (varying_dt_mhd) then
-        call load_tstamps_mhd(t_start, dir_mhd_data)
+        call load_tstamps_mhd(t_start, t_end, tmax_mhd, dir_mhd_data)
     else
         call calc_tstamps_mhd(t_start, t_end)
     endif

@@ -214,16 +214,18 @@ module mhd_config_module
     !< simulation output.
     !< Args:
     !<  t_start: starting time frame for the current simulation
+    !<  t_end: ending time frame
+    !<  tmax_mhd: maximum time frame for the MHD fields
     !<  dir_mhd_data: directory for the MHD data
     !---------------------------------------------------------------------------
-    subroutine load_tstamps_mhd(t_start, dir_mhd_data)
+    subroutine load_tstamps_mhd(t_start, t_end, tmax_mhd, dir_mhd_data)
         use mpi_module
         implicit none
-        integer, intent(in) :: t_start
+        integer, intent(in) :: t_start, t_end, tmax_mhd
         character(*), intent(in) :: dir_mhd_data
         character(256) :: filename
         integer :: fh, pos, ts_mhd, i
-        real(dp) :: dt_mhd
+        real(dp) :: dt_mhd, dt_last
         if (mpi_rank == master) then
             filename = trim(dir_mhd_data)//"time_stamps.dat"
             fh = 25
@@ -232,8 +234,14 @@ module mhd_config_module
             pos = 1
             read(fh, pos=pos) ts_mhd
             pos = pos + (t_start - ts_mhd + 2) * 8
-            read(fh, pos=pos) tstamps_mhd
+            read(fh, pos=pos) tstamps_mhd(:(tmax_mhd-t_start+1))
             close(fh)
+            if (tmax_mhd < t_end) then
+                dt_last = tstamps_mhd(tmax_mhd-t_start+1) - tstamps_mhd(tmax_mhd-t_start)
+                do i = tmax_mhd+1, t_end
+                    tstamps_mhd(i-t_start+1) = tstamps_mhd(i-t_start) + dt_last
+                enddo
+            endif
         endif
         call MPI_BCAST(tstamps_mhd, size(tstamps_mhd), &
             MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)

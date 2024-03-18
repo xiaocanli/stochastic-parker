@@ -2450,7 +2450,7 @@ module particle_module
         if (momentum_dependency == 1) then
             dp_dt = dp_dt + (8*ptl%p / (27*kpara)) * va**2
         else
-            dp_dt = dp_dt + (4*ptl%p / (9*kpara)) * va**2 * ptl%dt
+            dp_dt = dp_dt + (4*ptl%p / (9*kpara)) * va**2
         endif
         dpp = dpp + (ptl%p * va)**2 / (9*kpara)
     end subroutine calc_dpp_wave_scattering
