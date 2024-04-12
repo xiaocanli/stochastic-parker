@@ -4207,9 +4207,9 @@ module particle_module
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0)) then
                 if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
-                                 (0.5*dym/kappa%skperp)**2, &
-                                 (0.5*dzm/kappa%skperp)**2, &
+                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                 (0.5*dym/kappa%skpara)**2, &
+                                 (0.5*dzm/kappa%skpara)**2, &
                                  (kappa%skperp/dx_dt)**2, &
                                  (kappa%skperp/dy_dt)**2, &
                                  (kappa%skperp/dz_dt)**2, &
