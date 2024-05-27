@@ -1585,6 +1585,10 @@ module particle_module
                     ! Number of steps the particle has been pushed
                     ptl%nsteps_pushed = mod(ptl%nsteps_pushed + 1, nsteps_interval)
 
+                    ! if (mpi_rank == 354 .and. ptl%tag_injected == 25600 .and. ptl%nsteps_pushed == 0) then
+                    !     print*, ptl
+                    ! endif
+
                     ! Track particles
                     if (track_particle_flag) then
                         if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
@@ -1756,8 +1760,10 @@ module particle_module
         local_flag = 0
         global_flag = 0
 
-        ! Reset nsteps_tracked to 0 at the start of the MHD interval
-        ptls(:nptl_current)%nsteps_tracked = 0
+        ! Reset nsteps_tracked to 1 at the start of the MHD interval
+        ! It is set to 1 instead of 0 because nsteps_tracked could be set to 1
+        ! when injecting particles at the beginning of the MHD interval
+        ptls(:nptl_current)%nsteps_tracked = 1
 
         do while (.not. all_particles_in_box)
             ncycle = ncycle + 1
@@ -5292,7 +5298,7 @@ module particle_module
         iptl_lo = -1
         iptl_hi = -1
         nsplit = ptl%split_times
-        if (ptl%split_times < split_times_max) then
+        if (nsplit <= split_times_max) then
             i1 = findloc(tags_tracking(1, :), ptl%origin, dim=1)
             if (i1 > 0) then
                 i2 = findloc(tags_tracking(1, :), ptl%origin, dim=1, back=.true.)
