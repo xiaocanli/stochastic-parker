@@ -475,29 +475,47 @@ module particle_module
         ymax = fconfig%ymax
         zmax = fconfig%zmax
 
-        jz_min = -1.0 ! set negative so all cells with counted if the part_box
-        ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
-        call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
-            MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
-        call MPI_BARRIER(mpi_sub_comm, ierr)
-        nptl_inject = int(nptl * mpi_sub_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
-
-        do i = 1, nptl_inject
-            nptl_current = nptl_current + 1
-            if (nptl_current > nptl_max) nptl_current = nptl_max
-            inbox = .false.
-            do while (.not. inbox)
-                xtmp = unif_01(0) * (xmax - xmin) + xmin
-                ytmp = unif_01(0) * (ymax - ymin) + ymin
-                ztmp = unif_01(0) * (zmax - zmin) + zmin
-                inbox = xtmp > xmin_box .and. xtmp < xmax_box .and. &
-                        ytmp > ymin_box .and. ytmp < ymax_box .and. &
-                        ztmp > zmin_box .and. ztmp < zmax_box
+        if (fconfig%nxg == fconfig%nxf .and. &
+            fconfig%nyg == fconfig%nyf .and. &
+            fconfig%nzg == fconfig%nzf) then
+            ! each MPI rank reads all the data
+            nptl_inject = nptl
+            do i = 1, nptl_inject
+                nptl_current = nptl_current + 1
+                if (nptl_current > nptl_max) nptl_current = nptl_max
+                inbox = .false.
+                xtmp = unif_01(0) * (xmax_box - xmin_box) + xmin_box
+                ytmp = unif_01(0) * (ymax_box - ymin_box) + ymin_box
+                ztmp = unif_01(0) * (zmax_box - zmin_box) + zmin_box
+                mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
+                call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                    dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
             enddo
-            mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
-            call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
-                dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
-        enddo
+        else
+            jz_min = -1.0 ! set negative so all cells with counted if the part_box
+            ncells_large_jz = get_ncells_large_jz(jz_min, spherical_coord_flag, part_box)
+            call MPI_ALLREDUCE(ncells_large_jz, ncells_large_jz_g, 1, &
+                MPI_INTEGER, MPI_SUM, mpi_sub_comm, ierr)
+            call MPI_BARRIER(mpi_sub_comm, ierr)
+            nptl_inject = int(nptl * mpi_sub_size * dble(ncells_large_jz) / dble(ncells_large_jz_g))
+            do i = 1, nptl_inject
+                nptl_current = nptl_current + 1
+                if (nptl_current > nptl_max) nptl_current = nptl_max
+                inbox = .false.
+                do while (.not. inbox)
+                    xtmp = unif_01(0) * (xmax - xmin) + xmin
+                    ytmp = unif_01(0) * (ymax - ymin) + ymin
+                    ztmp = unif_01(0) * (zmax - zmin) + zmin
+                    inbox = xtmp > xmin_box .and. xtmp < xmax_box .and. &
+                            ytmp > ymin_box .and. ytmp < ymax_box .and. &
+                            ztmp > zmin_box .and. ztmp < zmax_box
+                enddo
+                mu_tmp = mu_max * (2.0d0 * unif_01(0) - 1.0d0)
+                call inject_one_particle(xtmp, ytmp, ztmp, nptl_current, &
+                    dist_flag, particle_v0, mu_tmp, ct_mhd, dt, power_index)
+            enddo
+        endif
+
 
         if (mpi_rank == master) then
             write(*, "(A)") "Finished injecting particles"
