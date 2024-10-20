@@ -6,6 +6,7 @@ module particle_module
     use simulation_setup_module, only: ndim_field
     use mhd_config_module, only: uniform_grid_flag, spherical_coord_flag
     use mhd_data_parallel, only: nfields, ngrads
+    use mhd_data_parallel, only: xpos_local, ypos_local, zpos_local
     use mpi_module
     use omp_lib
     use hdf5
@@ -22,7 +23,8 @@ module particle_module
         set_dpp_params, set_duu_params, set_flags_params, set_drift_parameters, &
         set_flag_check_drift_2d, get_interp_paramters, &
         get_interp_paramters_spherical, read_particles, &
-        save_particle_module_state, read_particle_module_state
+        save_particle_module_state, read_particle_module_state, &
+        binarySearch_R
 
     public particle_type, ptls, escaped_ptls, &
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
@@ -385,7 +387,7 @@ module particle_module
         real(dp), intent(in) :: particle_v0, mu
         integer, intent(in) :: nptl_current
         integer, intent(in) :: dist_flag, ct_mhd
-        real(dp) :: r01, norm, fxp, ptmp, ftest
+        real(dp) :: r01, norm, fxp, ptmp, ftest, dt_mhd
         integer :: iptl_lo, iptl_hi
         ptls(nptl_current)%x = xpos
         ptls(nptl_current)%y = ypos
@@ -414,7 +416,8 @@ module particle_module
         ptls(nptl_current)%v = particle_v0 * ptls(nptl_current)%p / p0
         ptls(nptl_current)%mu = mu
         ptls(nptl_current)%weight = 1.0d0
-        ptls(nptl_current)%t = tstamps_mhd(ct_mhd)
+        dt_mhd = tstamps_mhd(ct_mhd+1) - tstamps_mhd(ct_mhd)
+        ptls(nptl_current)%t = tstamps_mhd(ct_mhd) + unif_01(0) * dt_mhd
         ptls(nptl_current)%dt = dt
         ptls(nptl_current)%split_times = 0
         ptls(nptl_current)%count_flag = COUNT_FLAG_INBOX
@@ -697,7 +700,6 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine get_interp_paramters_spherical(x, y, z, pos, weights)
         use constants, only: pi
-        use mhd_data_parallel, only: xpos_local, ypos_local, zpos_local
         implicit none
         real(dp), intent(in) :: x, y, z  ! r, theta, phi
         real(dp), dimension(8), intent(out) :: weights
@@ -802,7 +804,7 @@ module particle_module
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i
+        integer :: i, ix, iy, iz
         integer :: ncells_large_jz, ncells_large_jz_g
         !dir$ attributes align:256 :: fields
 
@@ -856,13 +858,22 @@ module particle_module
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
-                    px = (xtmp - xmin) / dxm
-                    py = (ytmp - ymin) / dym
-                    pz = (ztmp - zmin) / dzm
                     rt = 0.0_dp
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
                     else
+                        if (uniform_grid_flag) then
+                            px = (xtmp - xmin) / dxm
+                            py = (ytmp - ymin) / dym
+                            pz = (ztmp - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, xtmp) - 2
+                            iy = binarySearch_R(ypos_local, ytmp) - 2
+                            iz = binarySearch_R(zpos_local, ztmp) - 2
+                            px = (xtmp - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ytmp - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ztmp - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
                     call interp_fields(pos, weights, rt, fields)
@@ -933,7 +944,7 @@ module particle_module
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i
+        integer :: i, ix, iy, iz
         integer :: ncells_large_absj, ncells_large_absj_g
         !dir$ attributes align:256 :: fields
 
@@ -987,13 +998,22 @@ module particle_module
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
-                    px = (xtmp - xmin) / dxm
-                    py = (ytmp - ymin) / dym
-                    pz = (ztmp - zmin) / dzm
                     rt = 0.0_dp
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
                     else
+                        if (uniform_grid_flag) then
+                            px = (xtmp - xmin) / dxm
+                            py = (ytmp - ymin) / dym
+                            pz = (ztmp - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, xtmp) - 2
+                            iy = binarySearch_R(ypos_local, ytmp) - 2
+                            iz = binarySearch_R(zpos_local, ztmp) - 2
+                            px = (xtmp - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ytmp - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ztmp - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
                     call interp_fields(pos, weights, rt, fields)
@@ -1074,7 +1094,7 @@ module particle_module
         real(dp), dimension(4) :: db2_array
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i
+        integer :: i, ix, iy, iz
         integer :: ncells_large_db2, ncells_large_db2_g
         !dir$ attributes align:32 :: db2_array
 
@@ -1128,13 +1148,22 @@ module particle_module
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
-                    px = (xtmp - xmin) / dxm
-                    py = (ytmp - ymin) / dym
-                    pz = (ztmp - zmin) / dzm
                     rt = 0.0_dp
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
                     else
+                        if (uniform_grid_flag) then
+                            px = (xtmp - xmin) / dxm
+                            py = (ytmp - ymin) / dym
+                            pz = (ztmp - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, xtmp) - 2
+                            iy = binarySearch_R(ypos_local, ytmp) - 2
+                            iz = binarySearch_R(zpos_local, ztmp) - 2
+                            px = (xtmp - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ytmp - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ztmp - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
                     call interp_magnetic_fluctuation(pos, weights, rt, db2_array)
@@ -1197,7 +1226,7 @@ module particle_module
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: ctheta, istheta
-        integer :: i
+        integer :: i, ix, iy, iz
         integer :: ncells_large_divv, ncells_large_divv_g
         !dir$ attributes align:256 :: fields
 
@@ -1251,13 +1280,22 @@ module particle_module
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
-                    px = (xtmp - xmin) / dxm
-                    py = (ytmp - ymin) / dym
-                    pz = (ztmp - zmin) / dzm
                     rt = 0.0_dp
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
                     else
+                        if (uniform_grid_flag) then
+                            px = (xtmp - xmin) / dxm
+                            py = (ytmp - ymin) / dym
+                            pz = (ztmp - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, xtmp) - 2
+                            iy = binarySearch_R(ypos_local, ytmp) - 2
+                            iz = binarySearch_R(zpos_local, ztmp) - 2
+                            px = (xtmp - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ytmp - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ztmp - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
                     call interp_fields(pos, weights, rt, fields)
@@ -1338,7 +1376,7 @@ module particle_module
         real(dp), dimension(nfields+ngrads) :: fields !< Fields at particle position
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        integer :: i
+        integer :: i, ix, iy, iz
         integer :: ncells_large_rho, ncells_large_rho_g
         !dir$ attributes align:256 :: fields
 
@@ -1392,13 +1430,22 @@ module particle_module
                 if (xtmp >= xmin_box .and. xtmp <= xmax_box .and. &
                     ytmp >= ymin_box .and. ytmp <= ymax_box .and. &
                     ztmp >= zmin_box .and. ztmp <= zmax_box) then
-                    px = (xtmp - xmin) / dxm
-                    py = (ytmp - ymin) / dym
-                    pz = (ztmp - zmin) / dzm
                     rt = 0.0_dp
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(xtmp, ytmp, ztmp, pos, weights)
                     else
+                        if (uniform_grid_flag) then
+                            px = (xtmp - xmin) / dxm
+                            py = (ytmp - ymin) / dym
+                            pz = (ztmp - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, xtmp) - 2
+                            iy = binarySearch_R(ypos_local, ytmp) - 2
+                            iz = binarySearch_R(zpos_local, ztmp) - 2
+                            px = (xtmp - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ytmp - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ztmp - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         call get_interp_paramters(px, py, pz, pos, weights)
                     endif
                     call interp_fields(pos, weights, rt, fields)
@@ -1437,13 +1484,14 @@ module particle_module
         integer, intent(in) :: nsteps_interval, num_fine_steps
         logical, intent(in) :: focused_transport
         real(dp) :: dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: dxl, dxu, dyl, dyu, dzl, dzu ! boundary cell sizes if non-uniform grid
         real(dp) :: xmin1, xmax1, ymin1, ymax1, zmin1, zmax1
         real(dp) :: deltax, deltay, deltaz, deltap, deltav, deltamu
         real(dp) :: dt_target, dt_fine
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         real(dp) :: px, py, pz, rt
-        integer :: i
+        integer :: i, nx, ny, nz, ix, iy, iz
         integer :: step, thread_id
         integer :: iptl_lo, iptl_hi
         type(particle_type) :: ptl
@@ -1459,23 +1507,41 @@ module particle_module
         dxm = mhd_config%dx
         dym = mhd_config%dy
         dzm = mhd_config%dz
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
         xmin = fconfig%xmin
         xmax = fconfig%xmax
         ymin = fconfig%ymin
         ymax = fconfig%ymax
         zmin = fconfig%zmin
         zmax = fconfig%zmax
-        xmin1 = xmin - dxm * 0.5
-        xmax1 = xmax + dxm * 0.5
-        ymin1 = ymin - dym * 0.5
-        ymax1 = ymax + dym * 0.5
-        zmin1 = zmin - dzm * 0.5
-        zmax1 = zmax + dzm * 0.5
+        if (uniform_grid_flag) then
+            xmin1 = xmin - dxm * 0.5
+            xmax1 = xmax + dxm * 0.5
+            ymin1 = ymin - dym * 0.5
+            ymax1 = ymax + dym * 0.5
+            zmin1 = zmin - dzm * 0.5
+            zmax1 = zmax + dzm * 0.5
+        else
+            dxl = xpos_local(2) - xpos_local(1)
+            dyl = ypos_local(2) - ypos_local(1)
+            dzl = zpos_local(2) - zpos_local(1)
+            dxu = xpos_local(nx+1) - xpos_local(nx)
+            dyu = ypos_local(ny+1) - ypos_local(ny)
+            dzu = zpos_local(nz+1) - zpos_local(nz)
+            xmin1 = xmin - dxl * 0.5
+            xmax1 = xmax + dxu * 0.5
+            ymin1 = ymin - dyl * 0.5
+            ymax1 = ymax + dyu * 0.5
+            zmin1 = zmin - dzl * 0.5
+            zmax1 = zmax + dzu * 0.5
+        endif
 
         !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ptl, kappa, &
         !$OMP& fields, db2, lc, surface_height1, surface_height2, &
         !$OMP& deltax, deltay, deltaz, deltap, deltav, deltamu, &
-        !$OMP& dt_target, pos, weights, px, py, pz, rt, &
+        !$OMP& dt_target, pos, weights, ix, iy, iz, px, py, pz, rt, &
         !$OMP& step, thread_id, iptl_lo, iptl_hi)
         thread_id = 0
 #if (defined USE_OPENMP)
@@ -1537,9 +1603,18 @@ module particle_module
                     endif
 
                     ! Field interpolation parameters
-                    px = (ptl%x-xmin) / dxm
-                    py = (ptl%y-ymin) / dym
-                    pz = (ptl%z-zmin) / dzm
+                    if (uniform_grid_flag) then
+                        px = (ptl%x - xmin) / dxm
+                        py = (ptl%y - ymin) / dym
+                        pz = (ptl%z - zmin) / dzm
+                    else
+                        ix = binarySearch_R(xpos_local, ptl%x) - 2
+                        iy = binarySearch_R(ypos_local, ptl%y) - 2
+                        iz = binarySearch_R(zpos_local, ptl%z) - 2
+                        px = (ptl%x - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                        py = (ptl%y - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                        pz = (ptl%z - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                    endif
                     rt = (ptl%t - t0) / dtf
                     if (spherical_coord_flag) then
                         call get_interp_paramters_spherical(ptl%x, ptl%y, ptl%z, pos, weights)
@@ -1636,9 +1711,18 @@ module particle_module
                             ptl%nsteps_pushed = ptl%nsteps_pushed - 1
                         endif
 
-                        px = (ptl%x-xmin) / dxm
-                        py = (ptl%y-ymin) / dym
-                        pz = (ptl%z-zmin) / dzm
+                        if (uniform_grid_flag) then
+                            px = (ptl%x - xmin) / dxm
+                            py = (ptl%y - ymin) / dym
+                            pz = (ptl%z - zmin) / dzm
+                        else
+                            ix = binarySearch_R(xpos_local, ptl%x) - 2
+                            iy = binarySearch_R(ypos_local, ptl%y) - 2
+                            iz = binarySearch_R(zpos_local, ptl%z) - 2
+                            px = (ptl%x - xpos_local(ix)) / (xpos_local(ix+1) - xpos_local(ix))
+                            py = (ptl%y - ypos_local(iy)) / (ypos_local(iy+1) - ypos_local(iy))
+                            pz = (ptl%z - zpos_local(iz)) / (zpos_local(iz+1) - zpos_local(iz))
+                        endif
                         rt = (ptl%t - t0) / dtf
                         if (spherical_coord_flag) then
                             call get_interp_paramters_spherical(&
@@ -1745,8 +1829,10 @@ module particle_module
         integer, intent(in) :: mhd_tframe, num_fine_steps
         logical, intent(in) :: dump_escaped_dist
         real(dp) :: dxm, dym, dzm, xmin, xmax, ymin, ymax, zmin, zmax
+        real(dp) :: dxl, dxu, dyl, dyu, dzl, dzu ! boundary cell sizes if non-uniform grid
         real(dp) :: xmin1, xmax1, ymin1, ymax1, zmin1, zmax1
         integer :: local_flag, global_flag, ncycle, iptl
+        integer :: nx, ny, nz
         logical :: all_particles_in_box
         real(dp) :: t0, dtf
         type(particle_type) :: ptl
@@ -1761,18 +1847,36 @@ module particle_module
         dxm = mhd_config%dx
         dym = mhd_config%dy
         dzm = mhd_config%dz
+        nx = fconfig%nx
+        ny = fconfig%ny
+        nz = fconfig%nz
         xmin = fconfig%xmin
         xmax = fconfig%xmax
         ymin = fconfig%ymin
         ymax = fconfig%ymax
         zmin = fconfig%zmin
         zmax = fconfig%zmax
-        xmin1 = xmin - dxm * 0.5
-        xmax1 = xmax + dxm * 0.5
-        ymin1 = ymin - dym * 0.5
-        ymax1 = ymax + dym * 0.5
-        zmin1 = zmin - dzm * 0.5
-        zmax1 = zmax + dzm * 0.5
+        if (uniform_grid_flag) then
+            xmin1 = xmin - dxm * 0.5
+            xmax1 = xmax + dxm * 0.5
+            ymin1 = ymin - dym * 0.5
+            ymax1 = ymax + dym * 0.5
+            zmin1 = zmin - dzm * 0.5
+            zmax1 = zmax + dzm * 0.5
+        else
+            dxl = xpos_local(2) - xpos_local(1)
+            dyl = ypos_local(2) - ypos_local(1)
+            dzl = zpos_local(2) - zpos_local(1)
+            dxu = xpos_local(nx+1) - xpos_local(nx)
+            dyu = ypos_local(ny+1) - ypos_local(ny)
+            dzu = zpos_local(nz+1) - ypos_local(nz)
+            xmin1 = xmin - dxl * 0.5
+            xmax1 = xmax + dxu * 0.5
+            ymin1 = ymin - dyl * 0.5
+            ymax1 = ymax + dyu * 0.5
+            zmin1 = zmin - dzl * 0.5
+            zmax1 = zmax + dzu * 0.5
+        endif
 
         ncycle = 0
         local_flag = 0
@@ -2561,6 +2665,7 @@ module particle_module
         real(dp) :: rands(2)
         real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
         real(dp) :: dx_dt, dp_dt, dpp
+        integer :: ix
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -2570,7 +2675,12 @@ module particle_module
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
         dvx_dx = fields(nfields+1)
-        dxm = mhd_config%dx
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+        endif
 
         deltax = 0.0d0
         deltap = 0.0d0
@@ -2736,6 +2846,7 @@ module particle_module
         real(dp) :: rands(2)
         real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
         real(dp) :: dx_dt, dp_dt, dv_dt, dpp
+        integer :: ix
         real(dp), dimension(8) :: weights
         integer, dimension(3) :: pos
 
@@ -2749,7 +2860,12 @@ module particle_module
         dvx_dx = fields(nfields+1)
         dvy_dx = fields(nfields+4)
         dvz_dx = fields(nfields+7)
-        dxm = mhd_config%dx
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+        endif
 
         deltax = 0.0d0
         deltap = 0.0d0
@@ -2924,6 +3040,7 @@ module particle_module
         real(dp) :: deltaz
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dpp
+        integer :: ix, iy
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -2935,8 +3052,15 @@ module particle_module
         b = dsqrt(bx**2 + by**2 + bz**2)
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0
@@ -3176,6 +3300,7 @@ module particle_module
         real(dp) :: deltaz
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
+        integer :: ix, iy
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3186,8 +3311,15 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0
@@ -3504,6 +3636,7 @@ module particle_module
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
+        integer :: ix, iy
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3531,8 +3664,15 @@ module particle_module
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
         dvz_dz = 0.0_dp
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0
@@ -3775,6 +3915,7 @@ module particle_module
         real(dp) :: gbr, gbt, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
+        integer :: ix, iy
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
 
@@ -3799,8 +3940,15 @@ module particle_module
         else
             ibxyn = 1.0_dp / bxyn
         endif
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0
@@ -4105,6 +4253,7 @@ module particle_module
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dpp
+        integer :: ix, iy, iz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         logical :: in_acc_region
@@ -4133,9 +4282,18 @@ module particle_module
         dvx_dx = fields(nfields+1)
         dvy_dy = fields(nfields+5)
         dvz_dz = fields(nfields+9)
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
-        dzm = mhd_config%dz
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+            dzm = mhd_config%dz
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            iz = binarySearch_R(zpos_local, ptl%z) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+            dzm = zpos_local(iz+1) - zpos_local(iz)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0
@@ -4389,6 +4547,7 @@ module particle_module
         real(dp) :: gbr, gbt, gbp, p11, p12, p13, p22, p23, p33
         real(dp) :: sigmaxx, sigmayy, sigmazz, sigmaxy, sigmaxz, sigmayz ! shear tensor
         real(dp) :: dx_dt, dy_dt, dz_dt, dp_dt, dv_dt, dpp
+        integer :: ix, iy, iz
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
         logical :: in_acc_region
@@ -4414,9 +4573,18 @@ module particle_module
         else
             ibxyn = 1.0_dp / bxyn
         endif
-        dxm = mhd_config%dx
-        dym = mhd_config%dy
-        dzm = mhd_config%dz
+        if (uniform_grid_flag) then
+            dxm = mhd_config%dx
+            dym = mhd_config%dy
+            dzm = mhd_config%dz
+        else
+            ix = binarySearch_R(xpos_local, ptl%x) - 2
+            iy = binarySearch_R(ypos_local, ptl%y) - 2
+            iz = binarySearch_R(zpos_local, ptl%z) - 2
+            dxm = xpos_local(ix+1) - xpos_local(ix)
+            dym = ypos_local(iy+1) - ypos_local(iy)
+            dzm = zpos_local(iz+1) - zpos_local(iz)
+        endif
 
         deltax = 0.0d0
         deltay = 0.0d0

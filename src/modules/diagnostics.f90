@@ -3,13 +3,15 @@
 !*******************************************************************************
 module diagnostics
     use constants, only: i1, i4, i8, sp, dp
-    use mhd_config_module, only: mhd_config
+    use mhd_config_module, only: mhd_config, uniform_grid_flag
     use simulation_setup_module, only: ndim_field
     use mhd_data_parallel, only: nfields, ngrads
+    use mhd_data_parallel, only: xpos_local, ypos_local, zpos_local
     use particle_module, only: particle_type, ptls, escaped_ptls, &
         nptl_current, nptl_escaped, nptl_escaped_max, nptl_max, &
         spherical_coord_flag, leak, leak_negp, nptl_split, &
         get_interp_paramters, get_interp_paramters_spherical, &
+        binarySearch_R, &
         pmin, pmax, COUNT_FLAG_INBOX, COUNT_FLAG_OTHERS, &
         COUNT_FLAG_ESCAPE_LX, COUNT_FLAG_ESCAPE_HX, &
         COUNT_FLAG_ESCAPE_LY, COUNT_FLAG_ESCAPE_HY, &
@@ -780,9 +782,15 @@ module diagnostics
             if (local_dist) then
                 if (dump_local_dist1) then
                     ! Local distributions 1
-                    ix1 = floor((x - xmin)/dx_diag1) + 1
-                    iy1 = floor((y - ymin)/dy_diag1) + 1
-                    iz1 = floor((z - zmin)/dz_diag1) + 1
+                    if (uniform_grid_flag) then
+                        ix1 = floor((x - xmin)/dx_diag1) + 1
+                        iy1 = floor((y - ymin)/dy_diag1) + 1
+                        iz1 = floor((z - zmin)/dz_diag1) + 1
+                    else
+                        ix1 = (binarySearch_R(xpos_local, x) - 1) / rx1 + 1
+                        iy1 = (binarySearch_R(ypos_local, y) - 1) / ry1 + 1
+                        iz1 = (binarySearch_R(zpos_local, z) - 1) / rz1 + 1
+                    endif
                     ip1 = floor((log10(p)-pmin1_log) / dp1_log) + 1
                     imu1 = floor((mu + 1.0d0) / dmu1) + 1
                     condx = ix1 >= 1 .and. ix1 <= nrx1
@@ -798,9 +806,15 @@ module diagnostics
 
                 if (dump_local_dist2) then
                     ! Local distributions 2
-                    ix2 = floor((x - xmin)/dx_diag2) + 1
-                    iy2 = floor((y - ymin)/dy_diag2) + 1
-                    iz2 = floor((z - zmin)/dz_diag2) + 1
+                    if (uniform_grid_flag) then
+                        ix2 = floor((x - xmin)/dx_diag2) + 1
+                        iy2 = floor((y - ymin)/dy_diag2) + 1
+                        iz2 = floor((z - zmin)/dz_diag2) + 1
+                    else
+                        ix2 = (binarySearch_R(xpos_local, x) - 1) / rx2 + 1
+                        iy2 = (binarySearch_R(ypos_local, y) - 1) / ry2 + 1
+                        iz2 = (binarySearch_R(zpos_local, z) - 1) / rz2 + 1
+                    endif
                     ip2 = floor((log10(p)-pmin2_log) / dp2_log) + 1
                     imu2 = floor((mu + 1.0d0) / dmu2) + 1
                     condx = ix2 >= 1 .and. ix2 <= nrx2
@@ -816,9 +830,15 @@ module diagnostics
 
                 if (dump_local_dist3) then
                     ! Local distributions 3
-                    ix3 = floor((x - xmin)/dx_diag3) + 1
-                    iy3 = floor((y - ymin)/dy_diag3) + 1
-                    iz3 = floor((z - zmin)/dz_diag3) + 1
+                    if (uniform_grid_flag) then
+                        ix3 = floor((x - xmin)/dx_diag3) + 1
+                        iy3 = floor((y - ymin)/dy_diag3) + 1
+                        iz3 = floor((z - zmin)/dz_diag3) + 1
+                    else
+                        ix3 = (binarySearch_R(xpos_local, x) - 1) / rx3 + 1
+                        iy3 = (binarySearch_R(ypos_local, y) - 1) / ry3 + 1
+                        iz3 = (binarySearch_R(zpos_local, z) - 1) / rz3 + 1
+                    endif
                     ip3 = floor((log10(p)-pmin3_log) / dp3_log) + 1
                     imu3 = floor((mu + 1.0d0) / dmu3) + 1
                     condx = ix3 >= 1 .and. ix3 <= nrx3
@@ -834,9 +854,15 @@ module diagnostics
 
                 if (dump_local_dist4) then
                     ! Local distributions 4
-                    ix4 = floor((x - xmin)/dx_diag4) + 1
-                    iy4 = floor((y - ymin)/dy_diag4) + 1
-                    iz4 = floor((z - zmin)/dz_diag4) + 1
+                    if (uniform_grid_flag) then
+                        ix4 = floor((x - xmin)/dx_diag4) + 1
+                        iy4 = floor((y - ymin)/dy_diag4) + 1
+                        iz4 = floor((z - zmin)/dz_diag4) + 1
+                    else
+                        ix4 = (binarySearch_R(xpos_local, x) - 1) / rx4 + 1
+                        iy4 = (binarySearch_R(ypos_local, y) - 1) / ry4 + 1
+                        iz4 = (binarySearch_R(zpos_local, z) - 1) / rz4 + 1
+                    endif
                     ip4 = floor((log10(p)-pmin4_log) / dp4_log) + 1
                     imu4 = floor((mu + 1.0d0) / dmu4) + 1
                     condx = ix4 >= 1 .and. ix4 <= nrx4
@@ -933,9 +959,15 @@ module diagnostics
             if (local_dist) then
                 if (dump_local_dist1) then
                     ! Local distributions 1
-                    ix1 = floor((x - xmin)/dx_diag1) + 1
-                    iy1 = floor((y - ymin)/dy_diag1) + 1
-                    iz1 = floor((z - zmin)/dz_diag1) + 1
+                    if (uniform_grid_flag) then
+                        ix1 = floor((x - xmin)/dx_diag1) + 1
+                        iy1 = floor((y - ymin)/dy_diag1) + 1
+                        iz1 = floor((z - zmin)/dz_diag1) + 1
+                    else
+                        ix1 = (binarySearch_R(xpos_local, x) - 1) / rx1 + 1
+                        iy1 = (binarySearch_R(ypos_local, y) - 1) / ry1 + 1
+                        iz1 = (binarySearch_R(zpos_local, z) - 1) / rz1 + 1
+                    endif
                     ip1 = floor((log10(p)-pmin1_log) / dp1_log) + 1
                     imu1 = floor((mu + 1.0d0) / dmu1) + 1
                     condx = ix1 >= 1 .and. ix1 <= nrx1
@@ -980,9 +1012,15 @@ module diagnostics
 
                 if (dump_local_dist2) then
                     ! Local distributions 2
-                    ix2 = floor((x - xmin)/dx_diag2) + 1
-                    iy2 = floor((y - ymin)/dy_diag2) + 1
-                    iz2 = floor((z - zmin)/dz_diag2) + 1
+                    if (uniform_grid_flag) then
+                        ix2 = floor((x - xmin)/dx_diag2) + 1
+                        iy2 = floor((y - ymin)/dy_diag2) + 1
+                        iz2 = floor((z - zmin)/dz_diag2) + 1
+                    else
+                        ix2 = (binarySearch_R(xpos_local, x) - 1) / rx2 + 1
+                        iy2 = (binarySearch_R(ypos_local, y) - 1) / ry2 + 1
+                        iz2 = (binarySearch_R(zpos_local, z) - 1) / rz2 + 1
+                    endif
                     ip2 = floor((log10(p)-pmin2_log) / dp2_log) + 1
                     imu2 = floor((mu + 1.0d0) / dmu2) + 1
                     condx = ix2 >= 1 .and. ix2 <= nrx2
@@ -1027,9 +1065,15 @@ module diagnostics
 
                 if (dump_local_dist3) then
                     ! Local distributions 3
-                    ix3 = floor((x - xmin)/dx_diag3) + 1
-                    iy3 = floor((y - ymin)/dy_diag3) + 1
-                    iz3 = floor((z - zmin)/dz_diag3) + 1
+                    if (uniform_grid_flag) then
+                        ix3 = floor((x - xmin)/dx_diag3) + 1
+                        iy3 = floor((y - ymin)/dy_diag3) + 1
+                        iz3 = floor((z - zmin)/dz_diag3) + 1
+                    else
+                        ix3 = (binarySearch_R(xpos_local, x) - 1) / rx3 + 1
+                        iy3 = (binarySearch_R(ypos_local, y) - 1) / ry3 + 1
+                        iz3 = (binarySearch_R(zpos_local, z) - 1) / rz3 + 1
+                    endif
                     ip3 = floor((log10(p)-pmin3_log) / dp3_log) + 1
                     imu3 = floor((mu + 1.0d0) / dmu3) + 1
                     condx = ix3 >= 1 .and. ix3 <= nrx3
@@ -1074,9 +1118,15 @@ module diagnostics
 
                 if (dump_local_dist4) then
                     ! Local distributions 4
-                    ix4 = floor((x - xmin)/dx_diag4) + 1
-                    iy4 = floor((y - ymin)/dy_diag4) + 1
-                    iz4 = floor((z - zmin)/dz_diag4) + 1
+                    if (uniform_grid_flag) then
+                        ix4 = floor((x - xmin)/dx_diag4) + 1
+                        iy4 = floor((y - ymin)/dy_diag4) + 1
+                        iz4 = floor((z - zmin)/dz_diag4) + 1
+                    else
+                        ix4 = (binarySearch_R(xpos_local, x) - 1) / rx4 + 1
+                        iy4 = (binarySearch_R(ypos_local, y) - 1) / ry4 + 1
+                        iz4 = (binarySearch_R(zpos_local, z) - 1) / rz4 + 1
+                    endif
                     ip4 = floor((log10(p)-pmin4_log) / dp4_log) + 1
                     imu4 = floor((mu + 1.0d0) / dmu4) + 1
                     condx = ix4 >= 1 .and. ix4 <= nrx4
