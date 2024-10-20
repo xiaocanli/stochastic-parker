@@ -10,7 +10,13 @@ Parker’s transport equation
      - \frac{1}{3}\nabla\cdot\boldsymbol{V}\frac{\partial f}{\partial\ln p}
      = \nabla\cdot(\boldsymbol{\kappa}\nabla f) + Q,
 
-where :math:`f(x_i, p, t)` is the particle distribution function as a function of the particle position :math:`x_i`,  momentum :math:`p` (isotropic momentum assumed), and time :math:`t`; :math:`\boldsymbol{\kappa}` is the spatial diffusion coefficient tensor, :math:`\boldsymbol{V}` is the bulk plasma velocity, :math:`\boldsymbol{V}_d` is the particle drift, and :math:`Q` is the source. In general, :math:`\boldsymbol{V}` can be obtained directly from the MHD simulations, :math:`\boldsymbol{V}_d` and :math:`\boldsymbol{\kappa}` both depend on the vector magnetic field, and :math:`Q` could depend on many plasma properties (e.g., number density, current density, and compression). :math:`\boldsymbol{\kappa}` also depends on the turbulence properties (e.g., amplitude, spectral slope, and anisotropy). The diffusion coefficient tensor is given by
+where :math:`f(x_i, p, t)` is the particle distribution function as a function of the particle position :math:`x_i`,  momentum :math:`p` (isotropic momentum assumed), and time :math:`t`; :math:`\boldsymbol{\kappa}` is the spatial diffusion coefficient tensor, :math:`\boldsymbol{V}` is the bulk plasma velocity, :math:`\boldsymbol{V}_d=\frac{pcw}{3q}\nabla\times\left(\frac{\boldsymbol{B}}{B^2}\right)` is the particle drift, where :math:`p=\gamma m v` is particle momentum, :math:`c` is the speed of light, :math:`w=v/c` is the normalized particle speed, and :math:`q` is particle charge.
+
+.. note::
+
+    The particle drift velocity is only needed in the 3D model since it is out-of-plane in a 2D model.
+
+and :math:`Q` is the source. In general, :math:`\boldsymbol{V}` can be obtained directly from the MHD simulations, :math:`\boldsymbol{V}_d` and :math:`\boldsymbol{\kappa}` both depend on the vector magnetic field, and :math:`Q` could depend on many plasma properties (e.g., number density, current density, and compression). :math:`\boldsymbol{\kappa}` also depends on the turbulence properties (e.g., amplitude, spectral slope, and anisotropy). The diffusion coefficient tensor is given by
 
 .. math::
 
