@@ -107,7 +107,11 @@ To turn on OpenMP parallelization, please use ``cmake -DUSE_OPENMP="On" ..``. To
  On Perlmutter@NERSC, you can load the modules by ``module load cpu cmake cray-hdf5-parallel python``
 
 .. note::
-   Please use the same version of ``python`` as when installing ``FoBiS.py``. Otherwise, ``FLAP`` will not be compiled correctly.
+   Please use the same version of ``python`` as when installing ``FoBiS.py``. Otherwise, ``FLAP`` will not be compiled correctly. If ``make`` fails, you can install ``FLAP`` manually by following the instructions in the ``FLAP`` repository. For example, to build a static library using GNU,
+
+   .. code:: sh
+
+      FoBiS.py build -mode static-gnu
 
 .. note::
    The code is not carefully optimized for the KNL nodes. Please use it in caution.
