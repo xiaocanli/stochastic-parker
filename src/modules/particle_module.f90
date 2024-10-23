@@ -3155,18 +3155,34 @@ module particle_module
             if ((dx_dt .ne. 0.0d0) .and. &
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
                 endif
             else
                 ptl%dt = dt_min
@@ -3472,22 +3488,42 @@ module particle_module
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0) .and. &
                 (dmu_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
-                                 (0.5*dym/kappa%skperp)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym*ptl%x/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 endif
             else
                 ptl%dt = dt_min
@@ -3769,19 +3805,35 @@ module particle_module
             if ((dx_dt .ne. 0.0d0) .and. &
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
-                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
-                 endif
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
+                else
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
+                endif
             else
                 ptl%dt = dt_min
             endif
@@ -4095,22 +4147,42 @@ module particle_module
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0) .and. &
                 (dmu_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
-                                 (0.5*dym/kappa%skperp)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym*ptl%x/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 endif
             else
                 ptl%dt = dt_min
@@ -4388,22 +4460,42 @@ module particle_module
             if ((dx_dt .ne. 0.0d0) .and. &
                 (dy_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (0.5*dzm/kappa%skpara)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 (kappa%skperp/dz_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (0.5*dzm*ptl%x*sin(ptl%y)/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     (kappa%skperp*ir*istheta/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (0.5*dzm*ptl%x*sin(ptl%y)/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     (kappa%skpara*ir*istheta/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (0.5*dzm/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 (kappa%skpara/dz_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt))
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (0.5*dzm/kappa%skpara)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     (kappa%skperp/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (0.5*dzm/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     (kappa%skpara/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt))
+                    endif
                 endif
             else
                 ptl%dt = dt_min
@@ -4746,26 +4838,50 @@ module particle_module
                 (dz_dt .ne. 0.0d0) .and. &
                 (dp_dt .ne. 0.0d0) .and. &
                 (dmu_dt .ne. 0.0d0)) then
-                if (kappa%skperp > 0.0_dp) then
-                    ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
-                                 (0.5*dym/kappa%skperp)**2, &
-                                 (0.5*dzm/kappa%skperp)**2, &
-                                 (kappa%skperp/dx_dt)**2, &
-                                 (kappa%skperp/dy_dt)**2, &
-                                 (kappa%skperp/dz_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                if (spherical_coord_flag) then
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym*ptl%x/kappa%skperp)**2, &
+                                     (0.5*dzm*ptl%x*sin(ptl%y)/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp*ir/dy_dt)**2, &
+                                     (kappa%skperp*ir*istheta/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym*ptl%x/kappa%skpara)**2, &
+                                     (0.5*dzm*ptl%x*sin(ptl%y)/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara*ir/dy_dt)**2, &
+                                     (kappa%skpara*ir*istheta/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 else
-                    ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
-                                 (0.5*dym/kappa%skpara)**2, &
-                                 (0.5*dzm/kappa%skpara)**2, &
-                                 (kappa%skpara/dx_dt)**2, &
-                                 (kappa%skpara/dy_dt)**2, &
-                                 (kappa%skpara/dz_dt)**2, &
-                                 0.1*ptl%p/abs(dp_dt), &
-                                 0.1/abs(dmu_dt), &
-                                 2.0*duu/dmu_dt**2)
+                    if (kappa%skperp > 0.0_dp) then
+                        ptl%dt = min((0.5*dxm/kappa%skperp)**2, &
+                                     (0.5*dym/kappa%skperp)**2, &
+                                     (0.5*dzm/kappa%skperp)**2, &
+                                     (kappa%skperp/dx_dt)**2, &
+                                     (kappa%skperp/dy_dt)**2, &
+                                     (kappa%skperp/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    else
+                        ptl%dt = min((0.5*dxm/kappa%skpara)**2, &
+                                     (0.5*dym/kappa%skpara)**2, &
+                                     (0.5*dzm/kappa%skpara)**2, &
+                                     (kappa%skpara/dx_dt)**2, &
+                                     (kappa%skpara/dy_dt)**2, &
+                                     (kappa%skpara/dz_dt)**2, &
+                                     0.1*ptl%p/abs(dp_dt), &
+                                     0.1/abs(dmu_dt), &
+                                     2.0*duu/dmu_dt**2)
+                    endif
                 endif
             else
                 ptl%dt = dt_min
