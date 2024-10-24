@@ -106,7 +106,7 @@ fi
 
 run_stochastic () {
     change_variable momentum_dependency $1
-    change_variable pindex $2
+    change_variable gamma_turb $2
     change_variable mag_dependency $3
     change_variable kpara0 $5
     change_variable kret $6
@@ -164,14 +164,14 @@ else
 fi
     cd config
     change_variable momentum_dependency 1
-    change_variable pindex 1.3333333
+    change_variable gamma_turb 1.3333333
     change_variable mag_dependency 1
     change_variable kpara0 0.01
     change_variable kret 0.03
 }
 
 stochastic () {
-    pindex=1.3333333 # 3.0-turbulence spectral slope
+    gamma_turb=1.6666667 # turbulence spectral slope
     momentum_dependency=1
     mag_dependency=1
     dir_mhd_data=$1
@@ -186,7 +186,7 @@ stochastic () {
     drift_param2=13575468.975 # parameter #2 for particle drift in 3D
     charge=-1 # charge in unit charge
     diagnostics_directory=data/$2/transport_test_run/
-    run_stochastic $momentum_dependency $pindex $mag_dependency \
+    run_stochastic $momentum_dependency $gamma_turb $mag_dependency \
         $dir_mhd_data $kpara0 $kret $diagnostics_directory $tau0 \
         $duu0 $particle_v0 $drift_param1 $drift_param2 $charge
 }

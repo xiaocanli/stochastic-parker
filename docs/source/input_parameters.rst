@@ -108,10 +108,7 @@ conf.dat
 - ``pmin``: the minimum particle momentum. It is used when injecting particles and when calculating the global particle spectrum. It is typically set to ``1E-2``.
 - ``pmax``: the maximum particle momentum. It is used when injecting particles and when calculating the global particle spectrum. It is typically set to ``1E1``.
 - ``momentum_dependency``: whether the diffusion coefficients depend on particle momentum. ``1`` is the default, which means the diffusion coefficients depend on particle momentum. ``0`` means the diffusion coefficients do not depend on particle momentum.
-- ``pindex``: the power-law index for the momentum dependency of the diffusion coefficients. It is only used when ``momentum_dependency=1``. It is typically set to ``3-5/3=4/3=1.3333333``, where ``5/3`` is the turbulence spectral slope for the Kolmogorov spectrum. It can be modified in ``difffusion.sh`` when using different turbulence models.
-- ``mag_dependency``: whether the diffusion coefficients depend on magnetic field strength. ``1`` is the default, which means the diffusion coefficients depend on magnetic field strength. ``0`` means the diffusion coefficients do not depend on magnetic field strength.
-- ``kpara0``: the normalization for the parallel diffusion coefficient. It is calculated based on the initial particle momentum, magnetic field, and turbulence properties in ``sde.py``.
-- ``kret``: the ratio of the perpendicular diffusion coefficient to the parallel diffusion coefficient. It is typically set to less than ``0.1``.
+- ``gamma_turb``: turbulence spectral index. For Kolmogorov spectrum, it is ``5/3``.
 - ``dt_min``: the minimum time step allowed to avoid infinite time step.
 - ``dt_min_rel``: the minimum relative time step w.r.t. one field time interval. ``dt_min`` is set to ``dt_min_rel`` times the time interval for MHD fields if the latter is larger than ``dt_min``.
 

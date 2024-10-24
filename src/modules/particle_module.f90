@@ -83,6 +83,7 @@ module particle_module
     integer :: momentum_dependency  !< kappa dependency on particle momentum
     integer :: mag_dependency       !< kappa dependency on magnetic field
     integer :: acc_region_flag      !< flag for whether to turn on acceleration in certain region
+    real(dp) :: gamma_turb          !< turbulence spectral index
     real(dp) :: pindex              !< power index for the momentum dependency
     real(dp) :: p0    !< the standard deviation of the Gaussian distribution of momentum
     real(dp) :: b0    !< Initial magnetic field strength
@@ -2212,7 +2213,7 @@ module particle_module
 
         kappa%knorm0 = 1.0_dp
         if (mag_dependency == 1) then
-            kappa%knorm0 = kappa%knorm0 * ib1**(1./3.)
+            kappa%knorm0 = kappa%knorm0 * b**(gamma_turb - 2.0_dp)
         endif
 
         ! Magnetic fluctuation dB^2/B^2
@@ -2223,7 +2224,7 @@ module particle_module
         ! Turbulence correlation length
         ! Make sure that lc is non-zero in the data file!!!
         if (correlation_flag) then
-            kappa%knorm0 = kappa%knorm0 * lc(1)**(2./3.)
+            kappa%knorm0 = kappa%knorm0 * lc(1)**(gamma_turb - 1.0_dp)
         endif
 
         ! Momentum-dependent kappa
@@ -2243,13 +2244,13 @@ module particle_module
         if (ndim_field == 1) then
             dkdx = 0.0_dp
             if (mag_dependency == 1) then
-                dkdx = -db_dx * ib1 / 3
+                dkdx = db_dx * ib1 * (gamma_turb - 2.0_dp)
             endif
             if (deltab_flag) then
                 dkdx = dkdx - db2(2) / db2(1)
             endif
             if (correlation_flag) then
-                dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
+                dkdx = dkdx + (gamma_turb - 1.0_dp) * lc(2) / lc(1)
             endif
             if (focused_transport) then
                 kappa%dkxx_dx = kappa%kperp * dkdx
@@ -2280,16 +2281,16 @@ module particle_module
                 dkdy = 0.0_dp
                 dkdz = 0.0_dp
                 if (mag_dependency == 1) then
-                    dkdx = -db_dx * ib1 / 3
-                    dkdy = -db_dy * ib1 / 3
+                    dkdx = db_dx * ib1 * (gamma_turb - 2.0_dp)
+                    dkdy = db_dy * ib1 * (gamma_turb - 2.0_dp)
                 endif
                 if (deltab_flag) then
                     dkdx = dkdx - db2(2) / db2(1)
                     dkdy = dkdy - db2(3) / db2(1)
                 endif
                 if (correlation_flag) then
-                    dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
-                    dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
+                    dkdx = dkdx + (gamma_turb - 1.0_dp) * lc(2) / lc(1)
+                    dkdy = dkdy + (gamma_turb - 1.0_dp) * lc(3) / lc(1)
                 endif
                 if (focused_transport) then
                     kpp = -kappa%kperp
@@ -2330,16 +2331,16 @@ module particle_module
                 dkdx = 0.0_dp
                 dkdy = 0.0_dp
                 if (mag_dependency == 1) then
-                    dkdx = -db_dx * ib1 / 3
-                    dkdy = -db_dy * ib1 / 3
+                    dkdx = db_dx * ib1 * (gamma_turb - 2.0_dp)
+                    dkdy = db_dy * ib1 * (gamma_turb - 2.0_dp)
                 endif
                 if (deltab_flag) then
                     dkdx = dkdx - db2(2) / db2(1)
                     dkdy = dkdy - db2(3) / db2(1)
                 endif
                 if (correlation_flag) then
-                    dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
-                    dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
+                    dkdx = dkdx + (gamma_turb - 1.0_dp) * lc(2) / lc(1)
+                    dkdy = dkdy + (gamma_turb - 1.0_dp) * lc(3) / lc(1)
                 endif
                 if (focused_transport) then
                     kpp = -kappa%kperp
@@ -2375,9 +2376,9 @@ module particle_module
             dkdy = 0.0_dp
             dkdz = 0.0_dp
             if (mag_dependency == 1) then
-                dkdx = -db_dx * ib1 / 3
-                dkdy = -db_dy * ib1 / 3
-                dkdz = -db_dz * ib1 / 3
+                dkdx = db_dx * (gamma_turb - 2.0_dp)
+                dkdy = db_dy * (gamma_turb - 2.0_dp)
+                dkdz = db_dz * (gamma_turb - 2.0_dp)
             endif
             if (deltab_flag) then
                 dkdx = dkdx - db2(2) / db2(1)
@@ -2385,9 +2386,9 @@ module particle_module
                 dkdz = dkdz - db2(4) / db2(1)
             endif
             if (correlation_flag) then
-                dkdx = dkdx + 2 * lc(2) / (3 * lc(1))
-                dkdy = dkdy + 2 * lc(3) / (3 * lc(1))
-                dkdz = dkdz + 2 * lc(4) / (3 * lc(1))
+                dkdx = dkdx + (gamma_turb - 1.0_dp) * lc(2) / lc(1)
+                dkdy = dkdy + (gamma_turb - 1.0_dp) * lc(3) / lc(1)
+                dkdz = dkdz + (gamma_turb - 1.0_dp) * lc(4) / lc(1)
             endif
             if (focused_transport) then
                 kpp = -kappa%kperp
@@ -2445,9 +2446,8 @@ module particle_module
             pmax = get_variable(fh, 'pmax', '=')
             temp = get_variable(fh, 'momentum_dependency', '=')
             momentum_dependency = int(temp)
-            if (momentum_dependency == 1) then
-                pindex = get_variable(fh, 'pindex', '=')
-            endif
+            gamma_turb = get_variable(fh, 'gamma_turb', '=')
+            pindex = 3.0_dp - gamma_turb
             temp = get_variable(fh, 'mag_dependency', '=')
             mag_dependency = int(temp)
             kpara0 = get_variable(fh, 'kpara0', '=')
@@ -2502,6 +2502,7 @@ module particle_module
             MPI_COMM_WORLD, ierr)
         call MPI_BCAST(mag_dependency, 1, MPI_INTEGER, master, &
             MPI_COMM_WORLD, ierr)
+        call MPI_BCAST(gamma_turb, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(pindex, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(p0, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
         call MPI_BCAST(pmin, 1, MPI_DOUBLE_PRECISION, master, MPI_COMM_WORLD, ierr)
@@ -2776,26 +2777,25 @@ module particle_module
         type(particle_type), intent(in) :: ptl
         real(dp), intent(in) :: div_bnorm, divv, bb_gradv, bv_gradv, mu2
         real(dp), intent(out) :: dmu_dt, duu, duu_du
-        real(dp) :: dtmp, h0, turb_gamma
+        real(dp) :: dtmp, h0
         dmu_dt = ptl%v * div_bnorm + ptl%mu * divv - &
             3 * ptl%mu * bb_gradv - 2 * bv_gradv / ptl%v
         dmu_dt = dmu_dt * (1-mu2) * 0.5
         h0 = 0.2  ! Enabling pitch-angle scattering around mu=0
-        turb_gamma = 3.0 - pindex  ! Turbulence spectral index
-        dtmp = abs(ptl%mu)**(turb_gamma-1) + h0
+        dtmp = abs(ptl%mu)**(gamma_turb-1) + h0
         duu = duu0 * (1-mu2) * dtmp
         if (ptl%mu .gt. 0.0d0) then
             duu_du = duu0 * (-2*ptl%mu * dtmp + &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
+                             (1-mu2) * abs(ptl%mu)**(gamma_turb-2))
         else if (ptl%mu .lt. 0.0d0) then
             duu_du = duu0 * (-2*ptl%mu * dtmp - &
-                             (1-mu2) * abs(ptl%mu)**(turb_gamma-2))
+                             (1-mu2) * abs(ptl%mu)**(gamma_turb-2))
         else
             duu_du = 0.0d0
         endif
 
         if (momentum_dependency == 1) then
-            dtmp = (ptl%p / p0)**(turb_gamma-1)
+            dtmp = (ptl%p / p0)**(gamma_turb-1)
             duu = duu * dtmp
             duu_du = duu_du * dtmp
         endif
@@ -2841,7 +2841,7 @@ module particle_module
         real(dp) :: b, ib, bx, by, bz, rt1
         real(dp) :: vx, vy, vz, cot_theta, ir
         real(dp) :: mu2, acc_rate, duu, dmu_dt, duu_du, dtmp
-        real(dp) :: dp_dpp, div_bnorm, db_dx, h0, turb_gamma
+        real(dp) :: dp_dpp, div_bnorm, db_dx, h0
         real(dp) :: dxm, rho, ran1, sqrt3
         real(dp) :: rands(2)
         real(dp) :: sigmaxx, sigmayy, sigmazz ! shear tensor
@@ -3305,7 +3305,7 @@ module particle_module
         real(dp) :: vdx, vdy, vdz, vdp, ib2, ib3, gbr, gbt
         real(dp) :: dxm, dym
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
-        real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
+        real(dp) :: dp_dpp, div_bnorm, h0
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho
@@ -3958,7 +3958,7 @@ module particle_module
         real(dp) :: vdx, vdy, vdz, vdp
         real(dp) :: dxm, dym
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
-        real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
+        real(dp) :: dp_dpp, div_bnorm, h0
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho
@@ -4630,7 +4630,7 @@ module particle_module
         real(dp) :: vdx, vdy, vdz, vdp
         real(dp) :: dxm, dym, dzm
         real(dp) :: mu2, muf1, muf2, kx, ky, kz, bdot_curvb, acc_rate
-        real(dp) :: dp_dpp, div_bnorm, h0, turb_gamma
+        real(dp) :: dp_dpp, div_bnorm, h0
         real(dp) :: duu, dmu_dt, duu_du, dtmp
         real(dp) :: ran1, ran2, ran3, sqrt3
         real(dp) :: rho
