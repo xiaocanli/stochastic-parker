@@ -70,26 +70,26 @@ fluctuations [Bieber96]_) affect particle
 parallel transport [Florinski03]_. The
 turbulence power is usually expressed as
 
-.. math:: P(k) = \frac{\left<\delta B^2\right>}{1+(kL_c)^\gamma}\left[\int_{k_\text{min}}^{k_\text{max}}\frac{dk}{1+(kL_c)^\gamma}\right]^{-1}
+.. math:: P(k) = \frac{\left<\delta B^2\right>_\text{slab}}{1+(kl_\text{slab})^\gamma}\left[\int_{k_\text{min}}^{k_\text{max}}\frac{dk}{1+(kl_\text{slab})^\gamma}\right]^{-1}
 
 where :math:`k_\text{min}` and :math:`k_\text{max}` are the smallest and
-largest wavenumbers in the system, :math:`L_c` is the turbulence
-correlation length, and :math:`\gamma` is the turbulence spectrum index
-(e.g., 5/3). For :math:`k_\text{min}\ll 1/L_c \ll k_\text{max}`, the
+largest wavenumbers in the system, :math:`l_\text{slab}` is the turbulence
+correlation length for the slab component, and :math:`\gamma` is the turbulence spectrum index
+(e.g., 5/3). For :math:`k_\text{min}\ll 1/l_\text{slab} \ll k_\text{max}`, the
 integral in the above equation can be taken from 0 to :math:`\infty`.
 From the table of integral,
 :math:`\int_0^\infty x^{\mu-1} dx / (1+x^\nu) = \pi\csc(\mu\pi/\nu)/\nu`.
 Then,
 
-.. math:: P(k) = \frac{\left<\delta B^2\right>L_c}{1+(kL_c)^\gamma}\left[(\pi/\gamma)\csc(\pi/\gamma)\right]^{-1}
+.. math:: P(k) = \frac{\left<\delta B^2\right>l_\text{slab}}{1+(kl_\text{slab})^\gamma}\left[(\pi/\gamma)\csc(\pi/\gamma)\right]^{-1}
 
 The parallel diffusion coefficient is
 
 .. math::
 
    \begin{aligned}
-     \kappa_\parallel(v) & = \frac{v^2\csc(\pi/\gamma)}{\Omega_0^2\sigma^2\gamma L_c}\int_0^1(1-\mu^2)|v\mu|\left(1+\left|\frac{\Omega_0}{v\mu}\right|L_c\right)^\gamma d\mu \\
-     & = \frac{v^3\csc(\pi/\gamma)}{4\Omega_0^2\sigma^2\gamma L_c}\left[1+ \left(\frac{\Omega_0L_c}{v}\right)^\gamma\frac{8}{(2-\gamma)(4-\gamma)}\right]
+     \kappa_\parallel(v) & = \frac{v^2\csc(\pi/\gamma)}{\Omega_0^2\sigma^2\gamma l_\text{slab}}\int_0^1(1-\mu^2)|v\mu|\left(1+\left|\frac{\Omega_0}{v\mu}\right|l_\text{slab}\right)^\gamma d\mu \\
+     & = \frac{v^3\csc(\pi/\gamma)}{4\Omega_0^2\sigma^2\gamma l_\text{slab}}\left[1+ \left(\frac{\Omega_0l_\text{slab}}{v}\right)^\gamma\frac{8}{(2-\gamma)(4-\gamma)}\right]
    \end{aligned}
 
 where we assume :math:`v>0` and :math:`\gamma<2`. When
@@ -97,13 +97,73 @@ where we assume :math:`v>0` and :math:`\gamma<2`. When
 equ_kpara_qlt_. (What will happen when
 :math:`\gamma>2`?).
 
-Test-particle simulations have suggested that
-:math:`\kappa_\perp/\kappa_\parallel` is about 0.02-0.04 and is nearly
-independent of particle
-energy [Giacalone99]_. There is also
-observational evidence suggesting that
-:math:`\kappa_\perp/\kappa_\parallel` can be quite
-large [Dwyer97]_ [Zhang03]_.
+The resulting parallel mean free path is
+
+.. math::
+
+  \begin{align}
+    \lambda_\parallel & =3\kappa_\parallel/v\\
+    & =\frac{3v^2\csc(\pi/\gamma)}{4\Omega_0^2\sigma_\text{slab}^2\gamma l_\text{slab}}\left[1+ \left(\frac{\Omega_0l_\text{slab}}{v}\right)^\gamma\frac{8}{(2-\gamma)(4-\gamma)}\right]\\
+    & = \frac{3\csc(\pi/\gamma)}{\gamma\sigma_\text{slab}^2}l_\text{slab}R^2\left[\frac{1}{4}+\frac{2R^{-\gamma}}{(2-\gamma)(4-\gamma)}\right]
+  \end{align}
+
+where :math:`R=R_L/l_\text{slab}` with :math:`R_L=v/\Omega_0` the Larmor radius for a :math:`90^\circ` pitch angle. Test-particle simulations have suggested that :math:`\kappa_\perp/\kappa_\parallel` is about 0.02-0.04 at 1AU and is nearly independent of particle energy [Giacalone99]_. There is also observational evidence suggesting that :math:`\kappa_\perp/\kappa_\parallel` can be quite large [Dwyer97]_ [Zhang03]_. Theoretically, :math:`\kappa_\perp` can be calculated based nonlinear guiding center theory (NLGC) [Matthaeus03]_ [Wijsen23]_.
+
+.. math::
+
+  \kappa_\perp=\mu^2v\lambda_\parallel^{1/3}\left(\alpha^2\sqrt{3\pi}\frac{2\nu-1}{\nu}\frac{\Gamma(\nu)}{\Gamma(\nu-1/2)}\sigma_\text{2D}^2l_\text{2D}\right)^{2/3}
+  
+  
+where :math:`\nu=\gamma/2`, :math:`\Gamma` is the gamma function, and :math:`\alpha` is the free parameter, which is :math:`\sqrt{1/3}` according to [Matthaeus03]_. Then, the perpendicular mean free path is
+
+.. math::
+
+    \lambda_\perp=\frac{3}{2v}\int_{-1}^1\kappa_\perp d\mu
+    = \lambda_\parallel^{1/3}\left(\alpha^2\sqrt{3\pi}\frac{2\nu-1}{\nu}\frac{\Gamma(\nu)}{\Gamma(\nu-1/2)}\sigma_\text{2D}^2l_\text{2D}\right)^{2/3}
+
+For SEP transport, the unknowns left are the radial dependence of the turbulence properties (:math:`\sigma^2`, :math:`l_\text{slab}`, :math:`l_\text{2D}`). For :math:`\sigma^2`, we can prescribed it. For example, [Wijsen23]_ gave the following form.
+
+.. math::
+
+    \sigma^2=
+        \begin{cases}
+        \Lambda_0(r/r_0)^{\alpha_1} & r\leq r_1=0.5 \text{ au}\\
+        \Lambda_1(r/r_0)^{\alpha_2} & r_1<r\leq r_2=2.0 \text{ au}\\
+        \Lambda_2 & r>r_2
+        \end{cases}
+
+where :math:`r_0=0.1` au, :math:`\Lambda_0=0.1`, :math:`\Lambda_1=\Lambda_0(r_1/r_0)^{\alpha_1-\alpha_2}\approx0.15`, :math:`\Lambda_2=\Lambda_0(r_2/r_0)^{\alpha_2}\approx0.32`, with :math:`\alpha_1=0.5` and :math:`\alpha_2=0.25`. The choice of the above equation is to capture the different radial dependence of the background magnetic field and the turbulent field :math:`\delta B`. The 2D and slab correlation length are prescribed as :math:`l_\text{2D}=(0.0074 \text{ au}) (r/1 \text{ au})^{1.1}` and :math:`l_\text{slab}=3.9\times l_\text{2D}` in [Wijsen23]_.
+
+For the transport modeling, :math:`\kappa_\parallel` part can be the same as before. The problem is :math:`\kappa_\perp`, which depends on both the 2D and the slab components. :math:`\kappa_\perp` also has different velocity dependence. Since we want to hide the analytical details, it is better not to include all the calculation of the diffusion coefficients in the code.
+
+.. math::
+
+    \begin{align}
+    \kappa_\parallel &\sim v^{3-\gamma}B_0^{\gamma-2}(\sigma_\text{slab}^2)^{-1}l_\text{slab}^{\gamma-1} \\
+    \lambda_\parallel &\sim v^{2-\gamma}B_0^{\gamma-2}(\sigma_\text{slab}^2)^{-1}l_\text{slab}^{\gamma-1} \\
+    \kappa_\perp &\sim v^{(5-\gamma)/3}B_0^{(\gamma-2)/3}(\sigma_\text{slab}^2)^{-1/3}(\sigma_\text{2D}^2)^{2/3}l_\text{slab}^{(\gamma-1)/3}l_\text{2D}^{2/3}
+    \end{align}
+
+If we assume :math:`\sigma_\text{slab}^2 \sim \sigma_\text{2D}^2\sim\sigma^2` and :math:`l_\text{slab}\sim l_\text{2D}\sim L_c`,
+
+.. math::
+
+    \begin{align}
+    \kappa_\parallel &\sim v^{3-\gamma}B_0^{\gamma-2}(\sigma^2)^{-1}L_c^{\gamma-1} \\
+    \kappa_\perp &\sim v^{(5-\gamma)/3}B_0^{(\gamma-2)/3}(\sigma^2)^{1/3}L_c^{(\gamma+1)/3}
+    \end{align}
+
+The gradient of the diffusion coefficient can be calculated as
+
+.. math::
+
+    \frac{d\kappa_\parallel}{dx} \sim \kappa_\parallel\left(\frac{\gamma-2}{B_0}\frac{\partial B_0}{\partial x} - \frac{1}{\sigma_\text{slab}^2}\frac{\partial(\sigma_\text{slab}^2)}{\partial x} + (\gamma-1)\frac{1}{l_\text{slab}}\frac{\partial l_\text{slab}}{\partial x}\right)
+
+
+.. math::
+
+    \frac{d\kappa_\perp}{dx}\sim \kappa_\perp\left(\frac{\gamma-2}{3B_0}\frac{\partial B_0}{\partial x} - \frac{1}{3\sigma_\text{slab}^2}\frac{\partial(\sigma_\text{slab}^2)}{\partial x} + \frac{2}{3\sigma_\text{2D}^2}\frac{\partial(\sigma_\text{2D}^2)}{\partial x} + \frac{\gamma-1}{3}\frac{1}{l_\text{slab}}\frac{\partial l_\text{slab}}{\partial x} + \frac{2}{3}\frac{1}{l_\text{2D}}\frac{\partial l_\text{2D}}{\partial x}\right)
+
 
 The Parker transport equation can be solved by integrating the
 stochastic differential equation corresponding to the Fokker–Planck form
@@ -132,6 +192,8 @@ which is equivalent to a system of stochastic differential equations
 .. [Giacalone99] Giacalone, J. and Jokipii, J.R., 1999. The transport of cosmic rays across a turbulent magnetic field. The Astrophysical Journal, 520(1), p.204.
 .. [Jokipii71] Jokipii, J.R., 1971. Propagation of cosmic rays in the solar wind. Reviews of Geophysics, 9(1), pp.27-87.
 .. [Kong17] Kong, X., Guo, F., Giacalone, J., Li, H. and Chen, Y., 2017. The acceleration of high-energy protons at coronal shocks: the effect of large-scale streamer-like magnetic field structures. The Astrophysical Journal, 851(1), p.38.
+.. [Matthaeus03] Matthaeus, William H., Gang Qin, John William Bieber, and Gary Paul Zank. "Nonlinear collisionless perpendicular diffusion of charged particles." The Astrophysical Journal 590, no. 1 II (2003).
 .. [Pei10] Pei, C., Bieber, J. W., Burger, R. A., & Clem, J. 2010, Journal of Geophysical Research (Space Physics), 115, A12107
+.. [Wijsen23] Wijsen, Nicolas, Gang Li, Zheyi Ding, David Lario, Stefaan Poedts, Rachael Jo Filwett, Robert Colby Allen, and M. A. Dayeh. "On the seed population of solar energetic particles in the inner heliosphere." Journal of Geophysical Research: Space Physics 128, no. 3 (2023): e2022JA031203.
 .. [Zhang99] Zhang, M., 1999. A Markov stochastic process theory of cosmic-ray modulation. The Astrophysical Journal, 513(1), p.409.
 .. [Zhang03] Zhang, M., Jokipii, J.R. and McKibben, R.B., 2003. Perpendicular transport of solar energetic particles in heliospheric magnetic fields. The Astrophysical Journal, 595(1), p.493.
