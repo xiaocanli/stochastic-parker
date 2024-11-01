@@ -12,6 +12,7 @@ diffusion.sh
 - ``conf``: the name of the configuration file. ``conf.dat`` is the default.
 - ``mhd_config_filename``: the name of the MHD configuration file. ``mhd_config.dat`` is the default.
 - ``focused_transport``: whether to solve the focused transport equation. ``.false.`` is the default, which means solving the Parker transport equation.
+- ``nlgc``: whether to use the nonlinear guiding center (NLGC) theory to calculate the perpendicular diffusion coefficient. ``.false.`` is the default, which means not using the NLGC method. When ``.true.``, it is better to turn on ``deltab_flag=1`` and ``correlation_flag=1`` (see below).
 - ``mpi_size``: the total number of MPI processes.
 - ``ntasks_per_node``: the number of MPI processes per node.
 - ``size_mpi_sub``: the size of an MPI sub-communicator. ``1`` is the default, which means there is only one MPI communicator (MPI_COMM_WORLD). If not ``1``, the total number of MPI processes must be divisible by ``size_mpi_sub``. The MPI communications are done within each sub-communicator. In this way, we don't need to divide the domain into too many sub-domains, which is not efficient for MPI communications. To get the global properties (e.g., global particle spectrum), we will use the cross-communicators.
@@ -94,9 +95,13 @@ diffusion.sh
 
 Then, the script will modify the configuration file ``conf.dat``. The parameters in ``conf.dat`` are explained below. Additionally, a few other parameters are modified in this script for more flexibility.
 
-- ``tau0_scattering``: the scattering time for initial particles. It is only used for momentum diffusion due to wave scattering. It is not used for Parker transport. The parameters are calculated based on the initial particle momentum and turbulence properties in ``sde.py``.
+- ``tau0``: the scattering time for initial particles. It is only used for momentum diffusion due to wave scattering. It is not used for Parker transport. The parameters are calculated based on the initial particle momentum and turbulence properties in ``sde.py``.
+- ``kpara0``: the initial value of the parallel diffusion coefficient for the particles with the initial momentum, magnetic field, and turbulence properties. It can be calculated in ``sde.py``.
 - ``duu0``: the normalization for pitch-angle diffusion coefficient. It is only used in the focused transport equation. The parameters are calculated based on the initial particle momentum and turbulence properties in ``sde.py``.
+- ``kret``: the ratio of the perpendicular diffusion coefficient to the parallel diffusion coefficient. It is typically set to less than ``0.1``.
+- ``kperp_kpara``: the ratio of the perpendicular diffusion coefficient to the parallel diffusion coefficient for particles with the initial momentum, magntic field, and turbulence properties. It is used when nonlinear guiding center (NLGC) is used to calculate the perpendicular diffusion coefficient. It can be calculated in ``sde.py``.
 - ``particle_v0``: the particle speed/velocity normalization. It is only used in the focused transport equation. The parameters are calculated based on the initial particle momentum and turbulence properties in ``sde.py``.
+- 
 - ``dir_mhd_data``: the directory for MHD simulation data.
 - ``diagnostic_directory``: the directory for diagnostics data.
 
@@ -108,7 +113,7 @@ conf.dat
 - ``pmin``: the minimum particle momentum. It is used when injecting particles and when calculating the global particle spectrum. It is typically set to ``1E-2``.
 - ``pmax``: the maximum particle momentum. It is used when injecting particles and when calculating the global particle spectrum. It is typically set to ``1E1``.
 - ``momentum_dependency``: whether the diffusion coefficients depend on particle momentum. ``1`` is the default, which means the diffusion coefficients depend on particle momentum. ``0`` means the diffusion coefficients do not depend on particle momentum.
-- ``pindex``: the power-law index for the momentum dependency of the diffusion coefficients. It is only used when ``momentum_dependency=1``. It is typically set to ``3-5/3=4/3=1.3333333``, where ``5/3`` is the turbulence spectral slope for the Kolmogorov spectrum. It can be modified in ``difffusion.sh`` when using different turbulence models.
+- ``gamma_turb``: the turbulence spectral slope. It is typically set to ``5/3`` for the Kolmogorov spectrum. It can be modified in ``difffusion.sh`` when using different turbulence models.
 - ``mag_dependency``: whether the diffusion coefficients depend on magnetic field strength. ``1`` is the default, which means the diffusion coefficients depend on magnetic field strength. ``0`` means the diffusion coefficients do not depend on magnetic field strength.
 - ``kpara0``: the normalization for the parallel diffusion coefficient. It is calculated based on the initial particle momentum, magnetic field, and turbulence properties in ``sde.py``.
 - ``kret``: the ratio of the perpendicular diffusion coefficient to the parallel diffusion coefficient. It is typically set to less than ``0.1``.
