@@ -15,11 +15,12 @@ module mhd_data_parallel
            locate_shock_xpos, interp_shock_location, init_magnetic_fluctuation, &
            free_magnetic_fluctuation, read_magnetic_fluctuation, &
            interp_magnetic_fluctuation, copy_magnetic_fluctuation, &
-           calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
+           calc_grad_sigma2_slab, calc_grad_sigma2_slab_nonuniform, &
+           calc_grad_sigma2_2d, calc_grad_sigma2_2d_nonuniform, &
            init_correlation_length, free_correlation_length, &
-           read_correlation_length, interp_correlation_length, &
-           copy_correlation_length, calc_grad_correl_length, &
-           calc_grad_correl_length_nonuniform, &
+           read_correlation_length, interp_correlation_length, copy_correlation_length, &
+           calc_grad_lc_slab, calc_grad_lc_slab_nonuniform, &
+           calc_grad_lc_2d, calc_grad_lc_2d_nonuniform, &
            init_grid_positions, free_grid_positions, &
            set_local_grid_positions, get_ncells_large_jz, &
            get_ncells_large_db2, get_ncells_large_divv, &
@@ -30,16 +31,22 @@ module mhd_data_parallel
     integer, parameter :: nfields=8
     integer, parameter :: ngrads=24
 
-    !< 80 variables in total if there are two time frames
+    !< 96 variables in total if there are two time frames
     real(sp), allocatable, dimension(:, :, :, :) :: farray1, farray2 ! Current,next
-    real(sp), allocatable, dimension(:, :, :, :) :: deltab2_1, deltab2_2 ! Current,next
-    real(sp), allocatable, dimension(:, :, :, :) :: lcorr1, lcorr2 ! Current,next
+    real(sp), allocatable, dimension(:, :, :, :) :: sigma2_slab_1, sigma2_slab_2 ! Current,next, slab
+    real(sp), allocatable, dimension(:, :, :, :) :: sigma2_2d_1, sigma2_2d_2 ! Current,next, 2D
+    real(sp), allocatable, dimension(:, :, :, :) :: lc_slab_1, lc_slab_2 ! Current,next, slab
+    real(sp), allocatable, dimension(:, :, :, :) :: lc_2d_1, lc_2d_2 ! Current,next, 2d
     !dir$ attributes align:128 :: farray1
     !dir$ attributes align:128 :: farray2
-    !dir$ attributes align:16 :: deltab2_1
-    !dir$ attributes align:16 :: deltab2_2
-    !dir$ attributes align:16 :: lcorr1
-    !dir$ attributes align:16 :: lcorr2
+    !dir$ attributes align:16 :: sigma2_slab_1
+    !dir$ attributes align:16 :: sigma2_slab_2
+    !dir$ attributes align:16 :: sigma2_2d_1
+    !dir$ attributes align:16 :: sigma2_2d_2
+    !dir$ attributes align:16 :: lc_slab_1
+    !dir$ attributes align:16 :: lc_slab_2
+    !dir$ attributes align:16 :: lc_2d_1
+    !dir$ attributes align:16 :: lc_2d_2
 
     logical :: time_interp
 
@@ -106,23 +113,31 @@ module mhd_data_parallel
         nz = fconfig%nz
 
         if (ndim_field == 1) then
-            allocate(deltab2_1(4, -1:nx+2, 1, 1))
+            allocate(sigma2_slab_1(4, -1:nx+2, 1, 1))
+            allocate(sigma2_2d_1(4, -1:nx+2, 1, 1))
         else if (ndim_field == 2) then
-            allocate(deltab2_1(4, -1:nx+2, -1:ny+2, 1))
+            allocate(sigma2_slab_1(4, -1:nx+2, -1:ny+2, 1))
+            allocate(sigma2_2d_1(4, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(deltab2_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(sigma2_slab_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(sigma2_2d_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
-        deltab2_1 = 1.0
+        sigma2_slab_1 = 1.0
+        sigma2_2d_1 = 1.0
         ! Next time step
         if (time_interp) then
             if (ndim_field == 1) then
-                allocate(deltab2_2(4, -1:nx+2, 1, 1))
+                allocate(sigma2_slab_2(4, -1:nx+2, 1, 1))
+                allocate(sigma2_2d_2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
-                allocate(deltab2_2(4, -1:nx+2, -1:ny+2, 1))
+                allocate(sigma2_slab_2(4, -1:nx+2, -1:ny+2, 1))
+                allocate(sigma2_2d_2(4, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(deltab2_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(sigma2_slab_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(sigma2_2d_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
-            deltab2_2 = 1.0
+            sigma2_slab_2 = 1.0
+            sigma2_2d_2 = 1.0
         endif
     end subroutine init_magnetic_fluctuation
 
@@ -138,23 +153,31 @@ module mhd_data_parallel
         nz = fconfig%nz
 
         if (ndim_field == 1) then
-            allocate(lcorr1(4, -1:nx+2, 1, 1))
+            allocate(lc_slab_1(4, -1:nx+2, 1, 1))
+            allocate(lc_2d_1(4, -1:nx+2, 1, 1))
         else if (ndim_field == 2) then
-            allocate(lcorr1(4, -1:nx+2, -1:ny+2, 1))
+            allocate(lc_slab_1(4, -1:nx+2, -1:ny+2, 1))
+            allocate(lc_2d_1(4, -1:nx+2, -1:ny+2, 1))
         else
-            allocate(lcorr1(4, -1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(lc_slab_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
+            allocate(lc_2d_1(4, -1:nx+2, -1:ny+2, -1:nz+2))
         endif
-        lcorr1 = 1.0
+        lc_slab_1 = 1.0
+        lc_2d_1 = 1.0
         ! Next time step
         if (time_interp) then
             if (ndim_field == 1) then
-                allocate(lcorr2(4, -1:nx+2, 1, 1))
+                allocate(lc_slab_2(4, -1:nx+2, 1, 1))
+                allocate(lc_2d_2(4, -1:nx+2, 1, 1))
             else if (ndim_field == 2) then
-                allocate(lcorr2(4, -1:nx+2, -1:ny+2, 1))
+                allocate(lc_slab_2(4, -1:nx+2, -1:ny+2, 1))
+                allocate(lc_2d_2(4, -1:nx+2, -1:ny+2, 1))
             else
-                allocate(lcorr2(4, -1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(lc_slab_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
+                allocate(lc_2d_2(4, -1:nx+2, -1:ny+2, -1:nz+2))
             endif
-            lcorr2 = 1.0
+            lc_slab_2 = 1.0
+            lc_2d_2 = 1.0
         endif
     end subroutine init_correlation_length
 
@@ -174,9 +197,9 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine free_magnetic_fluctuation
         implicit none
-        deallocate(deltab2_1)
+        deallocate(sigma2_slab_1, sigma2_2d_1)
         if (time_interp) then
-            deallocate(deltab2_2)
+            deallocate(sigma2_slab_2, sigma2_2d_2)
         endif
     end subroutine free_magnetic_fluctuation
 
@@ -185,9 +208,9 @@ module mhd_data_parallel
     !---------------------------------------------------------------------------
     subroutine free_correlation_length
         implicit none
-        deallocate(lcorr1)
+        deallocate(lc_slab_1, lc_2d_1)
         if (time_interp) then
-            deallocate(lcorr2)
+            deallocate(lc_slab_2, lc_2d_2)
         endif
     end subroutine free_correlation_length
 
@@ -307,16 +330,24 @@ module mhd_data_parallel
                  form='unformatted', action='read')
             if (var_flag == 0) then
                 if (mpi_rank == master) then
-                    read(fh, pos=1) deltab2_1(1, :, :, :)
+                    read(fh, pos=1) sigma2_slab_1(1, :, :, :)
+                    read(fh, pos=4*product(sizes)+1) sigma2_2d_1(1, :, :, :)
                 endif
-                call MPI_BCAST(deltab2_1(1, :, :, :), product(sizes), &
+                call MPI_BCAST(sigma2_slab_1(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(sigma2_2d_1(1, :, :, :), product(sizes), &
                     MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
-                    read(fh, pos=1) deltab2_2(1, :, :, :)
+                    read(fh, pos=1) sigma2_slab_2(1, :, :, :)
+                    read(fh, pos=4*product(sizes)+1) sigma2_2d_2(1, :, :, :)
                 endif
-                call MPI_BCAST(deltab2_2(1, :, :, :), product(sizes), &
+                call MPI_BCAST(sigma2_slab_2(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(sigma2_2d_2(1, :, :, :), product(sizes), &
                     MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
@@ -326,23 +357,36 @@ module mhd_data_parallel
                 mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
                 call set_mpi_info
                 call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, mpi_sub_comm, fh)
-                disp = 0
                 offset = 0
                 if (var_flag == 0) then
+                    disp = 0
                     call read_data_mpi_io(fh, mpi_datatype, subsizes, &
-                        disp, offset, deltab2_1(1, :, :, :))
+                        disp, offset, sigma2_slab_1(1, :, :, :))
+                    disp = product(sizes) * 4
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, sigma2_2d_1(1, :, :, :))
                 else
+                    disp = 0
                     call read_data_mpi_io(fh, mpi_datatype, subsizes, &
-                        disp, offset, deltab2_2(1, :, :, :))
+                        disp, offset, sigma2_slab_2(1, :, :, :))
+                    disp = product(sizes) * 4
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, sigma2_2d_2(1, :, :, :))
                 endif
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
             if (var_flag == 0) then
-                call MPI_BCAST(deltab2_1(1, :, :, :), product(subsizes), &
+                call MPI_BCAST(sigma2_slab_1(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+                call MPI_BCAST(sigma2_2d_1(1, :, :, :), product(subsizes), &
                     MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             else
-                call MPI_BCAST(deltab2_2(1, :, :, :), product(subsizes), &
+                call MPI_BCAST(sigma2_slab_2(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+                call MPI_BCAST(sigma2_2d_2(1, :, :, :), product(subsizes), &
                     MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             endif
@@ -386,16 +430,24 @@ module mhd_data_parallel
                  form='unformatted', action='read')
             if (var_flag == 0) then
                 if (mpi_rank == master) then
-                    read(fh, pos=1) lcorr1(1, :, :, :)
+                    read(fh, pos=1) lc_slab_1(1, :, :, :)
+                    read(fh, pos=4*product(sizes)+1) lc_2d_1(1, :, :, :)
                 endif
-                call MPI_BCAST(lcorr1(1, :, :, :), product(sizes), &
+                call MPI_BCAST(lc_slab_1(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(lc_2d_1(1, :, :, :), product(sizes), &
                     MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             else
                 if (mpi_rank == master) then
-                    read(fh, pos=1) lcorr2(1, :, :, :)
+                    read(fh, pos=1) lc_slab_2(1, :, :, :)
+                    read(fh, pos=4*product(sizes)+1) lc_2d_2(1, :, :, :)
                 endif
-                call MPI_BCAST(lcorr2(1, :, :, :), product(sizes), &
+                call MPI_BCAST(lc_slab_2(1, :, :, :), product(sizes), &
+                    MPI_REAL4, master, MPI_COMM_WORLD, ierr)
+                call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+                call MPI_BCAST(lc_2d_2(1, :, :, :), product(sizes), &
                     MPI_REAL4, master, MPI_COMM_WORLD, ierr)
                 call MPI_BARRIER(MPI_COMM_WORLD, ierr)
             endif
@@ -405,23 +457,36 @@ module mhd_data_parallel
                 mpi_datatype = set_mpi_datatype_real(sizes, subsizes, starts)
                 call set_mpi_info
                 call open_data_mpi_io(filename, MPI_MODE_RDONLY, fileinfo, mpi_sub_comm, fh)
-                disp = 0
                 offset = 0
                 if (var_flag == 0) then
+                    disp = 0
                     call read_data_mpi_io(fh, mpi_datatype, subsizes, &
-                        disp, offset, lcorr1(1, :, :, :))
+                        disp, offset, lc_slab_1(1, :, :, :))
+                    disp = product(sizes) * 4
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, lc_2d_1(1, :, :, :))
                 else
+                    disp = 0
                     call read_data_mpi_io(fh, mpi_datatype, subsizes, &
-                        disp, offset, lcorr2(1, :, :, :))
+                        disp, offset, lc_slab_2(1, :, :, :))
+                    disp = product(sizes) * 4
+                    call read_data_mpi_io(fh, mpi_datatype, subsizes, &
+                        disp, offset, lc_2d_2(1, :, :, :))
                 endif
                 call MPI_FILE_CLOSE(fh, ierror)
             endif
             if (var_flag == 0) then
-                call MPI_BCAST(lcorr1(1, :, :, :), product(subsizes), &
+                call MPI_BCAST(lc_slab_1(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+                call MPI_BCAST(lc_2d_1(1, :, :, :), product(subsizes), &
                     MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             else
-                call MPI_BCAST(lcorr2(1, :, :, :), product(subsizes), &
+                call MPI_BCAST(lc_slab_2(1, :, :, :), product(subsizes), &
+                    MPI_REAL4, master, mpi_cross_comm, ierr)
+                call MPI_BARRIER(mpi_cross_comm, ierr)
+                call MPI_BCAST(lc_2d_2(1, :, :, :), product(subsizes), &
                     MPI_REAL4, master, mpi_cross_comm, ierr)
                 call MPI_BARRIER(mpi_cross_comm, ierr)
             endif
@@ -699,11 +764,11 @@ module mhd_data_parallel
     end subroutine calc_fields_gradients_nonuniform
 
     !---------------------------------------------------------------------------
-    !< Calculate the gradients of magnetic fluctuation.
+    !< Calculate the gradients of magnetic fluctuation of the slab component
     !< Args:
     !<  var_flag: indicating which set of variables.
     !---------------------------------------------------------------------------
-    subroutine calc_grad_deltab2(var_flag)
+    subroutine calc_grad_sigma2_slab(var_flag)
         use mhd_config_module, only: mhd_config
         implicit none
         integer, intent(in) :: var_flag
@@ -714,12 +779,12 @@ module mhd_data_parallel
         idxh = 0.5_dp / mhd_config%dx
         idyh = 0.5_dp / mhd_config%dy
         idzh = 0.5_dp / mhd_config%dz
-        unx = ubound(deltab2_1, 2)
-        uny = ubound(deltab2_1, 3)
-        unz = ubound(deltab2_1, 4)
-        lnx = lbound(deltab2_1, 2)
-        lny = lbound(deltab2_1, 3)
-        lnz = lbound(deltab2_1, 4)
+        unx = ubound(sigma2_slab_1, 2)
+        uny = ubound(sigma2_slab_1, 3)
+        unz = ubound(sigma2_slab_1, 4)
+        lnx = lbound(sigma2_slab_1, 2)
+        lny = lbound(sigma2_slab_1, 3)
+        lnz = lbound(sigma2_slab_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -734,84 +799,85 @@ module mhd_data_parallel
         lnz2 = lnz + 2
         if (var_flag == 0) then
             ! d/dx
-            deltab2_1(2, lnx1:unx1, :, :) = (deltab2_1(1, lnx2:unx, :, :) - &
-                                             deltab2_1(1, lnx:unx2, :, :)) * idxh
-            deltab2_1(2, lnx, :, :) =  (-3.0*deltab2_1(1, lnx, :, :) + &
-                                         4.0*deltab2_1(1, lnx1, :, :) - &
-                                             deltab2_1(1, lnx2, :, :)) * idxh
-            deltab2_1(2, unx, :, :) =   (3.0*deltab2_1(1, unx, :, :) - &
-                                         4.0*deltab2_1(1, unx1, :, :) + &
-                                             deltab2_1(1, unx2, :, :)) * idxh
+            sigma2_slab_1(2, lnx1:unx1, :, :) = (sigma2_slab_1(1, lnx2:unx, :, :) - &
+                                                 sigma2_slab_1(1, lnx:unx2, :, :)) * idxh
+            sigma2_slab_1(2, lnx, :, :) =  (-3.0*sigma2_slab_1(1, lnx, :, :) + &
+                                             4.0*sigma2_slab_1(1, lnx1, :, :) - &
+                                                 sigma2_slab_1(1, lnx2, :, :)) * idxh
+            sigma2_slab_1(2, unx, :, :) =   (3.0*sigma2_slab_1(1, unx, :, :) - &
+                                             4.0*sigma2_slab_1(1, unx1, :, :) + &
+                                                 sigma2_slab_1(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                deltab2_1(3, :, lny1:uny1, :) = (deltab2_1(1, :, lny2:uny, :) - &
-                                                 deltab2_1(1, :, lny:uny2, :)) * idyh
-                deltab2_1(3, :, lny, :) =  (-3.0*deltab2_1(1, :, lny, :) + &
-                                             4.0*deltab2_1(1, :, lny1, :) - &
-                                                 deltab2_1(1, :, lny2, :)) * idyh
-                deltab2_1(3, :, uny, :) =   (3.0*deltab2_1(1, :, uny, :) - &
-                                             4.0*deltab2_1(1, :, uny1, :) + &
-                                                 deltab2_1(1, :, uny2, :)) * idyh
+                sigma2_slab_1(3, :, lny1:uny1, :) = (sigma2_slab_1(1, :, lny2:uny, :) - &
+                                                     sigma2_slab_1(1, :, lny:uny2, :)) * idyh
+                sigma2_slab_1(3, :, lny, :) =  (-3.0*sigma2_slab_1(1, :, lny, :) + &
+                                                 4.0*sigma2_slab_1(1, :, lny1, :) - &
+                                                     sigma2_slab_1(1, :, lny2, :)) * idyh
+                sigma2_slab_1(3, :, uny, :) =   (3.0*sigma2_slab_1(1, :, uny, :) - &
+                                                 4.0*sigma2_slab_1(1, :, uny1, :) + &
+                                                     sigma2_slab_1(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                deltab2_1(4, :, :, lnz1:unz1) = (deltab2_1(1, :, :, lnz2:unz) - &
-                                                 deltab2_1(1, :, :, lnz:unz2)) * idzh
-                deltab2_1(4, :, :, lnz) =  (-3.0*deltab2_1(1, :, :, lnz) + &
-                                             4.0*deltab2_1(1, :, :, lnz1) - &
-                                                 deltab2_1(1, :, :, lnz2)) * idzh
-                deltab2_1(4, :, :, unz) =   (3.0*deltab2_1(1, :, :, unz) - &
-                                             4.0*deltab2_1(1, :, :, unz1) + &
-                                                 deltab2_1(1, :, :, unz2)) * idzh
+                sigma2_slab_1(4, :, :, lnz1:unz1) = (sigma2_slab_1(1, :, :, lnz2:unz) - &
+                                                     sigma2_slab_1(1, :, :, lnz:unz2)) * idzh
+                sigma2_slab_1(4, :, :, lnz) =  (-3.0*sigma2_slab_1(1, :, :, lnz) + &
+                                                 4.0*sigma2_slab_1(1, :, :, lnz1) - &
+                                                     sigma2_slab_1(1, :, :, lnz2)) * idzh
+                sigma2_slab_1(4, :, :, unz) =   (3.0*sigma2_slab_1(1, :, :, unz) - &
+                                                 4.0*sigma2_slab_1(1, :, :, unz1) + &
+                                                     sigma2_slab_1(1, :, :, unz2)) * idzh
             endif
         else
             ! d/dx
-            deltab2_2(2, lnx1:unx1, :, :) = (deltab2_2(1, lnx2:unx, :, :) - &
-                                             deltab2_2(1, lnx:unx2, :, :)) * idxh
-            deltab2_2(2, lnx, :, :) =  (-3.0*deltab2_2(1, lnx, :, :) + &
-                                         4.0*deltab2_2(1, lnx1, :, :) - &
-                                             deltab2_2(1, lnx2, :, :)) * idxh
-            deltab2_2(2, unx, :, :) =   (3.0*deltab2_2(1, unx, :, :) - &
-                                         4.0*deltab2_2(1, unx1, :, :) + &
-                                             deltab2_2(1, unx2, :, :)) * idxh
+            sigma2_slab_2(2, lnx1:unx1, :, :) = (sigma2_slab_2(1, lnx2:unx, :, :) - &
+                                                 sigma2_slab_2(1, lnx:unx2, :, :)) * idxh
+            sigma2_slab_2(2, lnx, :, :) =  (-3.0*sigma2_slab_2(1, lnx, :, :) + &
+                                             4.0*sigma2_slab_2(1, lnx1, :, :) - &
+                                                 sigma2_slab_2(1, lnx2, :, :)) * idxh
+            sigma2_slab_2(2, unx, :, :) =   (3.0*sigma2_slab_2(1, unx, :, :) - &
+                                             4.0*sigma2_slab_2(1, unx1, :, :) + &
+                                                 sigma2_slab_2(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                deltab2_2(3, :, lny1:uny1, :) = (deltab2_2(1, :, lny2:uny, :) - &
-                                                 deltab2_2(1, :, lny:uny2, :)) * idyh
-                deltab2_2(3, :, lny, :) =  (-3.0*deltab2_2(1, :, lny, :) + &
-                                             4.0*deltab2_2(1, :, lny1, :) - &
-                                                 deltab2_2(1, :, lny2, :)) * idyh
-                deltab2_2(3, :, uny, :) =   (3.0*deltab2_2(1, :, uny, :) - &
-                                             4.0*deltab2_2(1, :, uny1, :) + &
-                                                 deltab2_2(1, :, uny2, :)) * idyh
+                sigma2_slab_2(3, :, lny1:uny1, :) = (sigma2_slab_2(1, :, lny2:uny, :) - &
+                                                     sigma2_slab_2(1, :, lny:uny2, :)) * idyh
+                sigma2_slab_2(3, :, lny, :) =  (-3.0*sigma2_slab_2(1, :, lny, :) + &
+                                                 4.0*sigma2_slab_2(1, :, lny1, :) - &
+                                                     sigma2_slab_2(1, :, lny2, :)) * idyh
+                sigma2_slab_2(3, :, uny, :) =   (3.0*sigma2_slab_2(1, :, uny, :) - &
+                                                 4.0*sigma2_slab_2(1, :, uny1, :) + &
+                                                     sigma2_slab_2(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                deltab2_2(4, :, :, lnz1:unz1) = (deltab2_2(1, :, :, lnz2:unz) - &
-                                                 deltab2_2(1, :, :, lnz:unz2)) * idzh
-                deltab2_2(4, :, :, lnz) =  (-3.0*deltab2_2(1, :, :, lnz) + &
-                                             4.0*deltab2_2(1, :, :, lnz1) - &
-                                                 deltab2_2(1, :, :, lnz2)) * idzh
-                deltab2_2(4, :, :, unz) =   (3.0*deltab2_2(1, :, :, unz) - &
-                                             4.0*deltab2_2(1, :, :, unz1) + &
-                                                 deltab2_2(1, :, :, unz2)) * idzh
+                sigma2_slab_2(4, :, :, lnz1:unz1) = (sigma2_slab_2(1, :, :, lnz2:unz) - &
+                                                     sigma2_slab_2(1, :, :, lnz:unz2)) * idzh
+                sigma2_slab_2(4, :, :, lnz) =  (-3.0*sigma2_slab_2(1, :, :, lnz) + &
+                                                 4.0*sigma2_slab_2(1, :, :, lnz1) - &
+                                                     sigma2_slab_2(1, :, :, lnz2)) * idzh
+                sigma2_slab_2(4, :, :, unz) =   (3.0*sigma2_slab_2(1, :, :, unz) - &
+                                                 4.0*sigma2_slab_2(1, :, :, unz1) + &
+                                                     sigma2_slab_2(1, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished calculating gradients of magnetic fluctuation."
         endif
-    end subroutine calc_grad_deltab2
+    end subroutine calc_grad_sigma2_slab
 
     !---------------------------------------------------------------------------
-    !< Calculate the gradients of magnetic fluctuation for nonuniform grid
+    !< Calculate the gradients of magnetic fluctuation of the slab component
+    !< for nonuniform grid
     !< Args:
     !<  var_flag: indicating which set of variables.
     !---------------------------------------------------------------------------
-    subroutine calc_grad_deltab2_nonuniform(var_flag)
+    subroutine calc_grad_sigma2_slab_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
         implicit none
         integer, intent(in) :: var_flag
@@ -819,12 +885,12 @@ module mhd_data_parallel
         integer :: unx1, unx2, uny1, uny2, unz1, unz2
         integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
         integer :: ix, iy, iz
-        unx = ubound(deltab2_1, 2)
-        uny = ubound(deltab2_1, 3)
-        unz = ubound(deltab2_1, 4)
-        lnx = lbound(deltab2_1, 2)
-        lny = lbound(deltab2_1, 3)
-        lnz = lbound(deltab2_1, 4)
+        unx = ubound(sigma2_slab_1, 2)
+        uny = ubound(sigma2_slab_1, 3)
+        unz = ubound(sigma2_slab_1, 4)
+        lnx = lbound(sigma2_slab_1, 2)
+        lny = lbound(sigma2_slab_1, 3)
+        lnz = lbound(sigma2_slab_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -841,112 +907,112 @@ module mhd_data_parallel
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                deltab2_1(2, lnx1:unx1, iy, iz) = &
-                    (deltab2_1(1, lnx2:unx, iy, iz) - &
-                     deltab2_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                sigma2_slab_1(2, lnx1:unx1, iy, iz) = &
+                    (sigma2_slab_1(1, lnx2:unx, iy, iz) - &
+                     sigma2_slab_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            deltab2_1(2, lnx, :, :) =  (-3.0*deltab2_1(1, lnx, :, :) + &
-                                         4.0*deltab2_1(1, lnx1, :, :) - &
-                                             deltab2_1(1, lnx2, :, :)) * idxh_grid(lnx)
-            deltab2_1(2, unx, :, :) =   (3.0*deltab2_1(1, unx, :, :) - &
-                                         4.0*deltab2_1(1, unx1, :, :) + &
-                                             deltab2_1(1, unx2, :, :)) * idxh_grid(unx)
+            sigma2_slab_1(2, lnx, :, :) =  (-3.0*sigma2_slab_1(1, lnx, :, :) + &
+                                             4.0*sigma2_slab_1(1, lnx1, :, :) - &
+                                                 sigma2_slab_1(1, lnx2, :, :)) * idxh_grid(lnx)
+            sigma2_slab_1(2, unx, :, :) =   (3.0*sigma2_slab_1(1, unx, :, :) - &
+                                             4.0*sigma2_slab_1(1, unx1, :, :) + &
+                                                 sigma2_slab_1(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    deltab2_1(3, ix, lny1:uny1, iz) = &
-                        (deltab2_1(1, ix, lny2:uny, iz) - &
-                         deltab2_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    sigma2_slab_1(3, ix, lny1:uny1, iz) = &
+                        (sigma2_slab_1(1, ix, lny2:uny, iz) - &
+                         sigma2_slab_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                deltab2_1(3, :, lny, :) =  (-3.0*deltab2_1(1, :, lny, :) + &
-                                             4.0*deltab2_1(1, :, lny1, :) - &
-                                                 deltab2_1(1, :, lny2, :)) * idyh_grid(lny)
-                deltab2_1(3, :, uny, :) =   (3.0*deltab2_1(1, :, uny, :) - &
-                                             4.0*deltab2_1(1, :, uny1, :) + &
-                                                 deltab2_1(1, :, uny2, :)) * idyh_grid(uny)
+                sigma2_slab_1(3, :, lny, :) =  (-3.0*sigma2_slab_1(1, :, lny, :) + &
+                                                 4.0*sigma2_slab_1(1, :, lny1, :) - &
+                                                     sigma2_slab_1(1, :, lny2, :)) * idyh_grid(lny)
+                sigma2_slab_1(3, :, uny, :) =   (3.0*sigma2_slab_1(1, :, uny, :) - &
+                                                 4.0*sigma2_slab_1(1, :, uny1, :) + &
+                                                     sigma2_slab_1(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    deltab2_1(4, ix, iy, lnz1:unz1) = &
-                        (deltab2_1(1, ix, iy, lnz2:unz) - &
-                         deltab2_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    sigma2_slab_1(4, ix, iy, lnz1:unz1) = &
+                        (sigma2_slab_1(1, ix, iy, lnz2:unz) - &
+                         sigma2_slab_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                deltab2_1(4, :, :, lnz) =  (-3.0*deltab2_1(1, :, :, lnz) + &
-                                             4.0*deltab2_1(1, :, :, lnz1) - &
-                                                 deltab2_1(1, :, :, lnz2)) * idzh_grid(lnz)
-                deltab2_1(4, :, :, unz) =   (3.0*deltab2_1(1, :, :, unz) - &
-                                             4.0*deltab2_1(1, :, :, unz1) + &
-                                                 deltab2_1(1, :, :, unz2)) * idzh_grid(unz)
+                sigma2_slab_1(4, :, :, lnz) =  (-3.0*sigma2_slab_1(1, :, :, lnz) + &
+                                                 4.0*sigma2_slab_1(1, :, :, lnz1) - &
+                                                     sigma2_slab_1(1, :, :, lnz2)) * idzh_grid(lnz)
+                sigma2_slab_1(4, :, :, unz) =   (3.0*sigma2_slab_1(1, :, :, unz) - &
+                                                 4.0*sigma2_slab_1(1, :, :, unz1) + &
+                                                     sigma2_slab_1(1, :, :, unz2)) * idzh_grid(unz)
             endif
         else
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                deltab2_2(2, lnx1:unx1, iy, iz) = &
-                    (deltab2_2(1, lnx2:unx, iy, iz) - &
-                     deltab2_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                sigma2_slab_2(2, lnx1:unx1, iy, iz) = &
+                    (sigma2_slab_2(1, lnx2:unx, iy, iz) - &
+                     sigma2_slab_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            deltab2_2(2, lnx, :, :) =  (-3.0*deltab2_2(1, lnx, :, :) + &
-                                         4.0*deltab2_2(1, lnx1, :, :) - &
-                                             deltab2_2(1, lnx2, :, :)) * idxh_grid(lnx)
-            deltab2_2(2, unx, :, :) =   (3.0*deltab2_2(1, unx, :, :) - &
-                                         4.0*deltab2_2(1, unx1, :, :) + &
-                                             deltab2_2(1, unx2, :, :)) * idxh_grid(unx)
+            sigma2_slab_2(2, lnx, :, :) =  (-3.0*sigma2_slab_2(1, lnx, :, :) + &
+                                             4.0*sigma2_slab_2(1, lnx1, :, :) - &
+                                                 sigma2_slab_2(1, lnx2, :, :)) * idxh_grid(lnx)
+            sigma2_slab_2(2, unx, :, :) =   (3.0*sigma2_slab_2(1, unx, :, :) - &
+                                             4.0*sigma2_slab_2(1, unx1, :, :) + &
+                                                 sigma2_slab_2(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    deltab2_2(3, ix, lny1:uny1, iz) = &
-                        (deltab2_2(1, ix, lny2:uny, iz) - &
-                         deltab2_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    sigma2_slab_2(3, ix, lny1:uny1, iz) = &
+                        (sigma2_slab_2(1, ix, lny2:uny, iz) - &
+                         sigma2_slab_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                deltab2_2(3, :, lny, :) =  (-3.0*deltab2_2(1, :, lny, :) + &
-                                             4.0*deltab2_2(1, :, lny1, :) - &
-                                                 deltab2_2(1, :, lny2, :)) * idyh_grid(lny)
-                deltab2_2(3, :, uny, :) =   (3.0*deltab2_2(1, :, uny, :) - &
-                                             4.0*deltab2_2(1, :, uny1, :) + &
-                                                 deltab2_2(1, :, uny2, :)) * idyh_grid(uny)
+                sigma2_slab_2(3, :, lny, :) =  (-3.0*sigma2_slab_2(1, :, lny, :) + &
+                                                 4.0*sigma2_slab_2(1, :, lny1, :) - &
+                                                     sigma2_slab_2(1, :, lny2, :)) * idyh_grid(lny)
+                sigma2_slab_2(3, :, uny, :) =   (3.0*sigma2_slab_2(1, :, uny, :) - &
+                                                 4.0*sigma2_slab_2(1, :, uny1, :) + &
+                                                     sigma2_slab_2(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    deltab2_2(4, ix, iy, lnz1:unz1) = &
-                        (deltab2_2(1, ix, iy, lnz2:unz) - &
-                         deltab2_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    sigma2_slab_2(4, ix, iy, lnz1:unz1) = &
+                        (sigma2_slab_2(1, ix, iy, lnz2:unz) - &
+                         sigma2_slab_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                deltab2_2(4, :, :, lnz) =  (-3.0*deltab2_2(1, :, :, lnz) + &
-                                             4.0*deltab2_2(1, :, :, lnz1) - &
-                                                 deltab2_2(1, :, :, lnz2)) * idzh_grid(lnz)
-                deltab2_2(4, :, :, unz) =   (3.0*deltab2_2(1, :, :, unz) - &
-                                             4.0*deltab2_2(1, :, :, unz1) + &
-                                                 deltab2_2(1, :, :, unz2)) * idzh_grid(unz)
+                sigma2_slab_2(4, :, :, lnz) =  (-3.0*sigma2_slab_2(1, :, :, lnz) + &
+                                                 4.0*sigma2_slab_2(1, :, :, lnz1) - &
+                                                     sigma2_slab_2(1, :, :, lnz2)) * idzh_grid(lnz)
+                sigma2_slab_2(4, :, :, unz) =   (3.0*sigma2_slab_2(1, :, :, unz) - &
+                                                 4.0*sigma2_slab_2(1, :, :, unz1) + &
+                                                     sigma2_slab_2(1, :, :, unz2)) * idzh_grid(unz)
             endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished calculating gradients of magnetic fluctuation."
         endif
-    end subroutine calc_grad_deltab2_nonuniform
+    end subroutine calc_grad_sigma2_slab_nonuniform
 
     !---------------------------------------------------------------------------
-    !< Calculate the gradients of turbulence correlation length.
+    !< Calculate the gradients of magnetic fluctuation of the 2D component
     !< Args:
     !<  var_flag: indicating which set of variables.
     !---------------------------------------------------------------------------
-    subroutine calc_grad_correl_length(var_flag)
+    subroutine calc_grad_sigma2_2d(var_flag)
         use mhd_config_module, only: mhd_config
         implicit none
         integer, intent(in) :: var_flag
@@ -957,12 +1023,12 @@ module mhd_data_parallel
         idxh = 0.5_dp / mhd_config%dx
         idyh = 0.5_dp / mhd_config%dy
         idzh = 0.5_dp / mhd_config%dz
-        unx = ubound(lcorr1, 2)
-        uny = ubound(lcorr1, 3)
-        unz = ubound(lcorr1, 4)
-        lnx = lbound(lcorr1, 2)
-        lny = lbound(lcorr1, 3)
-        lnz = lbound(lcorr1, 4)
+        unx = ubound(sigma2_2d_1, 2)
+        uny = ubound(sigma2_2d_1, 3)
+        unz = ubound(sigma2_2d_1, 4)
+        lnx = lbound(sigma2_2d_1, 2)
+        lny = lbound(sigma2_2d_1, 3)
+        lnz = lbound(sigma2_2d_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -977,85 +1043,85 @@ module mhd_data_parallel
         lnz2 = lnz + 2
         if (var_flag == 0) then
             ! d/dx
-            lcorr1(2, lnx1:unx1, :, :) = (lcorr1(1, lnx2:unx, :, :) - &
-                                          lcorr1(1, lnx:unx2, :, :)) * idxh
-            lcorr1(2, lnx, :, :) =  (-3.0*lcorr1(1, lnx, :, :) + &
-                                      4.0*lcorr1(1, lnx1, :, :) - &
-                                          lcorr1(1, lnx2, :, :)) * idxh
-            lcorr1(2, unx, :, :) =   (3.0*lcorr1(1, unx, :, :) - &
-                                      4.0*lcorr1(1, unx1, :, :) + &
-                                          lcorr1(1, unx2, :, :)) * idxh
+            sigma2_2d_1(2, lnx1:unx1, :, :) = (sigma2_2d_1(1, lnx2:unx, :, :) - &
+                                               sigma2_2d_1(1, lnx:unx2, :, :)) * idxh
+            sigma2_2d_1(2, lnx, :, :) =  (-3.0*sigma2_2d_1(1, lnx, :, :) + &
+                                           4.0*sigma2_2d_1(1, lnx1, :, :) - &
+                                               sigma2_2d_1(1, lnx2, :, :)) * idxh
+            sigma2_2d_1(2, unx, :, :) =   (3.0*sigma2_2d_1(1, unx, :, :) - &
+                                           4.0*sigma2_2d_1(1, unx1, :, :) + &
+                                               sigma2_2d_1(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                lcorr1(3, :, lny1:uny1, :) = (lcorr1(1, :, lny2:uny, :) - &
-                                              lcorr1(1, :, lny:uny2, :)) * idyh
-                lcorr1(3, :, lny, :) =  (-3.0*lcorr1(1, :, lny, :) + &
-                                          4.0*lcorr1(1, :, lny1, :) - &
-                                              lcorr1(1, :, lny2, :)) * idyh
-                lcorr1(3, :, uny, :) =   (3.0*lcorr1(1, :, uny, :) - &
-                                          4.0*lcorr1(1, :, uny1, :) + &
-                                              lcorr1(1, :, uny2, :)) * idyh
+                sigma2_2d_1(3, :, lny1:uny1, :) = (sigma2_2d_1(1, :, lny2:uny, :) - &
+                                                   sigma2_2d_1(1, :, lny:uny2, :)) * idyh
+                sigma2_2d_1(3, :, lny, :) =  (-3.0*sigma2_2d_1(1, :, lny, :) + &
+                                               4.0*sigma2_2d_1(1, :, lny1, :) - &
+                                                   sigma2_2d_1(1, :, lny2, :)) * idyh
+                sigma2_2d_1(3, :, uny, :) =   (3.0*sigma2_2d_1(1, :, uny, :) - &
+                                               4.0*sigma2_2d_1(1, :, uny1, :) + &
+                                                   sigma2_2d_1(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                lcorr1(4, :, :, lnz1:unz1) = (lcorr1(1, :, :, lnz2:unz) - &
-                                              lcorr1(1, :, :, lnz:unz2)) * idzh
-                lcorr1(4, :, :, lnz) =  (-3.0*lcorr1(1, :, :, lnz) + &
-                                          4.0*lcorr1(1, :, :, lnz1) - &
-                                              lcorr1(1, :, :, lnz2)) * idzh
-                lcorr1(4, :, :, unz) =   (3.0*lcorr1(1, :, :, unz) - &
-                                          4.0*lcorr1(1, :, :, unz1) + &
-                                              lcorr1(1, :, :, unz2)) * idzh
+                sigma2_2d_1(4, :, :, lnz1:unz1) = (sigma2_2d_1(1, :, :, lnz2:unz) - &
+                                                   sigma2_2d_1(1, :, :, lnz:unz2)) * idzh
+                sigma2_2d_1(4, :, :, lnz) =  (-3.0*sigma2_2d_1(1, :, :, lnz) + &
+                                               4.0*sigma2_2d_1(1, :, :, lnz1) - &
+                                                   sigma2_2d_1(1, :, :, lnz2)) * idzh
+                sigma2_2d_1(4, :, :, unz) =   (3.0*sigma2_2d_1(1, :, :, unz) - &
+                                               4.0*sigma2_2d_1(1, :, :, unz1) + &
+                                                   sigma2_2d_1(1, :, :, unz2)) * idzh
             endif
         else
             ! d/dx
-            lcorr2(2, lnx1:unx1, :, :) = (lcorr2(1, lnx2:unx, :, :) - &
-                                          lcorr2(1, lnx:unx2, :, :)) * idxh
-            lcorr2(2, lnx, :, :) =  (-3.0*lcorr2(1, lnx, :, :) + &
-                                      4.0*lcorr2(1, lnx1, :, :) - &
-                                          lcorr2(1, lnx2, :, :)) * idxh
-            lcorr2(2, unx, :, :) =   (3.0*lcorr2(1, unx, :, :) - &
-                                      4.0*lcorr2(1, unx1, :, :) + &
-                                          lcorr2(1, unx2, :, :)) * idxh
+            sigma2_2d_2(2, lnx1:unx1, :, :) = (sigma2_2d_2(1, lnx2:unx, :, :) - &
+                                               sigma2_2d_2(1, lnx:unx2, :, :)) * idxh
+            sigma2_2d_2(2, lnx, :, :) =  (-3.0*sigma2_2d_2(1, lnx, :, :) + &
+                                           4.0*sigma2_2d_2(1, lnx1, :, :) - &
+                                               sigma2_2d_2(1, lnx2, :, :)) * idxh
+            sigma2_2d_2(2, unx, :, :) =   (3.0*sigma2_2d_2(1, unx, :, :) - &
+                                           4.0*sigma2_2d_2(1, unx1, :, :) + &
+                                               sigma2_2d_2(1, unx2, :, :)) * idxh
 
             ! d/dy
             if (uny > lny) then
-                lcorr2(3, :, lny1:uny1, :) = (lcorr2(1, :, lny2:uny, :) - &
-                                              lcorr2(1, :, lny:uny2, :)) * idyh
-                lcorr2(3, :, lny, :) =  (-3.0*lcorr2(1, :, lny, :) + &
-                                          4.0*lcorr2(1, :, lny1, :) - &
-                                              lcorr2(1, :, lny2, :)) * idyh
-                lcorr2(3, :, uny, :) =   (3.0*lcorr2(1, :, uny, :) - &
-                                          4.0*lcorr2(1, :, uny1, :) + &
-                                              lcorr2(1, :, uny2, :)) * idyh
+                sigma2_2d_2(3, :, lny1:uny1, :) = (sigma2_2d_2(1, :, lny2:uny, :) - &
+                                                   sigma2_2d_2(1, :, lny:uny2, :)) * idyh
+                sigma2_2d_2(3, :, lny, :) =  (-3.0*sigma2_2d_2(1, :, lny, :) + &
+                                               4.0*sigma2_2d_2(1, :, lny1, :) - &
+                                                   sigma2_2d_2(1, :, lny2, :)) * idyh
+                sigma2_2d_2(3, :, uny, :) =   (3.0*sigma2_2d_2(1, :, uny, :) - &
+                                               4.0*sigma2_2d_2(1, :, uny1, :) + &
+                                                   sigma2_2d_2(1, :, uny2, :)) * idyh
             endif
 
             ! d/dz
             if (unz > lnz) then
-                lcorr2(4, :, :, lnz1:unz1) = (lcorr2(1, :, :, lnz2:unz) - &
-                                              lcorr2(1, :, :, lnz:unz2)) * idzh
-                lcorr2(4, :, :, lnz) =  (-3.0*lcorr2(1, :, :, lnz) + &
-                                          4.0*lcorr2(1, :, :, lnz1) - &
-                                              lcorr2(1, :, :, lnz2)) * idzh
-                lcorr2(4, :, :, unz) =   (3.0*lcorr2(1, :, :, unz) - &
-                                          4.0*lcorr2(1, :, :, unz1) + &
-                                              lcorr2(1, :, :, unz2)) * idzh
+                sigma2_2d_2(4, :, :, lnz1:unz1) = (sigma2_2d_2(1, :, :, lnz2:unz) - &
+                                                   sigma2_2d_2(1, :, :, lnz:unz2)) * idzh
+                sigma2_2d_2(4, :, :, lnz) =  (-3.0*sigma2_2d_2(1, :, :, lnz) + &
+                                               4.0*sigma2_2d_2(1, :, :, lnz1) - &
+                                                   sigma2_2d_2(1, :, :, lnz2)) * idzh
+                sigma2_2d_2(4, :, :, unz) =   (3.0*sigma2_2d_2(1, :, :, unz) - &
+                                               4.0*sigma2_2d_2(1, :, :, unz1) + &
+                                                   sigma2_2d_2(1, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
-            write(*, "(A)") "Finished calculating gradients of turbulence correlation length."
+            write(*, "(A)") "Finished calculating gradients of magnetic fluctuation."
         endif
-    end subroutine calc_grad_correl_length
+    end subroutine calc_grad_sigma2_2d
 
     !---------------------------------------------------------------------------
-    !< Calculate the gradients of turbulence correlation length for nonuniform
-    !< grid
+    !< Calculate the gradients of magnetic fluctuation of the 2D component
+    !< for nonuniform grid
     !< Args:
     !<  var_flag: indicating which set of variables.
     !---------------------------------------------------------------------------
-    subroutine calc_grad_correl_length_nonuniform(var_flag)
+    subroutine calc_grad_sigma2_2d_nonuniform(var_flag)
         use mhd_config_module, only: mhd_config
         implicit none
         integer, intent(in) :: var_flag
@@ -1063,12 +1129,12 @@ module mhd_data_parallel
         integer :: unx1, unx2, uny1, uny2, unz1, unz2
         integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
         integer :: ix, iy, iz
-        unx = ubound(lcorr1, 2)
-        uny = ubound(lcorr1, 3)
-        unz = ubound(lcorr1, 4)
-        lnx = lbound(lcorr1, 2)
-        lny = lbound(lcorr1, 3)
-        lnz = lbound(lcorr1, 4)
+        unx = ubound(sigma2_2d_1, 2)
+        uny = ubound(sigma2_2d_1, 3)
+        unz = ubound(sigma2_2d_1, 4)
+        lnx = lbound(sigma2_2d_1, 2)
+        lny = lbound(sigma2_2d_1, 3)
+        lnz = lbound(sigma2_2d_1, 4)
         unx1 = unx - 1
         unx2 = unx - 2
         uny1 = uny - 1
@@ -1085,105 +1151,593 @@ module mhd_data_parallel
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                lcorr1(2, lnx1:unx1, iy, iz) = &
-                    (lcorr1(1, lnx2:unx, iy, iz) - &
-                     lcorr1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                sigma2_2d_1(2, lnx1:unx1, iy, iz) = &
+                    (sigma2_2d_1(1, lnx2:unx, iy, iz) - &
+                     sigma2_2d_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            lcorr1(2, lnx, :, :) =  (-3.0*lcorr1(1, lnx, :, :) + &
-                                      4.0*lcorr1(1, lnx1, :, :) - &
-                                          lcorr1(1, lnx2, :, :)) * idxh_grid(lnx)
-            lcorr1(2, unx, :, :) =   (3.0*lcorr1(1, unx, :, :) - &
-                                      4.0*lcorr1(1, unx1, :, :) + &
-                                          lcorr1(1, unx2, :, :)) * idxh_grid(unx)
+            sigma2_2d_1(2, lnx, :, :) =  (-3.0*sigma2_2d_1(1, lnx, :, :) + &
+                                           4.0*sigma2_2d_1(1, lnx1, :, :) - &
+                                               sigma2_2d_1(1, lnx2, :, :)) * idxh_grid(lnx)
+            sigma2_2d_1(2, unx, :, :) =   (3.0*sigma2_2d_1(1, unx, :, :) - &
+                                           4.0*sigma2_2d_1(1, unx1, :, :) + &
+                                               sigma2_2d_1(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    lcorr1(3, ix, lny1:uny1, iz) = &
-                        (lcorr1(1, ix, lny2:uny, iz) - &
-                         lcorr1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    sigma2_2d_1(3, ix, lny1:uny1, iz) = &
+                        (sigma2_2d_1(1, ix, lny2:uny, iz) - &
+                         sigma2_2d_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                lcorr1(3, :, lny, :) =  (-3.0*lcorr1(1, :, lny, :) + &
-                                          4.0*lcorr1(1, :, lny1, :) - &
-                                              lcorr1(1, :, lny2, :)) * idyh_grid(lny)
-                lcorr1(3, :, uny, :) =   (3.0*lcorr1(1, :, uny, :) - &
-                                          4.0*lcorr1(1, :, uny1, :) + &
-                                              lcorr1(1, :, uny2, :)) * idyh_grid(uny)
+                sigma2_2d_1(3, :, lny, :) =  (-3.0*sigma2_2d_1(1, :, lny, :) + &
+                                               4.0*sigma2_2d_1(1, :, lny1, :) - &
+                                                   sigma2_2d_1(1, :, lny2, :)) * idyh_grid(lny)
+                sigma2_2d_1(3, :, uny, :) =   (3.0*sigma2_2d_1(1, :, uny, :) - &
+                                               4.0*sigma2_2d_1(1, :, uny1, :) + &
+                                                   sigma2_2d_1(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    lcorr1(4, ix, iy, lnz1:unz1) = &
-                        (lcorr1(1, ix, iy, lnz2:unz) - &
-                         lcorr1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    sigma2_2d_1(4, ix, iy, lnz1:unz1) = &
+                        (sigma2_2d_1(1, ix, iy, lnz2:unz) - &
+                         sigma2_2d_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                lcorr1(4, :, :, lnz) =  (-3.0*lcorr1(1, :, :, lnz) + &
-                                          4.0*lcorr1(1, :, :, lnz1) - &
-                                              lcorr1(1, :, :, lnz2)) * idzh_grid(lnz)
-                lcorr1(4, :, :, unz) =   (3.0*lcorr1(1, :, :, unz) - &
-                                          4.0*lcorr1(1, :, :, unz1) + &
-                                              lcorr1(1, :, :, unz2)) * idzh_grid(unz)
+                sigma2_2d_1(4, :, :, lnz) =  (-3.0*sigma2_2d_1(1, :, :, lnz) + &
+                                               4.0*sigma2_2d_1(1, :, :, lnz1) - &
+                                                   sigma2_2d_1(1, :, :, lnz2)) * idzh_grid(lnz)
+                sigma2_2d_1(4, :, :, unz) =   (3.0*sigma2_2d_1(1, :, :, unz) - &
+                                               4.0*sigma2_2d_1(1, :, :, unz1) + &
+                                                   sigma2_2d_1(1, :, :, unz2)) * idzh_grid(unz)
             endif
         else
             ! d/dx
             do iz = lnz, unz
             do iy = lny, uny
-                lcorr2(2, lnx1:unx1, iy, iz) = &
-                    (lcorr2(1, lnx2:unx, iy, iz) - &
-                     lcorr2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+                sigma2_2d_2(2, lnx1:unx1, iy, iz) = &
+                    (sigma2_2d_2(1, lnx2:unx, iy, iz) - &
+                     sigma2_2d_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
             enddo
             enddo
-            lcorr2(2, lnx, :, :) =  (-3.0*lcorr2(1, lnx, :, :) + &
-                                      4.0*lcorr2(1, lnx1, :, :) - &
-                                          lcorr2(1, lnx2, :, :)) * idxh_grid(lnx)
-            lcorr2(2, unx, :, :) =   (3.0*lcorr2(1, unx, :, :) - &
-                                      4.0*lcorr2(1, unx1, :, :) + &
-                                          lcorr2(1, unx2, :, :)) * idxh_grid(unx)
+            sigma2_2d_2(2, lnx, :, :) =  (-3.0*sigma2_2d_2(1, lnx, :, :) + &
+                                           4.0*sigma2_2d_2(1, lnx1, :, :) - &
+                                               sigma2_2d_2(1, lnx2, :, :)) * idxh_grid(lnx)
+            sigma2_2d_2(2, unx, :, :) =   (3.0*sigma2_2d_2(1, unx, :, :) - &
+                                           4.0*sigma2_2d_2(1, unx1, :, :) + &
+                                               sigma2_2d_2(1, unx2, :, :)) * idxh_grid(unx)
 
             ! d/dy
             if (uny > lny) then
                 do iz = lnz, unz
                 do ix = lnx, unx
-                    lcorr2(3, ix, lny1:uny1, iz) = &
-                        (lcorr2(1, ix, lny2:uny, iz) - &
-                         lcorr2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                    sigma2_2d_2(3, ix, lny1:uny1, iz) = &
+                        (sigma2_2d_2(1, ix, lny2:uny, iz) - &
+                         sigma2_2d_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
                 enddo
                 enddo
-                lcorr2(3, :, lny, :) =  (-3.0*lcorr2(1, :, lny, :) + &
-                                          4.0*lcorr2(1, :, lny1, :) - &
-                                              lcorr2(1, :, lny2, :)) * idyh_grid(lny)
-                lcorr2(3, :, uny, :) =   (3.0*lcorr2(1, :, uny, :) - &
-                                          4.0*lcorr2(1, :, uny1, :) + &
-                                              lcorr2(1, :, uny2, :)) * idyh_grid(uny)
+                sigma2_2d_2(3, :, lny, :) =  (-3.0*sigma2_2d_2(1, :, lny, :) + &
+                                               4.0*sigma2_2d_2(1, :, lny1, :) - &
+                                                   sigma2_2d_2(1, :, lny2, :)) * idyh_grid(lny)
+                sigma2_2d_2(3, :, uny, :) =   (3.0*sigma2_2d_2(1, :, uny, :) - &
+                                               4.0*sigma2_2d_2(1, :, uny1, :) + &
+                                                   sigma2_2d_2(1, :, uny2, :)) * idyh_grid(uny)
             endif
 
             ! d/dz
             if (unz > lnz) then
                 do iy = lny, uny
                 do ix = lnx, unx
-                    lcorr2(4, ix, iy, lnz1:unz1) = &
-                        (lcorr2(1, ix, iy, lnz2:unz) - &
-                         lcorr2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                    sigma2_2d_2(4, ix, iy, lnz1:unz1) = &
+                        (sigma2_2d_2(1, ix, iy, lnz2:unz) - &
+                         sigma2_2d_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
                 enddo
                 enddo
-                lcorr2(4, :, :, lnz) =  (-3.0*lcorr2(1, :, :, lnz) + &
-                                          4.0*lcorr2(1, :, :, lnz1) - &
-                                              lcorr2(1, :, :, lnz2)) * idzh_grid(lnz)
-                lcorr2(4, :, :, unz) =   (3.0*lcorr2(1, :, :, unz) - &
-                                          4.0*lcorr2(1, :, :, unz1) + &
-                                              lcorr2(1, :, :, unz2)) * idzh_grid(unz)
+                sigma2_2d_2(4, :, :, lnz) =  (-3.0*sigma2_2d_2(1, :, :, lnz) + &
+                                               4.0*sigma2_2d_2(1, :, :, lnz1) - &
+                                                   sigma2_2d_2(1, :, :, lnz2)) * idzh_grid(lnz)
+                sigma2_2d_2(4, :, :, unz) =   (3.0*sigma2_2d_2(1, :, :, unz) - &
+                                               4.0*sigma2_2d_2(1, :, :, unz1) + &
+                                                   sigma2_2d_2(1, :, :, unz2)) * idzh_grid(unz)
+            endif
+        endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished calculating gradients of magnetic fluctuation."
+        endif
+    end subroutine calc_grad_sigma2_2d_nonuniform
+
+    !---------------------------------------------------------------------------
+    !< Calculate the gradients of turbulence correlation length for the slab component
+    !< Args:
+    !<  var_flag: indicating which set of variables.
+    !---------------------------------------------------------------------------
+    subroutine calc_grad_lc_slab(var_flag)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        integer, intent(in) :: var_flag
+        real(dp) :: idxh, idyh, idzh
+        integer :: unx, uny, unz, lnx, lny, lnz
+        integer :: unx1, unx2, uny1, uny2, unz1, unz2
+        integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
+        idxh = 0.5_dp / mhd_config%dx
+        idyh = 0.5_dp / mhd_config%dy
+        idzh = 0.5_dp / mhd_config%dz
+        unx = ubound(lc_slab_1, 2)
+        uny = ubound(lc_slab_1, 3)
+        unz = ubound(lc_slab_1, 4)
+        lnx = lbound(lc_slab_1, 2)
+        lny = lbound(lc_slab_1, 3)
+        lnz = lbound(lc_slab_1, 4)
+        unx1 = unx - 1
+        unx2 = unx - 2
+        uny1 = uny - 1
+        uny2 = uny - 2
+        unz1 = unz - 1
+        unz2 = unz - 2
+        lnx1 = lnx + 1
+        lnx2 = lnx + 2
+        lny1 = lny + 1
+        lny2 = lny + 2
+        lnz1 = lnz + 1
+        lnz2 = lnz + 2
+        if (var_flag == 0) then
+            ! d/dx
+            lc_slab_1(2, lnx1:unx1, :, :) = (lc_slab_1(1, lnx2:unx, :, :) - &
+                                             lc_slab_1(1, lnx:unx2, :, :)) * idxh
+            lc_slab_1(2, lnx, :, :) =  (-3.0*lc_slab_1(1, lnx, :, :) + &
+                                         4.0*lc_slab_1(1, lnx1, :, :) - &
+                                             lc_slab_1(1, lnx2, :, :)) * idxh
+            lc_slab_1(2, unx, :, :) =   (3.0*lc_slab_1(1, unx, :, :) - &
+                                         4.0*lc_slab_1(1, unx1, :, :) + &
+                                             lc_slab_1(1, unx2, :, :)) * idxh
+
+            ! d/dy
+            if (uny > lny) then
+                lc_slab_1(3, :, lny1:uny1, :) = (lc_slab_1(1, :, lny2:uny, :) - &
+                                                 lc_slab_1(1, :, lny:uny2, :)) * idyh
+                lc_slab_1(3, :, lny, :) =  (-3.0*lc_slab_1(1, :, lny, :) + &
+                                             4.0*lc_slab_1(1, :, lny1, :) - &
+                                                 lc_slab_1(1, :, lny2, :)) * idyh
+                lc_slab_1(3, :, uny, :) =   (3.0*lc_slab_1(1, :, uny, :) - &
+                                             4.0*lc_slab_1(1, :, uny1, :) + &
+                                                 lc_slab_1(1, :, uny2, :)) * idyh
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                lc_slab_1(4, :, :, lnz1:unz1) = (lc_slab_1(1, :, :, lnz2:unz) - &
+                                                 lc_slab_1(1, :, :, lnz:unz2)) * idzh
+                lc_slab_1(4, :, :, lnz) =  (-3.0*lc_slab_1(1, :, :, lnz) + &
+                                             4.0*lc_slab_1(1, :, :, lnz1) - &
+                                                 lc_slab_1(1, :, :, lnz2)) * idzh
+                lc_slab_1(4, :, :, unz) =   (3.0*lc_slab_1(1, :, :, unz) - &
+                                             4.0*lc_slab_1(1, :, :, unz1) + &
+                                                 lc_slab_1(1, :, :, unz2)) * idzh
+            endif
+        else
+            ! d/dx
+            lc_slab_2(2, lnx1:unx1, :, :) = (lc_slab_2(1, lnx2:unx, :, :) - &
+                                             lc_slab_2(1, lnx:unx2, :, :)) * idxh
+            lc_slab_2(2, lnx, :, :) =  (-3.0*lc_slab_2(1, lnx, :, :) + &
+                                         4.0*lc_slab_2(1, lnx1, :, :) - &
+                                             lc_slab_2(1, lnx2, :, :)) * idxh
+            lc_slab_2(2, unx, :, :) =   (3.0*lc_slab_2(1, unx, :, :) - &
+                                         4.0*lc_slab_2(1, unx1, :, :) + &
+                                             lc_slab_2(1, unx2, :, :)) * idxh
+
+            ! d/dy
+            if (uny > lny) then
+                lc_slab_2(3, :, lny1:uny1, :) = (lc_slab_2(1, :, lny2:uny, :) - &
+                                                 lc_slab_2(1, :, lny:uny2, :)) * idyh
+                lc_slab_2(3, :, lny, :) =  (-3.0*lc_slab_2(1, :, lny, :) + &
+                                             4.0*lc_slab_2(1, :, lny1, :) - &
+                                                 lc_slab_2(1, :, lny2, :)) * idyh
+                lc_slab_2(3, :, uny, :) =   (3.0*lc_slab_2(1, :, uny, :) - &
+                                             4.0*lc_slab_2(1, :, uny1, :) + &
+                                                 lc_slab_2(1, :, uny2, :)) * idyh
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                lc_slab_2(4, :, :, lnz1:unz1) = (lc_slab_2(1, :, :, lnz2:unz) - &
+                                                 lc_slab_2(1, :, :, lnz:unz2)) * idzh
+                lc_slab_2(4, :, :, lnz) =  (-3.0*lc_slab_2(1, :, :, lnz) + &
+                                             4.0*lc_slab_2(1, :, :, lnz1) - &
+                                                 lc_slab_2(1, :, :, lnz2)) * idzh
+                lc_slab_2(4, :, :, unz) =   (3.0*lc_slab_2(1, :, :, unz) - &
+                                             4.0*lc_slab_2(1, :, :, unz1) + &
+                                                 lc_slab_2(1, :, :, unz2)) * idzh
             endif
         endif
         if (mpi_rank == master) then
             write(*, "(A)") "Finished calculating gradients of turbulence correlation length."
         endif
-    end subroutine calc_grad_correl_length_nonuniform
+    end subroutine calc_grad_lc_slab
+
+    !---------------------------------------------------------------------------
+    !< Calculate the gradients of turbulence correlation length for the slab
+    !< component for nonuniform grid
+    !< Args:
+    !<  var_flag: indicating which set of variables.
+    !---------------------------------------------------------------------------
+    subroutine calc_grad_lc_slab_nonuniform(var_flag)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        integer, intent(in) :: var_flag
+        integer :: unx, uny, unz, lnx, lny, lnz
+        integer :: unx1, unx2, uny1, uny2, unz1, unz2
+        integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
+        integer :: ix, iy, iz
+        unx = ubound(lc_slab_1, 2)
+        uny = ubound(lc_slab_1, 3)
+        unz = ubound(lc_slab_1, 4)
+        lnx = lbound(lc_slab_1, 2)
+        lny = lbound(lc_slab_1, 3)
+        lnz = lbound(lc_slab_1, 4)
+        unx1 = unx - 1
+        unx2 = unx - 2
+        uny1 = uny - 1
+        uny2 = uny - 2
+        unz1 = unz - 1
+        unz2 = unz - 2
+        lnx1 = lnx + 1
+        lnx2 = lnx + 2
+        lny1 = lny + 1
+        lny2 = lny + 2
+        lnz1 = lnz + 1
+        lnz2 = lnz + 2
+        if (var_flag == 0) then
+            ! d/dx
+            do iz = lnz, unz
+            do iy = lny, uny
+                lc_slab_1(2, lnx1:unx1, iy, iz) = &
+                    (lc_slab_1(1, lnx2:unx, iy, iz) - &
+                     lc_slab_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+            enddo
+            enddo
+            lc_slab_1(2, lnx, :, :) =  (-3.0*lc_slab_1(1, lnx, :, :) + &
+                                         4.0*lc_slab_1(1, lnx1, :, :) - &
+                                             lc_slab_1(1, lnx2, :, :)) * idxh_grid(lnx)
+            lc_slab_1(2, unx, :, :) =   (3.0*lc_slab_1(1, unx, :, :) - &
+                                         4.0*lc_slab_1(1, unx1, :, :) + &
+                                             lc_slab_1(1, unx2, :, :)) * idxh_grid(unx)
+
+            ! d/dy
+            if (uny > lny) then
+                do iz = lnz, unz
+                do ix = lnx, unx
+                    lc_slab_1(3, ix, lny1:uny1, iz) = &
+                        (lc_slab_1(1, ix, lny2:uny, iz) - &
+                         lc_slab_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                enddo
+                enddo
+                lc_slab_1(3, :, lny, :) =  (-3.0*lc_slab_1(1, :, lny, :) + &
+                                             4.0*lc_slab_1(1, :, lny1, :) - &
+                                                 lc_slab_1(1, :, lny2, :)) * idyh_grid(lny)
+                lc_slab_1(3, :, uny, :) =   (3.0*lc_slab_1(1, :, uny, :) - &
+                                             4.0*lc_slab_1(1, :, uny1, :) + &
+                                                 lc_slab_1(1, :, uny2, :)) * idyh_grid(uny)
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                do iy = lny, uny
+                do ix = lnx, unx
+                    lc_slab_1(4, ix, iy, lnz1:unz1) = &
+                        (lc_slab_1(1, ix, iy, lnz2:unz) - &
+                         lc_slab_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                enddo
+                enddo
+                lc_slab_1(4, :, :, lnz) =  (-3.0*lc_slab_1(1, :, :, lnz) + &
+                                             4.0*lc_slab_1(1, :, :, lnz1) - &
+                                                 lc_slab_1(1, :, :, lnz2)) * idzh_grid(lnz)
+                lc_slab_1(4, :, :, unz) =   (3.0*lc_slab_1(1, :, :, unz) - &
+                                             4.0*lc_slab_1(1, :, :, unz1) + &
+                                                 lc_slab_1(1, :, :, unz2)) * idzh_grid(unz)
+            endif
+        else
+            ! d/dx
+            do iz = lnz, unz
+            do iy = lny, uny
+                lc_slab_2(2, lnx1:unx1, iy, iz) = &
+                    (lc_slab_2(1, lnx2:unx, iy, iz) - &
+                     lc_slab_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+            enddo
+            enddo
+            lc_slab_2(2, lnx, :, :) =  (-3.0*lc_slab_2(1, lnx, :, :) + &
+                                         4.0*lc_slab_2(1, lnx1, :, :) - &
+                                             lc_slab_2(1, lnx2, :, :)) * idxh_grid(lnx)
+            lc_slab_2(2, unx, :, :) =   (3.0*lc_slab_2(1, unx, :, :) - &
+                                         4.0*lc_slab_2(1, unx1, :, :) + &
+                                             lc_slab_2(1, unx2, :, :)) * idxh_grid(unx)
+
+            ! d/dy
+            if (uny > lny) then
+                do iz = lnz, unz
+                do ix = lnx, unx
+                    lc_slab_2(3, ix, lny1:uny1, iz) = &
+                        (lc_slab_2(1, ix, lny2:uny, iz) - &
+                         lc_slab_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                enddo
+                enddo
+                lc_slab_2(3, :, lny, :) =  (-3.0*lc_slab_2(1, :, lny, :) + &
+                                             4.0*lc_slab_2(1, :, lny1, :) - &
+                                                 lc_slab_2(1, :, lny2, :)) * idyh_grid(lny)
+                lc_slab_2(3, :, uny, :) =   (3.0*lc_slab_2(1, :, uny, :) - &
+                                             4.0*lc_slab_2(1, :, uny1, :) + &
+                                                 lc_slab_2(1, :, uny2, :)) * idyh_grid(uny)
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                do iy = lny, uny
+                do ix = lnx, unx
+                    lc_slab_2(4, ix, iy, lnz1:unz1) = &
+                        (lc_slab_2(1, ix, iy, lnz2:unz) - &
+                         lc_slab_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                enddo
+                enddo
+                lc_slab_2(4, :, :, lnz) =  (-3.0*lc_slab_2(1, :, :, lnz) + &
+                                             4.0*lc_slab_2(1, :, :, lnz1) - &
+                                                 lc_slab_2(1, :, :, lnz2)) * idzh_grid(lnz)
+                lc_slab_2(4, :, :, unz) =   (3.0*lc_slab_2(1, :, :, unz) - &
+                                             4.0*lc_slab_2(1, :, :, unz1) + &
+                                                 lc_slab_2(1, :, :, unz2)) * idzh_grid(unz)
+            endif
+        endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished calculating gradients of turbulence correlation length."
+        endif
+    end subroutine calc_grad_lc_slab_nonuniform
+
+    !---------------------------------------------------------------------------
+    !< Calculate the gradients of turbulence correlation length for the 2D component
+    !< Args:
+    !<  var_flag: indicating which set of variables.
+    !---------------------------------------------------------------------------
+    subroutine calc_grad_lc_2d(var_flag)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        integer, intent(in) :: var_flag
+        real(dp) :: idxh, idyh, idzh
+        integer :: unx, uny, unz, lnx, lny, lnz
+        integer :: unx1, unx2, uny1, uny2, unz1, unz2
+        integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
+        idxh = 0.5_dp / mhd_config%dx
+        idyh = 0.5_dp / mhd_config%dy
+        idzh = 0.5_dp / mhd_config%dz
+        unx = ubound(lc_2d_1, 2)
+        uny = ubound(lc_2d_1, 3)
+        unz = ubound(lc_2d_1, 4)
+        lnx = lbound(lc_2d_1, 2)
+        lny = lbound(lc_2d_1, 3)
+        lnz = lbound(lc_2d_1, 4)
+        unx1 = unx - 1
+        unx2 = unx - 2
+        uny1 = uny - 1
+        uny2 = uny - 2
+        unz1 = unz - 1
+        unz2 = unz - 2
+        lnx1 = lnx + 1
+        lnx2 = lnx + 2
+        lny1 = lny + 1
+        lny2 = lny + 2
+        lnz1 = lnz + 1
+        lnz2 = lnz + 2
+        if (var_flag == 0) then
+            ! d/dx
+            lc_2d_1(2, lnx1:unx1, :, :) = (lc_2d_1(1, lnx2:unx, :, :) - &
+                                           lc_2d_1(1, lnx:unx2, :, :)) * idxh
+            lc_2d_1(2, lnx, :, :) =  (-3.0*lc_2d_1(1, lnx, :, :) + &
+                                       4.0*lc_2d_1(1, lnx1, :, :) - &
+                                           lc_2d_1(1, lnx2, :, :)) * idxh
+            lc_2d_1(2, unx, :, :) =   (3.0*lc_2d_1(1, unx, :, :) - &
+                                       4.0*lc_2d_1(1, unx1, :, :) + &
+                                           lc_2d_1(1, unx2, :, :)) * idxh
+
+            ! d/dy
+            if (uny > lny) then
+                lc_2d_1(3, :, lny1:uny1, :) = (lc_2d_1(1, :, lny2:uny, :) - &
+                                               lc_2d_1(1, :, lny:uny2, :)) * idyh
+                lc_2d_1(3, :, lny, :) =  (-3.0*lc_2d_1(1, :, lny, :) + &
+                                           4.0*lc_2d_1(1, :, lny1, :) - &
+                                               lc_2d_1(1, :, lny2, :)) * idyh
+                lc_2d_1(3, :, uny, :) =   (3.0*lc_2d_1(1, :, uny, :) - &
+                                           4.0*lc_2d_1(1, :, uny1, :) + &
+                                               lc_2d_1(1, :, uny2, :)) * idyh
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                lc_2d_1(4, :, :, lnz1:unz1) = (lc_2d_1(1, :, :, lnz2:unz) - &
+                                               lc_2d_1(1, :, :, lnz:unz2)) * idzh
+                lc_2d_1(4, :, :, lnz) =  (-3.0*lc_2d_1(1, :, :, lnz) + &
+                                           4.0*lc_2d_1(1, :, :, lnz1) - &
+                                               lc_2d_1(1, :, :, lnz2)) * idzh
+                lc_2d_1(4, :, :, unz) =   (3.0*lc_2d_1(1, :, :, unz) - &
+                                           4.0*lc_2d_1(1, :, :, unz1) + &
+                                               lc_2d_1(1, :, :, unz2)) * idzh
+            endif
+        else
+            ! d/dx
+            lc_2d_2(2, lnx1:unx1, :, :) = (lc_2d_2(1, lnx2:unx, :, :) - &
+                                           lc_2d_2(1, lnx:unx2, :, :)) * idxh
+            lc_2d_2(2, lnx, :, :) =  (-3.0*lc_2d_2(1, lnx, :, :) + &
+                                       4.0*lc_2d_2(1, lnx1, :, :) - &
+                                           lc_2d_2(1, lnx2, :, :)) * idxh
+            lc_2d_2(2, unx, :, :) =   (3.0*lc_2d_2(1, unx, :, :) - &
+                                       4.0*lc_2d_2(1, unx1, :, :) + &
+                                           lc_2d_2(1, unx2, :, :)) * idxh
+
+            ! d/dy
+            if (uny > lny) then
+                lc_2d_2(3, :, lny1:uny1, :) = (lc_2d_2(1, :, lny2:uny, :) - &
+                                               lc_2d_2(1, :, lny:uny2, :)) * idyh
+                lc_2d_2(3, :, lny, :) =  (-3.0*lc_2d_2(1, :, lny, :) + &
+                                           4.0*lc_2d_2(1, :, lny1, :) - &
+                                               lc_2d_2(1, :, lny2, :)) * idyh
+                lc_2d_2(3, :, uny, :) =   (3.0*lc_2d_2(1, :, uny, :) - &
+                                           4.0*lc_2d_2(1, :, uny1, :) + &
+                                               lc_2d_2(1, :, uny2, :)) * idyh
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                lc_2d_2(4, :, :, lnz1:unz1) = (lc_2d_2(1, :, :, lnz2:unz) - &
+                                               lc_2d_2(1, :, :, lnz:unz2)) * idzh
+                lc_2d_2(4, :, :, lnz) =  (-3.0*lc_2d_2(1, :, :, lnz) + &
+                                           4.0*lc_2d_2(1, :, :, lnz1) - &
+                                               lc_2d_2(1, :, :, lnz2)) * idzh
+                lc_2d_2(4, :, :, unz) =   (3.0*lc_2d_2(1, :, :, unz) - &
+                                           4.0*lc_2d_2(1, :, :, unz1) + &
+                                               lc_2d_2(1, :, :, unz2)) * idzh
+            endif
+        endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished calculating gradients of turbulence correlation length."
+        endif
+    end subroutine calc_grad_lc_2d
+
+    !---------------------------------------------------------------------------
+    !< Calculate the gradients of turbulence correlation length for the 2D
+    !< component for nonuniform grid
+    !< Args:
+    !<  var_flag: indicating which set of variables.
+    !---------------------------------------------------------------------------
+    subroutine calc_grad_lc_2d_nonuniform(var_flag)
+        use mhd_config_module, only: mhd_config
+        implicit none
+        integer, intent(in) :: var_flag
+        integer :: unx, uny, unz, lnx, lny, lnz
+        integer :: unx1, unx2, uny1, uny2, unz1, unz2
+        integer :: lnx1, lnx2, lny1, lny2, lnz1, lnz2
+        integer :: ix, iy, iz
+        unx = ubound(lc_2d_1, 2)
+        uny = ubound(lc_2d_1, 3)
+        unz = ubound(lc_2d_1, 4)
+        lnx = lbound(lc_2d_1, 2)
+        lny = lbound(lc_2d_1, 3)
+        lnz = lbound(lc_2d_1, 4)
+        unx1 = unx - 1
+        unx2 = unx - 2
+        uny1 = uny - 1
+        uny2 = uny - 2
+        unz1 = unz - 1
+        unz2 = unz - 2
+        lnx1 = lnx + 1
+        lnx2 = lnx + 2
+        lny1 = lny + 1
+        lny2 = lny + 2
+        lnz1 = lnz + 1
+        lnz2 = lnz + 2
+        if (var_flag == 0) then
+            ! d/dx
+            do iz = lnz, unz
+            do iy = lny, uny
+                lc_2d_1(2, lnx1:unx1, iy, iz) = &
+                    (lc_2d_1(1, lnx2:unx, iy, iz) - &
+                     lc_2d_1(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+            enddo
+            enddo
+            lc_2d_1(2, lnx, :, :) =  (-3.0*lc_2d_1(1, lnx, :, :) + &
+                                       4.0*lc_2d_1(1, lnx1, :, :) - &
+                                           lc_2d_1(1, lnx2, :, :)) * idxh_grid(lnx)
+            lc_2d_1(2, unx, :, :) =   (3.0*lc_2d_1(1, unx, :, :) - &
+                                       4.0*lc_2d_1(1, unx1, :, :) + &
+                                           lc_2d_1(1, unx2, :, :)) * idxh_grid(unx)
+
+            ! d/dy
+            if (uny > lny) then
+                do iz = lnz, unz
+                do ix = lnx, unx
+                    lc_2d_1(3, ix, lny1:uny1, iz) = &
+                        (lc_2d_1(1, ix, lny2:uny, iz) - &
+                         lc_2d_1(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                enddo
+                enddo
+                lc_2d_1(3, :, lny, :) =  (-3.0*lc_2d_1(1, :, lny, :) + &
+                                           4.0*lc_2d_1(1, :, lny1, :) - &
+                                               lc_2d_1(1, :, lny2, :)) * idyh_grid(lny)
+                lc_2d_1(3, :, uny, :) =   (3.0*lc_2d_1(1, :, uny, :) - &
+                                           4.0*lc_2d_1(1, :, uny1, :) + &
+                                               lc_2d_1(1, :, uny2, :)) * idyh_grid(uny)
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                do iy = lny, uny
+                do ix = lnx, unx
+                    lc_2d_1(4, ix, iy, lnz1:unz1) = &
+                        (lc_2d_1(1, ix, iy, lnz2:unz) - &
+                         lc_2d_1(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                enddo
+                enddo
+                lc_2d_1(4, :, :, lnz) =  (-3.0*lc_2d_1(1, :, :, lnz) + &
+                                           4.0*lc_2d_1(1, :, :, lnz1) - &
+                                               lc_2d_1(1, :, :, lnz2)) * idzh_grid(lnz)
+                lc_2d_1(4, :, :, unz) =   (3.0*lc_2d_1(1, :, :, unz) - &
+                                           4.0*lc_2d_1(1, :, :, unz1) + &
+                                               lc_2d_1(1, :, :, unz2)) * idzh_grid(unz)
+            endif
+        else
+            ! d/dx
+            do iz = lnz, unz
+            do iy = lny, uny
+                lc_2d_2(2, lnx1:unx1, iy, iz) = &
+                    (lc_2d_2(1, lnx2:unx, iy, iz) - &
+                     lc_2d_2(1, lnx:unx2, iy, iz)) * idxh_grid(lnx1:unx1)
+            enddo
+            enddo
+            lc_2d_2(2, lnx, :, :) =  (-3.0*lc_2d_2(1, lnx, :, :) + &
+                                       4.0*lc_2d_2(1, lnx1, :, :) - &
+                                           lc_2d_2(1, lnx2, :, :)) * idxh_grid(lnx)
+            lc_2d_2(2, unx, :, :) =   (3.0*lc_2d_2(1, unx, :, :) - &
+                                       4.0*lc_2d_2(1, unx1, :, :) + &
+                                           lc_2d_2(1, unx2, :, :)) * idxh_grid(unx)
+
+            ! d/dy
+            if (uny > lny) then
+                do iz = lnz, unz
+                do ix = lnx, unx
+                    lc_2d_2(3, ix, lny1:uny1, iz) = &
+                        (lc_2d_2(1, ix, lny2:uny, iz) - &
+                         lc_2d_2(1, ix, lny:uny2, iz)) * idyh_grid(lny1:uny1)
+                enddo
+                enddo
+                lc_2d_2(3, :, lny, :) =  (-3.0*lc_2d_2(1, :, lny, :) + &
+                                           4.0*lc_2d_2(1, :, lny1, :) - &
+                                               lc_2d_2(1, :, lny2, :)) * idyh_grid(lny)
+                lc_2d_2(3, :, uny, :) =   (3.0*lc_2d_2(1, :, uny, :) - &
+                                           4.0*lc_2d_2(1, :, uny1, :) + &
+                                               lc_2d_2(1, :, uny2, :)) * idyh_grid(uny)
+            endif
+
+            ! d/dz
+            if (unz > lnz) then
+                do iy = lny, uny
+                do ix = lnx, unx
+                    lc_2d_2(4, ix, iy, lnz1:unz1) = &
+                        (lc_2d_2(1, ix, iy, lnz2:unz) - &
+                         lc_2d_2(1, ix, iy, lnz:unz2)) * idzh_grid(lnz1:unz1)
+                enddo
+                enddo
+                lc_2d_2(4, :, :, lnz) =  (-3.0*lc_2d_2(1, :, :, lnz) + &
+                                           4.0*lc_2d_2(1, :, :, lnz1) - &
+                                               lc_2d_2(1, :, :, lnz2)) * idzh_grid(lnz)
+                lc_2d_2(4, :, :, unz) =   (3.0*lc_2d_2(1, :, :, unz) - &
+                                           4.0*lc_2d_2(1, :, :, unz1) + &
+                                               lc_2d_2(1, :, :, unz2)) * idzh_grid(unz)
+            endif
+        endif
+        if (mpi_rank == master) then
+            write(*, "(A)") "Finished calculating gradients of turbulence correlation length."
+        endif
+    end subroutine calc_grad_lc_2d_nonuniform
 
     !---------------------------------------------------------------------------
     !< Interpolate the MHD fields and their gradients on one position
@@ -1246,17 +1800,19 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
-    !<  db2(output): turbulence variance and its gradients at particle position
+    !<  db2_slab(output): slab turbulence variance and its gradients at particle position
+    !<  db2_2d(output): 2D turbulence variance and its gradients at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_magnetic_fluctuation(pos, weights, rt, db2)
+    subroutine interp_magnetic_fluctuation(pos, weights, rt, db2_slab, db2_2d)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        real(dp), dimension(4), intent(out) :: db2
+        real(dp), dimension(4), intent(out) :: db2_slab, db2_2d
         integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
-        real(dp), dimension(4) :: db2_2
-        !dir$ attributes align:32 :: db2_2
+        real(dp), dimension(4) :: db2_slab_2, db2_2d_2
+        !dir$ attributes align:32 :: db2_slab_2
+        !dir$ attributes align:32 :: db2_2d_2
 
         ix = pos(1)
         iy = pos(2)
@@ -1273,22 +1829,27 @@ module mhd_data_parallel
             ze = 0
         endif
 
-        db2 = 0.0_dp
-        db2_2 = 0.0_dp
+        db2_slab = 0.0_dp
+        db2_slab_2 = 0.0_dp
+        db2_2d = 0.0_dp
+        db2_2d_2 = 0.0_dp
         do k = 0, ze
         do j = 0, ye
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
-            db2 = db2 + deltab2_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            db2_slab = db2_slab + sigma2_slab_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            db2_2d = db2_2d + sigma2_2d_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
             if (time_interp) then
-                db2_2 = db2_2 + deltab2_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+                db2_slab_2 = db2_slab_2 + sigma2_slab_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+                db2_2d_2 = db2_2d_2 + sigma2_2d_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
             endif
         enddo
         enddo
         enddo
         !< Time interpolation
         if (time_interp) then
-            db2 = db2 * (1.0 - rt) + db2_2 * rt
+            db2_slab = db2_slab * (1.0 - rt) + db2_slab_2 * rt
+            db2_2d = db2_2d * (1.0 - rt) + db2_2d_2 * rt
         endif
     end subroutine interp_magnetic_fluctuation
 
@@ -1300,17 +1861,19 @@ module mhd_data_parallel
     !<  weights: for linear interpolation
     !<  rt: the offset to the earlier time point of the MHD data. It is
     !<      normalized to the time interval of the MHD data output.
-    !<  lc(output): turbulence correlation length and its graidents at particle position
+    !<  lc_slab(output): slab turbulence correlation length and its gradients at particle position
+    !<  lc_2d(output): 2D turbulence correlation length and its gradients at particle position
     !---------------------------------------------------------------------------
-    subroutine interp_correlation_length(pos, weights, rt, lc)
+    subroutine interp_correlation_length(pos, weights, rt, lc_slab, lc_2d)
         implicit none
         integer, dimension(3), intent(in) :: pos
         real(dp), dimension(8), intent(in) :: weights
         real(dp), intent(in) :: rt
-        real(dp), dimension(4), intent(out) :: lc
+        real(dp), dimension(4), intent(out) :: lc_slab, lc_2d
         integer :: ix, iy, iz, i, j, k, ye, ze, index_1d
-        real(dp), dimension(4) :: lc2
-        !dir$ attributes align:32 :: lc2
+        real(dp), dimension(4) :: lc_slab2, lc_2d2
+        !dir$ attributes align:32 :: lc_slab2
+        !dir$ attributes align:32 :: lc_2d2
 
         ix = pos(1)
         iy = pos(2)
@@ -1327,22 +1890,27 @@ module mhd_data_parallel
             ze = 0
         endif
 
-        lc = 0.0_dp
-        lc2 = 0.0_dp
+        lc_slab = 0.0_dp
+        lc_slab2 = 0.0_dp
+        lc_2d = 0.0_dp
+        lc_2d2 = 0.0_dp
         do k = 0, ze
         do j = 0, ye
         do i = 0, 1
             index_1d = k*4 + j*2 + i + 1
-            lc = lc + lcorr1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            lc_slab = lc_slab + lc_slab_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
+            lc_2d = lc_2d + lc_2d_1(:, ix+i, iy+j, iz+k) * weights(index_1d)
             if (time_interp) then
-                lc2 = lc2 + lcorr2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+                lc_slab2 = lc_slab2 + lc_slab_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
+                lc_2d2 = lc_2d2 + lc_2d_2(:, ix+i, iy+j, iz+k) * weights(index_1d)
             endif
         enddo
         enddo
         enddo
         !< Time interpolation
         if (time_interp) then
-            lc = lc * (1.0 - rt) + lc2 * rt
+            lc_slab = lc_slab * (1.0 - rt) + lc_slab2 * rt
+            lc_2d = lc_2d * (1.0 - rt) + lc_2d2 * rt
         endif
     end subroutine interp_correlation_length
 
@@ -1359,7 +1927,8 @@ module mhd_data_parallel
     !<--------------------------------------------------------------------------
     subroutine copy_magnetic_fluctuation
         implicit none
-        deltab2_1 = deltab2_2
+        sigma2_slab_1 = sigma2_slab_2
+        sigma2_2d_1 = sigma2_2d_2
     end subroutine copy_magnetic_fluctuation
 
     !<--------------------------------------------------------------------------
@@ -1367,7 +1936,8 @@ module mhd_data_parallel
     !<--------------------------------------------------------------------------
     subroutine copy_correlation_length
         implicit none
-        lcorr1 = lcorr2
+        lc_slab_1 = lc_slab_2
+        lc_2d_1 = lc_2d_2
     end subroutine copy_correlation_length
 
     !---------------------------------------------------------------------------
@@ -1798,7 +2368,7 @@ module mhd_data_parallel
                 do ix = 1, nx
                     inbox_x = xpos_local(ix) > part_box(1) .and. xpos_local(ix) < part_box(4)
                     inbox = inbox_z .and. inbox_y .and. inbox_x
-                    if (inbox .and. deltab2_1(1, ix, iy, iz) > db2_min) then
+                    if (inbox .and. sigma2_slab_1(1, ix, iy, iz) > db2_min) then
                         ncells_large_db2 = ncells_large_db2 + 1
                     endif
                 enddo
