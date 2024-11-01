@@ -39,8 +39,10 @@ program stochastic
         read_magnetic_fluctuation, copy_magnetic_fluctuation, &
         init_correlation_length, free_correlation_length, &
         read_correlation_length, copy_correlation_length, &
-        calc_grad_deltab2, calc_grad_deltab2_nonuniform, &
-        calc_grad_correl_length, calc_grad_correl_length_nonuniform, &
+        calc_grad_sigma2_slab, calc_grad_sigma2_slab_nonuniform, &
+        calc_grad_sigma2_2d, calc_grad_sigma2_2d_nonuniform, &
+        calc_grad_lc_slab, calc_grad_lc_slab_nonuniform, &
+        calc_grad_lc_2d, calc_grad_lc_2d_nonuniform, &
         init_grid_positions, free_grid_positions, &
         set_local_grid_positions
     use simulation_setup_module, only: read_simuation_mpi_topology, &
@@ -69,6 +71,7 @@ program stochastic
     real(dp) :: particle_v0 ! Initial particle velocity in the normalized velocity
     real(dp) :: duu0        ! Pitch-angle diffusion for particles with a momentum of p0
     real(dp) :: quota_hour  ! The maximum wall time in hours for the simulation
+    real(dp) :: kperp_kpara ! The ratio between kperp and kpara for initial particles and normalizations
     real(dp), dimension(6) :: part_box
     integer :: ncells_large_jz_norm   ! Normalization for the number of cells with large jz
     integer :: ncells_large_absj_norm ! Normalization for the number of cells with large absj
@@ -118,6 +121,7 @@ program stochastic
     logical :: dump_escaped       ! Whether to dump escaped particles
     logical :: reached_quota      ! Whether the simulation reach the quota time
     logical :: track_particle_flag! Whether to track particles
+    logical :: nlgc               ! Whether to use NLGC to calculate kperp
 
     call MPI_INIT(ierr)
     call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
@@ -349,16 +353,20 @@ program stochastic
         endif
         if (deltab_flag == 1) then
             if (uniform_grid == 1) then
-                call calc_grad_deltab2(0)
+                call calc_grad_sigma2_slab(0)
+                call calc_grad_sigma2_2d(0)
             else
-                call calc_grad_deltab2_nonuniform(0)
+                call calc_grad_sigma2_slab_nonuniform(0)
+                call calc_grad_sigma2_2d_nonuniform(0)
             endif
         endif
         if (correlation_flag == 1) then
             if (uniform_grid == 1) then
-                call calc_grad_correl_length(0)
+                call calc_grad_lc_slab(0)
+                call calc_grad_lc_2d(0)
             else
-                call calc_grad_correl_length_nonuniform(0)
+                call calc_grad_lc_slab_nonuniform(0)
+                call calc_grad_lc_2d_nonuniform(0)
             endif
         endif
 
@@ -421,16 +429,20 @@ program stochastic
                 endif
                 if (deltab_flag == 1) then
                     if (uniform_grid == 1) then
-                        call calc_grad_deltab2(var_flag=time_interp_flag)
+                        call calc_grad_sigma2_slab(var_flag=time_interp_flag)
+                        call calc_grad_sigma2_2d(var_flag=time_interp_flag)
                     else
-                        call calc_grad_deltab2_nonuniform(var_flag=time_interp_flag)
+                        call calc_grad_sigma2_slab_nonuniform(var_flag=time_interp_flag)
+                        call calc_grad_sigma2_2d_nonuniform(var_flag=time_interp_flag)
                     endif
                 endif
                 if (correlation_flag == 1) then
                     if (uniform_grid == 1) then
-                        call calc_grad_correl_length(var_flag=time_interp_flag)
+                        call calc_grad_lc_slab(var_flag=time_interp_flag)
+                        call calc_grad_lc_2d(var_flag=time_interp_flag)
                     else
-                        call calc_grad_correl_length_nonuniform(var_flag=time_interp_flag)
+                        call calc_grad_lc_slab_nonuniform(var_flag=time_interp_flag)
+                        call calc_grad_lc_2d_nonuniform(var_flag=time_interp_flag)
                     endif
                 endif
             endif  ! if (single_time_frame == 0)
@@ -484,11 +496,11 @@ program stochastic
 
             ! Move particles
             if (track_particles) then
-                call particle_mover(focused_transport, nsteps_interval, &
-                    tf-t_start, 1, dump_escaped_dist)
+                call particle_mover(focused_transport, nlgc, kperp_kpara, &
+                    nsteps_interval, tf-t_start, 1, dump_escaped_dist)
             else
-                call particle_mover(focused_transport, nsteps_interval, &
-                    tf-t_start, num_fine_steps, dump_escaped_dist)
+                call particle_mover(focused_transport, nlgc, kperp_kpara, &
+                    nsteps_interval, tf-t_start, num_fine_steps, dump_escaped_dist)
             endif
 
             if (mpi_rank == master) then
@@ -569,7 +581,8 @@ program stochastic
                           "using stochastic differential equation", &
             examples = ['stochastic-mhd.exec '// &
                         '-qh quota_hour -rf restart_flag '//&
-                        '-ft focused_transport -pv particle_v0 '//&
+                        '-ft focused_transport -nl nlgc -kk kperp_kpara '//&
+                        '-pv particle_v0 '//&
                         '-sm size_mpi_sub '//&
                         '-dm dir_mhd_data -mc mhd_config_filename '//&
                         '-nm nptl_max -np nptl '//&
@@ -618,6 +631,14 @@ program stochastic
         call cli%add(switch='--focused_transport', switch_ab='-ft', &
             help='whether to solve the Focused Transport Equation', &
             required=.false., act='store', def='.false.', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--nlgc', switch_ab='-nl', &
+            help='whether to use NLGC to calculate kperp', &
+            required=.false., act='store', def='.true.', error=error)
+        if (error/=0) stop
+        call cli%add(switch='--kperp_kpara', switch_ab='-kk', &
+            help='The ratio between kperp and kpara for initial particles and normalizations', &
+            required=.false., act='store', def='0.01', error=error)
         if (error/=0) stop
         call cli%add(switch='--particle_v0', switch_ab='-pv', &
             help='Initial particle velocity in the normalized velocity', &
@@ -929,6 +950,10 @@ program stochastic
         if (error/=0) stop
         call cli%get(switch='-ft', val=focused_transport, error=error)
         if (error/=0) stop
+        call cli%get(switch='-nl', val=nlgc, error=error)
+        if (error/=0) stop
+        call cli%get(switch='-kk', val=kperp_kpara, error=error)
+        if (error/=0) stop
         call cli%get(switch='-pv', val=particle_v0, error=error)
         if (error/=0) stop
         call cli%get(switch='-sm', val=size_mpi_sub, error=error)
@@ -1096,6 +1121,13 @@ program stochastic
                     duu0
             else
                 print '(A)', "Solving Parker's Transport Equation"
+            endif
+            if (nlgc) then
+                print '(A)', "Using Nonlinear guiding cente (NLGC) to evaluate kperp"
+                print '(A,E14.7)', ' The ratio between kperp and kpara for initial particles and normalizations', &
+                    kperp_kpara
+            else
+                print '(A)', "Fixed kperp / kpara"
             endif
             print '(A,I10.3)', 'Size of the a MPI sub-communicator: ', size_mpi_sub
             print '(A,A)', 'Direcotry of MHD data files: ', trim(dir_mhd_data)

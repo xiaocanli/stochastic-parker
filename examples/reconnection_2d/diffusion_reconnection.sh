@@ -10,6 +10,7 @@ conf=conf_reconnection.dat
 mhd_config_filename=mhd_config.dat
 
 focused_transport=.false.
+nlgc=.false.  # whether to NLGC to calculate kperp
 
 mpi_size=128
 ntasks_per_node=128
@@ -124,10 +125,11 @@ run_stochastic () {
     drift_param1=${11}
     drift_param2=${12}
     charge=${13}
+    kperp_kpara=${14}
     commands="./stochastic-mhd.exec \
         -qh $quota_hour -rf $restart_flag \
-        -ft $focused_transport -pv $particle_v0 \
-        -sm $size_mpi_sub \
+        -ft $focused_transport -nl $nlgc -kk $kperp_kpara \
+        -pv $particle_v0 -sm $size_mpi_sub \
         -dm $4 -mc $mhd_config_filename -np $nptl \
         -ti $time_interp -ts $ts -te $te -tm $tmax_to_inject \
         -st $single_time_frame \
@@ -164,7 +166,7 @@ else
 fi
     cd config
     change_variable momentum_dependency 1
-    change_variable gamma_turb 1.3333333
+    change_variable gamma_turb 1.6666667
     change_variable mag_dependency 1
     change_variable kpara0 0.01
     change_variable kret 0.03
@@ -181,6 +183,7 @@ stochastic () {
     kpara0=0.00743592
     duu0=5578.445 # not used for Parker transport
     kret=0.01  # kperp/kpara
+    kperp_kpara=6.770161725403334  # for NLGC
     particle_v0=17.20195  # particle speed / velocity normalization (not used for Parker transport)
     drift_param1=850964.408   # parameter #1 for particle drift in 3D
     drift_param2=13575468.975 # parameter #2 for particle drift in 3D
@@ -188,7 +191,7 @@ stochastic () {
     diagnostics_directory=data/$2/transport_test_run/
     run_stochastic $momentum_dependency $gamma_turb $mag_dependency \
         $dir_mhd_data $kpara0 $kret $diagnostics_directory $tau0 \
-        $duu0 $particle_v0 $drift_param1 $drift_param2 $charge
+        $duu0 $particle_v0 $drift_param1 $drift_param2 $charge $kperp_kpara
 }
 
 mhd_run_dir=/pscratch/sd/x/xiaocan/test/transport_test/athena_reconnection_test/bin_data/

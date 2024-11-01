@@ -18,7 +18,7 @@ pmax = 1.0E1
 momentum_dependency = 1
 
 !< turbulence spectral index
-gamma_turb = 1.3333333
+gamma_turb = 1.6666667
 
 !< Wether kappa ~ 1/B
 mag_dependency = 1
