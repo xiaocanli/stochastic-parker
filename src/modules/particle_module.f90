@@ -46,6 +46,7 @@ module particle_module
         real(dp) :: x, y, z, p          !< Position and momentum
         real(dp) :: v, mu               !< Velocity and cosine of pitch-angle
         real(dp) :: weight, t, dt       !< Particle weight, time and time step
+        real(dp) :: padding             !< padding for safety
     end type particle_type
 
     real(dp) :: pmin  !< Minimum particle momentum
@@ -66,6 +67,8 @@ module particle_module
     type(particle_type), allocatable, dimension(:, :) :: recvers
     integer, allocatable, dimension(:) :: nsenders, nrecvers
     !dir$ attributes align:128 :: ptls
+    !dir$ attributes align:128 :: senders
+    !dir$ attributes align:128 :: recvers
 
     integer :: nptl_current     !< Number of particles currently in the box
     integer :: nptl_old         !< Number of particles without receivers
@@ -338,21 +341,21 @@ module particle_module
         implicit none
         integer :: oldtypes(0:2), blockcounts(0:2)
         integer(KIND=MPI_ADDRESS_KIND) :: offsets(0:2)
-        integer :: extent
+        integer(i8) :: lb, extent
         ! Setup description of the 2 MPI_INTEGER1 fields.
         offsets(0) = 0
         oldtypes(0) = MPI_INTEGER1
         blockcounts(0) = 2
         ! Setup description of the 5 MPI_INTEGER4 fields.
-        call MPI_TYPE_EXTENT(MPI_INTEGER1, extent, ierr)
+        call MPI_TYPE_GET_EXTENT(MPI_INTEGER1, lb, extent, ierr)
         offsets(1) = blockcounts(0) * extent + offsets(0)
         oldtypes(1) = MPI_INTEGER4
         blockcounts(1) = 5
-        ! Setup description of the 9 MPI_DOUBLE_PRECISION fields.
-        call MPI_TYPE_EXTENT(MPI_INTEGER4, extent, ierr)
+        ! Setup description of the 9 MPI_DOUBLE_PRECISION fields + 1 padding
+        call MPI_TYPE_GET_EXTENT(MPI_INTEGER4, lb, extent, ierr)
         offsets(2) = blockcounts(1) * extent + offsets(1)
         oldtypes(2) = MPI_DOUBLE_PRECISION
-        blockcounts(2) = 9
+        blockcounts(2) = 10
         ! Define structured type and commit it.
         call MPI_TYPE_CREATE_STRUCT(3, blockcounts, offsets, oldtypes, &
             particle_datatype_mpi, ierr)
@@ -1493,7 +1496,7 @@ module particle_module
         real(dp) :: dt_target, dt_fine
         integer, dimension(3) :: pos
         real(dp), dimension(8) :: weights
-        real(dp) :: px, py, pz, rt
+        real(dp) :: px, py, pz, rt, dt_old
         integer :: i, nx, ny, nz, ix, iy, iz
         integer :: step, thread_id
         integer :: iptl_lo, iptl_hi
@@ -1544,7 +1547,7 @@ module particle_module
         endif
 
         !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ptl, kappa, &
-        !$OMP& fields, db2_slab, db2_2d, lc_slab, lc_2d &
+        !$OMP& fields, db2_slab, db2_2d, lc_slab, lc_2d, &
         !$OMP& surface_height1, surface_height2, &
         !$OMP& deltax, deltay, deltaz, deltap, deltav, deltamu, &
         !$OMP& dt_target, pos, weights, ix, iy, iz, px, py, pz, rt, &
@@ -1690,10 +1693,6 @@ module particle_module
                     ! Number of steps the particle has been pushed
                     ptl%nsteps_pushed = mod(ptl%nsteps_pushed + 1, nsteps_interval)
 
-                    ! if (mpi_rank == 354 .and. ptl%tag_injected == 25600 .and. ptl%nsteps_pushed == 0) then
-                    !     print*, ptl
-                    ! endif
-
                     ! Track particles
                     if (track_particle_flag) then
                         if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
@@ -1713,6 +1712,7 @@ module particle_module
                     ptl%v = ptl%v - deltav
                     ptl%mu = ptl%mu - deltamu
                     ptl%t = ptl%t - ptl%dt
+                    dt_old = ptl%dt  ! save it for quick_check
                     ptl%dt = t0 + dt_target - ptl%t
                     if (ptl%dt > 0) then
                         if (ptl%tag_splitted < 0 .and. ptl%nsteps_pushed == 0) then
@@ -1810,7 +1810,11 @@ module particle_module
                                 particles_tracked(ptl%nsteps_tracked, iptl_lo:iptl_hi) = ptl
                             endif
                         endif
-                    endif
+
+                    endif  ! if (ptl%dt > 0)
+
+                    ptl%dt = dt_old  ! change it back for quick_check
+
                     if (ptl%p < 0.0) then
                         ptl%count_flag = COUNT_FLAG_OTHERS
                         !$OMP ATOMIC UPDATE
@@ -2135,7 +2139,7 @@ module particle_module
         use simulation_setup_module, only: neighbors
         implicit none
         integer, intent(in) :: send_id, recv_id, mpi_direc
-        integer :: nsend, nrecv
+        integer :: nsend, nrecv, iptl
         nrecv = 0
         nsend = nsenders(send_id)
         if (neighbors(send_id) /= mpi_sub_rank .and. neighbors(send_id) >= 0) then
@@ -5403,13 +5407,18 @@ module particle_module
     !---------------------------------------------------------------------------
     subroutine add_neighbor_particles
         implicit none
-        integer :: i, j, nrecv
+        integer :: i, j, nrecv, iptl
         nptl_old = nptl_current
         do i = 1, ndim_field*2
             nrecv = nrecvers(i)
             if (nrecv > 0) then
                 ptls(nptl_current+1:nptl_current+nrecv) = recvers(1:nrecv, i)
                 nptl_current = nptl_current + nrecv
+                ! do iptl = 1, nrecv
+                !     if (recvers(iptl, i)%dt < dt_min) then
+                !         print*, i, recvers(iptl, i)%dt
+                !     endif
+                ! enddo
             endif
         enddo
     end subroutine add_neighbor_particles
