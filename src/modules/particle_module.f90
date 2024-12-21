@@ -401,8 +401,8 @@ module particle_module
             fxp = 0.5
             do while (ftest > fxp)
                 ptmp = (unif_01(0) * (pmax - pmin) + pmin) / p0  ! Need to normalized
-                fxp = ptmp**2 * exp(-0.5*ptmp**2)
-                ftest = unif_01(0) * 0.75  ! The maximum value is about 0.736
+                fxp = ptmp**2 * exp(-ptmp**2)
+                ftest = unif_01(0) * 0.37  ! The maximum value is about 0.3679
             enddo
             ptls(nptl_current)%p = ptmp * p0
         else if (dist_flag == 1) then
@@ -2227,7 +2227,7 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        if (b == 0) then
+        if (b < EPSILON(b)) then
             ib1 = 1.0
         else
             ib1 = 1.0_dp / b
@@ -2485,7 +2485,7 @@ module particle_module
        by = fields(6)
        bz = fields(7)
        b = dsqrt(bx**2 + by**2 + bz**2)
-       if (b == 0) then
+       if (b < EPSILON(b)) then
            ib1 = 1.0
        else
            ib1 = 1.0_dp / b
@@ -2957,7 +2957,7 @@ module particle_module
         real(dp) :: ib, bbsigma, gshear
 
         if (weak_scattering) then
-            if (b == 0) then
+            if (b < EPSILON(b)) then
                 ib = 0.0
             else
                 ib = 1.0 / b
@@ -3411,7 +3411,7 @@ module particle_module
         deltay = 0.0d0
         deltap = 0.0d0
 
-        if (b == 0) then
+        if (b < EPSILON(b)) then
             ib = 0.0
         else
             ib = 1.0 / b
@@ -3686,7 +3686,7 @@ module particle_module
         deltav = 0.0d0
         deltamu = 0.0d0
 
-        if (b == 0) then
+        if (b < EPSILON(b)) then
             ib = 0.0
         else
             ib = 1.0 / b
@@ -4021,7 +4021,7 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        if (b == 0.0d0) then
+        if (b < EPSILON(b)) then
             ib = 0.0_dp
         else
             ib = 1.0_dp / b
@@ -4030,7 +4030,7 @@ module particle_module
         byn = by * ib
         bzn = bz * ib
         bxyn = dsqrt(bxn**2 + byn**2)
-        if (bxyn == 0.0d0) then
+        if (bxyn < EPSILON(bxyn)) then
             ibxyn = 0.0d0
         else
             ibxyn = 1.0_dp / bxyn
@@ -4315,7 +4315,7 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        if (b == 0.0d0) then
+        if (b < EPSILON(b)) then
             ib = 0.0_dp
         else
             ib = 1.0_dp / b
@@ -4324,7 +4324,7 @@ module particle_module
         byn = by * ib
         bzn = bz * ib
         bxyn = dsqrt(bxn**2 + byn**2)
-        if (bxyn == 0.0d0) then
+        if (bxyn < EPSILON(bxyn)) then
             ibxyn = 0.0d0
         else
             ibxyn = 1.0_dp / bxyn
@@ -4669,7 +4669,7 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        if (b == 0.0d0) then
+        if (b < EPSILON(b)) then
             ib = 0.0_dp
         else
             ib = 1.0_dp / b
@@ -4678,7 +4678,7 @@ module particle_module
         byn = by * ib
         bzn = bz * ib
         bxyn = dsqrt(bxn**2 + byn**2)
-        if (bxyn == 0.0d0) then
+        if (bxyn < EPSILON(bxyn)) then
             ibxyn = 0.0d0
         else
             ibxyn = 1.0_dp / bxyn
@@ -4981,7 +4981,7 @@ module particle_module
         by = fields(6)
         bz = fields(7)
         b = dsqrt(bx**2 + by**2 + bz**2)
-        if (b == 0.0d0) then
+        if (b < EPSILON(b)) then
             ib = 0.0_dp
         else
             ib = 1.0_dp / b
@@ -4990,7 +4990,7 @@ module particle_module
         byn = by * ib
         bzn = bz * ib
         bxyn = dsqrt(bxn**2 + byn**2)
-        if (bxyn == 0.0d0) then
+        if (bxyn < EPSILON(bxyn)) then
             ibxyn = 0.0d0
         else
             ibxyn = 1.0_dp / bxyn
@@ -5414,11 +5414,6 @@ module particle_module
             if (nrecv > 0) then
                 ptls(nptl_current+1:nptl_current+nrecv) = recvers(1:nrecv, i)
                 nptl_current = nptl_current + nrecv
-                ! do iptl = 1, nrecv
-                !     if (recvers(iptl, i)%dt < dt_min) then
-                !         print*, i, recvers(iptl, i)%dt
-                !     endif
-                ! enddo
             endif
         enddo
     end subroutine add_neighbor_particles
